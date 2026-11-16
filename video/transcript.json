@@ -330,7 +330,7 @@
  {
   "t": "user",
   "text": "84",
-  "fast": false
+  "fast": true
  },
  {
   "t": "bot",
@@ -666,7 +666,7 @@
  {
   "t": "user",
   "text": "↩️ Оставить: 120",
-  "fast": false
+  "fast": true
  },
  {
   "t": "bot",
@@ -685,7 +685,7 @@
  {
   "t": "user",
   "text": "↩️ Оставить: 84",
-  "fast": false
+  "fast": true
  },
  {
   "t": "bot",

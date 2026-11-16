@@ -2,7 +2,7 @@
 const { chromium } = require("playwright");
 const path = require("path");
 const APP = "http://localhost:8771", ST = "http://localhost:8090", OUT = process.env.OUT || "/tmp/vid/rec";
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const PACE = +(process.env.PACE || .72), sleep = ms => new Promise(r => setTimeout(r, ms * PACE));
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1280, height: 720 }, recordVideo: { dir: OUT, size: { width: 1280, height: 720 } } });
@@ -14,11 +14,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const click = async (sel, opt) => { await move(sel, opt); await sleep(250); await p.mouse.down(); await p.mouse.up(); };
   const scroll = async y => { await p.evaluate(y => window.scrollTo({ top: y, behavior: "smooth" }), y); await sleep(1300); };
   const slide = async (kind, ms) => { await p.goto(`${ST}/slide.html?kind=${kind}`); await sleep(ms); };
-  const chat = async (from, to) => { await p.goto(`${ST}/chat.html?from=${from}&to=${to || from}`); await p.waitForFunction(() => window.__done === true, null, { timeout: 180000 }); await sleep(500); };
+  const chat = async (from, to, speed = 2) => { await p.goto(`${ST}/chat.html?from=${from}&to=${to || from}&speed=${speed}`); await p.waitForFunction(() => window.__done === true, null, { timeout: 180000 }); await sleep(500); };
 
   await slide("title", 5200);
   await slide("compare", 8200);
-  for (const [f] of [["access"], ["submit"], ["fix"], ["download"], ["remind"]]) await chat(f);
+  for (const [f, sp] of [["access", 2.2], ["submit", 2.4], ["fix", 2], ["download", 2], ["remind", 2]]) await chat(f, f, sp);
 
   await slide("dash", 2600);
   // ---- login and the dashboard
