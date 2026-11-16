@@ -31,6 +31,8 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
   await p.screenshot({ path: OUT + "/3-report.png" }); await p.click("#m-ed"); await p.waitForSelector("#e-save");
   await p.fill('[data-code="beds_occupied"]', "99999"); await p.fill("#e-reason", "тест"); await p.click("#e-save"); await p.waitForTimeout(700);
   ok(await p.locator(".modal").count() === 1, "invalid figures keep the form open");
+  await p.click(".modal .btn.right"); await p.waitForTimeout(300);
+  ok(await p.locator(".modal").count() === 0, "modal Cancel button works (CSP blocks inline handlers)");
   const [dl] = await Promise.all([p.waitForEvent("download"), p.evaluate(() => { location.href = "/api/export?fmt=xlsx&d1=2026-01-01&d2=2026-12-31"; })]).catch(() => [null]);
   ok(!!dl, "excel downloads");
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }); const q = await m.newPage();

@@ -290,6 +290,7 @@ def api_dashboard(request: Request, fallback: int = 1):
     d1, d2 = period(request)
     c = connect()
     try:
+        asked = d2
         latest = stats.latest_date(c, u, d2)
         used = False
         if fallback and request.query_params.get("date") and latest and latest != d2 and not request.query_params.get("d1"):
@@ -298,7 +299,7 @@ def api_dashboard(request: Request, fallback: int = 1):
                 d1 = d2 = latest   # nothing yet for the chosen day: show the latest day that has data, and say so
                 used = True
         k = stats.kpis(c, u, d1, d2, **f)
-        ctl = reports.control(c, u, d2, f["region_id"], f["district_id"], f["facility_id"]) if auth.can_write(u) and d1 == d2 else None
+        ctl = reports.control(c, u, asked, f["region_id"], f["district_id"], f["facility_id"]) if auth.can_write(u) and (d1 == d2 or used) else None
         return {"kpis": k, "used_date": d2, "fallback": used, "requested": request.query_params.get("date") or d2, "latest": latest, "control": ctl["counts"] if ctl else None}
     finally:
         c.close()
@@ -1032,6 +1033,22 @@ async def api_notify_run(request: Request):
     b = await jbody(request)
     res = notify.run_due(force=bool(b.get("force")), dry=bool(b.get("dry")))
     return {"items": res}
+
+
+@app.post("/api/notify/remind")
+async def api_notify_remind(request: Request):
+    """Button 'remind those who have not reported'. dry=true only shows who would get a message."""
+    u = need_write(request)
+    b = await jbody(request)
+    rid = q_int(b.get("region_id"))
+    check_region(u, rid)
+    d = str(b.get("date") or today().isoformat())
+    reports.parse_date(d)
+    c = connect()
+    try:
+        return notify.remind_now(c, u, d, rid, bool(b.get("dry", True)))
+    finally:
+        c.close()
 
 
 @app.get("/api/notify/log")

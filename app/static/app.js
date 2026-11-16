@@ -20,6 +20,7 @@ const fail = e => { if (e.message !== "auth") toast(e.message); };
 function qs(o) { return Object.entries(o).filter(([, v]) => v !== "" && v != null).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&"); }
 const num = v => v == null ? "—" : (+v).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
 function modal(html, wide) { $("#modal").innerHTML = `<div class="modal${wide ? " wide" : ""}">${html}</div>`; $("#modal").onclick = ev => { if (ev.target.id === "modal") closeModal(); }; }
+document.addEventListener("click", e => { if (e.target.closest("[data-close]")) closeModal(); });
 function closeModal() { $("#modal").innerHTML = ""; }
 function pill(state) { return `<span class="pill ${state}">${STATE[state] || state}</span>`; }
 function opts(items, val, all) { return (all ? `<option value="">${all}</option>` : "") + items.map(i => `<option value="${i.id}" ${String(i.id) === String(val) ? "selected" : ""}>${esc(i.name_ru || i.name)}</option>`).join(""); }
@@ -62,32 +63,72 @@ async function filterBar(onChange, opt = {}) {
 }
 
 // ---------- dashboard
-const KPI = [["reported", "Сдали отчёт", t => `${t.reported} из ${t.facilities}`, null], ["not_reported", "Не сдали", t => t.not_reported, "bad"],
-  ["visits", "Обращения"], ["severe", "Тяжёлые"], ["extreme", "Крайне тяжёлые"], ["sp", "Тяжёлые беременные / дети", t => `${num(t.totals.severe_pregnant)} / ${num(t.totals.severe_children)}`],
-  ["hosp", "Госпитализации"], ["disch", "Выписки"], ["beds_flu", "Коек для гриппа"], ["beds_occupied", "Занято коек"], ["beds_free", "Свободно коек"], ["occupancy", "Загрузка коек", t => t.totals.occupancy == null ? "—" : num(t.totals.occupancy) + "%", "occ"]];
+const KPI = [["reported", "Сдали отчёт", "✅", "ok"], ["not_reported", "Не сдали", "⏳", "warn"], ["visits", "Обращения", "🚶", "pri"], ["severe", "Тяжёлые", "🩺", "warn"], ["extreme", "Крайне тяжёлые", "🚨", "bad"],
+  ["sp", "Тяжёлые: беременные / дети", "🤰", "pur"], ["hosp", "Госпитализации", "🏥", "pri"], ["disch", "Выписки", "🏠", "ok"], ["beds_flu", "Коек для гриппа", "🛏", "pri"], ["beds_occupied", "Занято коек", "🧍", "warn"],
+  ["beds_free", "Свободно коек", "🟢", "ok"], ["occupancy", "Загрузка коек", "📊", "pur"]];
 const SORT = { key: "visits", asc: false }, DRILL = [];
+const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+const longDate = d => { const [y, m, dd] = d.split("-"); return `${+dd} ${MONTHS[+m - 1]} ${y}`; };
+function kpiValue(key, k) {
+  const t = k.totals;
+  if (key === "reported") return `<span data-count="${k.reported}">${k.reported}</span><small class="muted"> из ${k.facilities}</small>`;
+  if (key === "not_reported") return `<span data-count="${k.not_reported}">${k.not_reported}</span>`;
+  if (key === "sp") return `${num(t.severe_pregnant)} / ${num(t.severe_children)}`;
+  if (key === "occupancy") return t.occupancy == null ? "—" : `<span data-count="${t.occupancy}" data-dec="1" data-suf="%">${t.occupancy}%</span>`;
+  return t[key] == null ? "—" : `<span data-count="${t[key]}">${num(t[key])}</span>`;
+}
 async function dashboard() {
   const fb = await filterBar(dashboard);
   view.innerHTML = fb.html + `<div id="dash"></div>`; fb.bind();
   const [d1, d2] = periodOf();
-  const q = scopeQ() + (F.preset === "day" ? "&date=" + d1 : "");
   let dash;
-  try { dash = await api("/api/dashboard?" + q.replace(/(^|&)d[12]=[^&]*/g, "").replace(/^&/, "") + (F.preset === "day" ? "" : "&d1=" + d1 + "&d2=" + d2)); } catch (e) { return fail(e); }
+  try { dash = await api("/api/dashboard?" + (F.preset === "day" ? qs({ date: d1, region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }) : scopeQ())); } catch (e) { return fail(e); }
   const k = dash.kpis, th = ME.thresholds, t = k.totals;
-  const kv = k.totals; k.facilities = k.facilities;
-  const occState = kv.occupancy == null ? "" : kv.occupancy >= th.critical ? "critical" : kv.occupancy >= th.elevated ? "warning" : "";
-  $("#dash").innerHTML = (dash.fallback ? `<div class="note">За ${esc(dash.requested)} данных пока нет, показан последний день с данными: ${esc(dash.used_date)}.</div>` : "") +
-    `<div class="kpis">${KPI.map(([key, label, f, tone]) => {
-      const val = f ? f(k) : num(t[key]); const cls = tone === "occ" ? occState : tone === "bad" && k.not_reported ? "warning" : "";
-      return `<div class="kpi ${cls}"><div class="l">${label}</div><div class="v">${val}</div></div>`; }).join("")}</div>
+  const occState = t.occupancy == null ? "" : t.occupancy >= th.critical ? "critical" : t.occupancy >= th.elevated ? "warning" : "";
+  const isToday = F.preset === "day" && dash.requested === ME.today;
+  const canWrite = ME.role !== "viewer";
+  const owe = dash.control ? dash.control.not_sent + dash.control.overdue : 0;   // those who still owe today's report (also when nobody has reported yet)
+  $("#dash").innerHTML = `<div class="hero"><div><h1>${F.preset === "day" ? "Сводка за " + longDate(dash.used_date) : "Сводка за период " + d1 + " — " + d2}</h1><div class="sub">${ME.org ? esc(ME.org) + " · " : ""}по ${k.reported} из ${k.facilities} учреждений${dash.fallback ? " · данных за выбранный день нет, показан последний день с данными" : ""}</div></div>
+    <div class="acts"><a class="btn" href="#/export">⬇ Выгрузка</a></div></div>
+    ${canWrite && isToday && owe > 0 ? `<div class="cta"><span style="font-size:22px">⏰</span><div><b>${owe} учреждений ещё не сдали сводку за сегодня</b><div class="sub muted">Бот напомнит ответственным одним сообщением с кнопкой отправки</div></div><div class="acts"><button class="btn warn" id="remind">🔔 Отправить уведомление не сдавшим</button></div></div>` : ""}
+    <div class="kpis">${KPI.map(([key, label, ic, tone], i) => `<div class="kpi tilt ${key === "occupancy" ? occState : ""}" data-t="${tone}" style="--i:${i}"><div class="ic">${ic}</div><div class="v">${kpiValue(key, k)}</div><div class="l">${label}</div></div>`).join("")}</div>
+    <div class="viz">
+      <div class="card vcard"><h3>Сдача отчётов</h3>${ringChart(k.reported, k.facilities, "Сдали отчёт")}<div class="cap"><b>${k.reported}</b> сдали · <b>${k.not_reported}</b> не сдали</div></div>
+      <div class="card vcard"><h3>Загрузка коек</h3>${gaugeChart(t.occupancy, th)}<div class="cap">Занято <b>${num(t.beds_occupied)}</b> из <b>${num(t.beds_flu)}</b> · свободно <b>${num(t.beds_free)}</b></div></div>
+      <div class="card vcard"><h3>Поступили и выписаны</h3>${flowCard(t.hosp, t.disch)}</div></div>
     <div id="alerts"></div>
+    <div class="grid2"><div class="card"><h2>Нагрузка по регионам</h2><div id="tiles">…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>норма до ${th.elevated}%</span><span><i style="background:var(--warn)"></i>повышенная до ${th.critical}%</span><span><i style="background:var(--bad)"></i>критическая от ${th.critical}%</span></div></div>
+      <div class="card"><div class="row"><h2>Лидеры по обращениям</h2></div><div id="rank">…</div></div></div>
     <div class="card"><div class="row"><h2>Регионы</h2><input id="rt-q" placeholder="Поиск" class="right"></div><div class="scroll-x" id="rt"></div></div>
     <div class="grid2"><div class="card"><h3>Динамика</h3><div class="row"><div id="dyn-m"></div><label class="sm">Сравнить регионы <select id="dyn-r" multiple size="3">${META.regions.map(r => `<option value="${r.id}">${esc(r.name_ru)}</option>`).join("")}</select></label></div><div id="dyn"></div></div>
     <div class="card"><h3>Госпитализации и выписки</h3><div id="hd"></div></div></div>
     <div class="card"><h3>Баланс коек</h3><div class="scroll-x" id="beds"></div></div>`;
+  countUp($("#dash")); tilt($("#dash"));
+  const rem = $("#remind"); if (rem) rem.onclick = () => remindDlg(dash.requested);
   api("/api/alerts").then(a => $("#alerts") && ($("#alerts").innerHTML = a.items.slice(0, 6).map(x => `<div class="alert ${x.level}">${esc(x.text)}</div>`).join("") + (a.items.length > 6 ? `<p class="muted sm">Ещё предупреждений: ${a.items.length - 6} (раздел «Прогноз»)</p>` : ""))).catch(fail);
   const [u1, u2] = dash.fallback ? [dash.used_date, dash.used_date] : [d1, d2];   // tables follow the day the KPI cards show
-  loadTable(u1, u2); loadDyn(); loadHD(); loadBeds(u1, u2);
+  loadTable(u1, u2); loadDyn(); loadHD(); loadBeds(u1, u2); loadViz(u1, u2);
+}
+async function loadViz(d1, d2) {
+  try {
+    const r = await api("/api/regions-table?" + qs({ d1, d2, level: "region" })); const th = ME.thresholds;
+    if (!$("#tiles")) return;
+    $("#tiles").innerHTML = heatTiles(r.rows.slice().sort((a, b) => (b.values.occupancy ?? -1) - (a.values.occupancy ?? -1)), th);
+    $("#rank").innerHTML = rankBars(r.rows, "visits");
+    document.querySelectorAll("#tiles .tile, #rank .rk").forEach(el => el.onclick = () => { F.region_id = el.dataset.rid; F.district_id = F.facility_id = ""; dashboard(); });
+  } catch (e) { fail(e); }
+}
+// the button "remind those who have not reported": first shows who will get a message
+async function remindDlg(date) {
+  let pre; try { pre = await api("/api/notify/remind", { method: "POST", body: { date, region_id: F.region_id || null, dry: true } }); } catch (e) { return fail(e); }
+  const people = pre.items.filter(x => x.status === "would_send"), skipped = pre.items.filter(x => x.status === "skipped");
+  modal(`<h2>🔔 Напомнить не сдавшим</h2><p>За <b>${esc(longDate(date))}</b> не сдали сводку <b>${pre.missing}</b> учреждений.</p>
+    ${people.length ? `<p>Сообщение в Telegram получат <b>${people.length}</b> ответственных:</p><div class="scroll-x" style="max-height:220px;overflow:auto"><table>${people.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.facilities} уч.</td></tr>`).join("")}</table></div>` : `<div class="note">Некому отправлять: у всех не сдавших нет подключённого ответственного или им уже напоминали в последний час.</div>`}
+    ${skipped.length ? `<p class="muted sm">Пропущены (напоминали меньше часа назад): ${skipped.length}</p>` : ""}
+    ${pre.no_responsible_total ? `<div class="alert"><b>Нет ответственного у ${pre.no_responsible_total} учреждений</b> — им уведомление не уйдёт:<br><span class="sm">${pre.no_responsible.slice(0, 8).map(esc).join("<br>")}${pre.no_responsible_total > 8 ? "<br>…" : ""}</span></div>` : ""}
+    <div class="row mt"><button class="btn warn" id="rm-go" ${people.length ? "" : "disabled"}>Отправить ${people.length || ""}</button><button class="btn right" data-close>Закрыть</button></div>`);
+  const go = $("#rm-go"); if (go) go.onclick = async () => { go.disabled = true; try { const r = await api("/api/notify/remind", { method: "POST", body: { date, region_id: F.region_id || null, dry: false } });
+    modal(`<h2>${r.errors ? "⚠️" : "✅"} Готово</h2><p>Отправлено: <b>${r.sent}</b>${r.errors ? `, не доставлено: <b>${r.errors}</b> (человек мог заблокировать бота)` : ""}${r.skipped ? `, пропущено: ${r.skipped}` : ""}.</p><button class="btn pri" data-close>Закрыть</button>`); } catch (e) { fail(e); go.disabled = false; } };
 }
 let METRICS = ["visits"];
 function loadDyn() {
@@ -169,7 +210,8 @@ async function forecastView() {
 // ---------- control table
 async function control() {
   const fb = await filterBar(control, { noPeriod: true });
-  view.innerHTML = fb.html + `<div class="row"><label>Дата <input type="date" id="c-d" value="${F.d1 || ME.today}"></label><div class="seg" id="c-f"></div></div><div id="ct" class="card">Загрузка…</div>`; fb.bind();
+  view.innerHTML = fb.html + `<div class="row"><label>Дата <input type="date" id="c-d" value="${F.d1 || ME.today}"></label><div class="seg" id="c-f"></div><button class="btn warn right" id="c-rem">🔔 Напомнить не сдавшим</button></div><div id="ct" class="card">Загрузка…</div>`; fb.bind();
+  $("#c-rem").onclick = () => remindDlg(F.d1 || ME.today);
   $("#c-d").onchange = e => { F.d1 = e.target.value; control(); };
   try {
     const r = await api("/api/control?" + qs({ date: F.d1 || ME.today, region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id })); const c = r.counts;
@@ -208,7 +250,7 @@ async function openReport(id) {
   modal(`<h2>${esc(r.facility)}</h2><p class="muted">${esc(r.region)}, ${esc(r.district)} · за ${r.report_date} · версия ${r.version} · ${pill(r.status === "returned" ? "returned" : r.corrected ? "corrected" : "sent")}${r.late ? " поздно" : ""}${r.locked_now ? " 🔒 закрыт" : ""}</p>
   ${r.return_reason ? `<div class="note">Возвращён: ${esc(r.return_reason)}</div>` : ""}
   <table>${ind.map(i => `<tr><td>${esc(i.name_ru)}</td><td class="n"><b>${num(r.values[i.code])}</b></td></tr>`).join("")}</table>
-  <div class="row mt">${ME.can_edit_reports ? '<button class="btn pri" id="m-ed">Исправить</button><button class="btn" id="m-ret">Вернуть на исправление</button>' : ""}<button class="btn" id="m-lock">${r.locked ? "Открыть" : "Закрыть"} для правок</button><button class="btn right" onclick="closeModal()">Закрыть окно</button></div>
+  <div class="row mt">${ME.can_edit_reports ? '<button class="btn pri" id="m-ed">Исправить</button><button class="btn" id="m-ret">Вернуть на исправление</button>' : ""}<button class="btn" id="m-lock">${r.locked ? "Открыть" : "Закрыть"} для правок</button><button class="btn right" data-close>Закрыть окно</button></div>
   <h3 class="mt">История версий</h3><div class="scroll-x"><table><tr><th>Версия</th><th>Когда</th><th>Кто</th><th>Действие</th><th>Причина</th><th>Что изменено</th><th></th></tr>${r.versions.map(v => `<tr><td>${v.version}</td><td>${esc(v.at || v.created_at || "")}</td><td>${esc(v.by_name || v.by || "")}</td><td>${esc(v.action)}</td><td>${esc(v.reason || "")}</td><td class="sm">${Object.entries(v.changes || {}).map(([k, c]) => `${esc(k)}: ${c[0] ?? "—"} → ${c[1] ?? "—"}`).join("<br>")}</td><td>${ME.can_edit_reports && v.version !== r.version ? `<button class="btn sm" data-restore="${v.version}">Вернуть</button>` : ""}</td></tr>`).join("")}</table></div>`, true);
   const ed = $("#m-ed"); if (ed) ed.onclick = () => editReport(r);
   const rt = $("#m-ret"); if (rt) rt.onclick = async () => { const reason = prompt("Причина возврата:"); if (!reason) return; try { await api(`/api/reports/${id}/return`, { method: "POST", body: { reason } }); toast("Отчёт возвращён"); closeModal(); route(); } catch (e) { fail(e); } };
@@ -223,7 +265,7 @@ async function editReport(r) {
   ${r ? "" : `<label>Учреждение<select id="e-f">${facs.map(f => `<option value="${f.id}">${esc(f.region)} — ${esc(f.district)} — ${esc(f.name_ru)}</option>`).join("")}</select></label><label>Дата<input type="date" id="e-d" value="${ME.today}"></label>`}
   <div class="fields">${ind.map(i => `<label>${esc(i.name_ru)}<input type="number" min="0" step="1" data-code="${i.code}" value="${r ? (r.values[i.code] ?? "") : ""}"></label>`).join("")}</div>
   <label>Причина изменения (обязательно для журнала)<textarea id="e-reason" rows="2"></textarea></label><div id="e-msg"></div>
-  <div class="row mt"><button class="btn pri" id="e-save">Сохранить</button><button class="btn" id="e-chk">Проверить</button><button class="btn right" onclick="closeModal()">Отмена</button></div>`, true);
+  <div class="row mt"><button class="btn pri" id="e-save">Сохранить</button><button class="btn" id="e-chk">Проверить</button><button class="btn right" data-close>Отмена</button></div>`, true);
   const vals = () => Object.fromEntries([...document.querySelectorAll("[data-code]")].filter(i => i.value !== "").map(i => [i.dataset.code, +i.value]));
   const ctx = () => ({ facility_id: r ? r.facility_id : +$("#e-f").value, date: r ? r.report_date : $("#e-d").value });
   const show = v => $("#e-msg").innerHTML = v.errors.map(x => `<div class="alert critical">${esc(x)}</div>`).join("") + v.warnings.map(x => `<div class="alert">${esc(x)}</div>`).join("");
@@ -255,7 +297,7 @@ async function assignDlg(tg, done) {
   modal(`<h2>Назначить ответственного</h2>${tg ? "" : `<label>Telegram ID<input id="a-id" inputmode="numeric"></label><label>Имя<input id="a-n"></label>`}
   <label>Регион<select id="a-r">${opts(META.regions, "", "—")}</select></label><label>Район (необязательно)<select id="a-d" disabled></select></label><label>Учреждение (необязательно; если пусто — доступ ко всему региону)<select id="a-f" disabled></select></label>
   <label>Тип<select id="a-k"><option value="primary">Основной</option><option value="reserve">Резервный</option></select></label><label>ФИО (для отчётов)<input id="a-fio"></label>
-  <div class="row mt"><button class="btn pri" id="a-ok">Сохранить</button><button class="btn right" onclick="closeModal()">Отмена</button></div>`);
+  <div class="row mt"><button class="btn pri" id="a-ok">Сохранить</button><button class="btn right" data-close>Отмена</button></div>`);
   $("#a-r").onchange = async e => { const d = await api("/api/districts?region_id=" + e.target.value); $("#a-d").innerHTML = opts(d.items, "", "—"); $("#a-d").disabled = false; $("#a-f").disabled = true; };
   $("#a-d").onchange = async e => { const f = await api("/api/facilities?" + qs({ district_id: e.target.value, size: 200 })); $("#a-f").innerHTML = opts(f.items, "", "—"); $("#a-f").disabled = false; };
   $("#a-ok").onclick = async () => { if (!+$("#a-r").value) return toast("Выберите регион"); const body = { tg_id: tg || $("#a-id").value.trim(), name: tg ? "" : $("#a-n").value, facility_id: +$("#a-f").value || 0, region_id: +$("#a-r").value || 0, kind: $("#a-k").value, fio: $("#a-fio").value };
@@ -270,11 +312,11 @@ async function staffBox() {
     <label>Telegram ID (для сводок)<input id="s-tg" value="${esc(s?.tg_id || "")}"></label>
     <label><input type="checkbox" id="s-mu" ${s?.can_manage_users ? "checked" : ""} style="width:auto"> Может управлять доступами</label><label><input type="checkbox" id="s-er" ${s ? (s.can_edit_reports ? "checked" : "") : "checked"} style="width:auto"> Может исправлять отчёты</label>
     ${s ? `<label><input type="checkbox" id="s-ac" ${s.active ? "checked" : ""} style="width:auto"> Активен</label>` : ""}
-    <div class="row mt"><button class="btn pri" id="s-ok">Сохранить</button><button class="btn right" onclick="closeModal()">Отмена</button></div>`);
+    <div class="row mt"><button class="btn pri" id="s-ok">Сохранить</button><button class="btn right" data-close>Отмена</button></div>`);
   const body = s => ({ name: $("#s-n").value, role: $("#s-r").value, regions: [...$("#s-reg").selectedOptions].map(o => +o.value), tg_id: $("#s-tg").value, can_manage_users: $("#s-mu").checked, can_edit_reports: $("#s-er").checked, ...(s ? { active: $("#s-ac").checked } : { login: $("#s-l").value }) });
-  $("#st-add").onclick = () => { form(null); $("#s-ok").onclick = async () => { try { const r = await api("/api/staff", { method: "POST", body: body(null) }); modal(`<h2>Пользователь создан</h2><p>Пароль (показывается один раз):</p><p><b id="pwv">${esc(r.password || "задан вручную")}</b></p><button class="btn pri" onclick="closeModal();people()">Готово</button>`); } catch (e) { fail(e); } }; };
+  $("#st-add").onclick = () => { form(null); $("#s-ok").onclick = async () => { try { const r = await api("/api/staff", { method: "POST", body: body(null) }); modal(`<h2>Пользователь создан</h2><p>Пароль (показывается один раз):</p><p><b id="pwv">${esc(r.password || "задан вручную")}</b></p><button class="btn pri" id="pw-ok">Готово</button>`); $("#pw-ok").onclick = () => { closeModal(); people(); }; } catch (e) { fail(e); } }; };
   document.querySelectorAll("[data-ed]").forEach(b => b.onclick = () => { const s = st.items.find(x => x.id === +b.dataset.ed); form(s); $("#s-ok").onclick = async () => { try { await api("/api/staff/" + s.id, { method: "PATCH", body: body(s) }); closeModal(); people(); } catch (e) { fail(e); } }; });
-  document.querySelectorAll("[data-pw]").forEach(b => b.onclick = async () => { if (!confirm("Сгенерировать новый пароль?")) return; try { const r = await api(`/api/staff/${b.dataset.pw}/password`, { method: "POST", body: {} }); modal(`<h2>Новый пароль</h2><p><b id="pwv">${esc(r.password)}</b></p><button class="btn pri" onclick="closeModal()">Готово</button>`); } catch (e) { fail(e); } });
+  document.querySelectorAll("[data-pw]").forEach(b => b.onclick = async () => { if (!confirm("Сгенерировать новый пароль?")) return; try { const r = await api(`/api/staff/${b.dataset.pw}/password`, { method: "POST", body: {} }); modal(`<h2>Новый пароль</h2><p><b id="pwv">${esc(r.password)}</b></p><button class="btn pri" data-close>Готово</button>`); } catch (e) { fail(e); } });
 }
 
 // ---------- territories
@@ -306,14 +348,14 @@ async function territories() {
 }
 function nameDlg(kind, o, done, isNew) {
   modal(`<h2>${isNew ? "Добавить" : "Изменить"}</h2><label>Название (рус.)<input id="n-ru" value="${esc(o.name_ru || "")}"></label><label>Название (узб.)<input id="n-uz" value="${esc(o.name_uz || "")}"></label>
-  ${isNew ? "" : `<label><input type="checkbox" id="n-ac" ${o.active ? "checked" : ""} style="width:auto"> Активно (отключённое не входит в отчёты)</label>`}<div class="row mt"><button class="btn pri" id="n-ok">Сохранить</button><button class="btn right" onclick="closeModal()">Отмена</button></div>`);
+  ${isNew ? "" : `<label><input type="checkbox" id="n-ac" ${o.active ? "checked" : ""} style="width:auto"> Активно (отключённое не входит в отчёты)</label>`}<div class="row mt"><button class="btn pri" id="n-ok">Сохранить</button><button class="btn right" data-close>Отмена</button></div>`);
   $("#n-ok").onclick = async () => { const body = { name_ru: $("#n-ru").value, name_uz: $("#n-uz").value }; if (!isNew) body.active = $("#n-ac").checked; else Object.assign(body, o);
     try { await api(isNew ? "/api/" + kind : `/api/${kind}/${o.id}`, { method: isNew ? "POST" : "PATCH", body }); closeModal(); done(); } catch (e) { fail(e); } };
 }
 function reportImportDlg(done) {
   modal(`<h2>Загрузка учреждений и показателей из Excel</h2><p class="muted">Файл вида «места для больных»: по листу на область, строка на учреждение (койки, свободные, обращения за 24 часа, поступило и выписано вчера/сегодня). Новые учреждения создаются в своей области, показатели записываются как отчёты. Чего в файле нет (тяжёлые и т.п.), остаётся пустым.</p>
   <div class="row"><label>«Вчера» записать на дату<input type="date" id="ri-p" value="${addDays(ME.today, -1)}"></label><label>«Сегодня» записать на дату<input type="date" id="ri-t" value="${ME.today}"></label></div>
-  <input type="file" id="ri-f" accept=".xlsx" class="mt"><div id="ri-r" class="mt"></div><div class="row mt"><button class="btn" id="ri-pre">Проверить</button><button class="btn pri" id="ri-go" disabled>Загрузить</button><button class="btn right" onclick="closeModal()">Закрыть</button></div>`, true);
+  <input type="file" id="ri-f" accept=".xlsx" class="mt"><div id="ri-r" class="mt"></div><div class="row mt"><button class="btn" id="ri-pre">Проверить</button><button class="btn pri" id="ri-go" disabled>Загрузить</button><button class="btn right" data-close>Закрыть</button></div>`, true);
   const run = async dry => { const f = $("#ri-f").files[0]; if (!f) return toast("Выберите файл"); const fd = new FormData(); fd.append("file", f);
     try { const r = await api("/api/import/reports?" + qs({ dry, d_prev: $("#ri-p").value, d_today: $("#ri-t").value }), { method: "POST", form: fd });
       $("#ri-r").innerHTML = `<p><b>${r.dry ? "Будет сделано" : "Готово"}:</b> учреждений в файле ${r.facilities}, новых ${r.new_facilities}, отчётов ${r.reports}${r.errors_total ? `, ошибок ${r.errors_total}` : ""}. Даты: ${r.dates.join(" и ")}.</p>${r.errors.length ? `<div class="alert critical">${r.errors.map(esc).join("<br>")}</div>` : ""}${r.new_list.length ? `<details><summary>Новые учреждения (${r.new_facilities})</summary><p class="sm">${r.new_list.map(esc).join("<br>")}</p></details>` : ""}`;
@@ -321,7 +363,7 @@ function reportImportDlg(done) {
   $("#ri-pre").onclick = () => run(1); $("#ri-go").onclick = () => run(0);
 }
 function importDlg(done) {
-  modal(`<h2>Импорт территорий</h2><p class="muted">Столбцы: Регион, Район, Учреждение (+ необязательно «Район (узб)», «Учреждение (узб)»). Сначала предпросмотр.</p><input type="file" id="i-f" accept=".xlsx,.csv"><div id="i-r" class="mt"></div><div class="row mt"><button class="btn" id="i-pre">Проверить</button><button class="btn pri" id="i-go" disabled>Загрузить</button><button class="btn right" onclick="closeModal()">Закрыть</button></div>`);
+  modal(`<h2>Импорт территорий</h2><p class="muted">Столбцы: Регион, Район, Учреждение (+ необязательно «Район (узб)», «Учреждение (узб)»). Сначала предпросмотр.</p><input type="file" id="i-f" accept=".xlsx,.csv"><div id="i-r" class="mt"></div><div class="row mt"><button class="btn" id="i-pre">Проверить</button><button class="btn pri" id="i-go" disabled>Загрузить</button><button class="btn right" data-close>Закрыть</button></div>`);
   const run = async dry => { const f = $("#i-f").files[0]; if (!f) return toast("Выберите файл"); const fd = new FormData(); fd.append("file", f);
     try { const r = await api("/api/geo/import?dry=" + dry, { method: "POST", form: fd }); $("#i-r").innerHTML = `<pre>${esc(JSON.stringify(r, null, 1))}</pre>`; $("#i-go").disabled = !!dry ? !(r.errors && r.errors.length === 0) : true; if (!dry) { toast("Загружено"); done(); } } catch (e) { fail(e); } };
   $("#i-pre").onclick = () => run(1); $("#i-go").onclick = () => run(0);
@@ -337,14 +379,14 @@ async function indicators() {
 }
 function indDlg(i) {
   modal(`<h2>${i ? "Показатель" : "Новый показатель"}</h2>${i ? "" : `<label>Код (латиница)<input id="p-c"></label>`}<label>Название (рус.)<input id="p-n" value="${esc(i?.name_ru || "")}"></label><label>Название (узб.)<input id="p-u" value="${esc(i?.name_uz || "")}"></label><label>Подсказка<input id="p-h" value="${esc(i?.hint_ru || "")}"></label>
-  <label>Сложение<select id="p-a">${["sum", "last", "max"].map(a => `<option ${i?.agg === a ? "selected" : ""}>${a}</option>`).join("")}</select></label>${i ? `<label><input type="checkbox" id="p-ac" ${i.active ? "checked" : ""} style="width:auto"> Активен</label>` : ""}<div class="row mt"><button class="btn pri" id="p-ok">Сохранить</button><button class="btn right" onclick="closeModal()">Отмена</button></div>`);
+  <label>Сложение<select id="p-a">${["sum", "last", "max"].map(a => `<option ${i?.agg === a ? "selected" : ""}>${a}</option>`).join("")}</select></label>${i ? `<label><input type="checkbox" id="p-ac" ${i.active ? "checked" : ""} style="width:auto"> Активен</label>` : ""}<div class="row mt"><button class="btn pri" id="p-ok">Сохранить</button><button class="btn right" data-close>Отмена</button></div>`);
   $("#p-ok").onclick = async () => { const body = { name_ru: $("#p-n").value, name_uz: $("#p-u").value, hint_ru: $("#p-h").value, agg: $("#p-a").value }; if (i) body.active = $("#p-ac").checked; else body.code = $("#p-c").value;
     try { await api(i ? "/api/indicators/" + i.code : "/api/indicators", { method: i ? "PATCH" : "POST", body }); META = await api("/api/meta"); closeModal(); indicators(); } catch (e) { fail(e); } };
 }
 function ruleDlg(x) {
   modal(`<h2>${x ? "Правило" : "Новое правило"}</h2><label>Условие: оно должно быть верным (например beds_occupied &lt;= beds_flu)<input id="q-e" value="${esc(x?.expr || "")}"></label><label>Вид<select id="q-k"><option value="error" ${x?.kind === "error" ? "selected" : ""}>Ошибка (блокирует отправку)</option><option value="warning" ${x?.kind === "warning" ? "selected" : ""}>Предупреждение</option></select></label>
   <label>Сообщение (рус.; можно {код})<input id="q-m" value="${esc(x?.message_ru || "")}"></label><label>Сообщение (узб.)<input id="q-u" value="${esc(x?.message_uz || "")}"></label><label><input type="checkbox" id="q-a" ${!x || x.active ? "checked" : ""} style="width:auto"> Включено</label>
-  <div class="row mt"><button class="btn pri" id="q-ok">Сохранить</button>${x && !x.core ? '<button class="btn bad" id="q-del">Удалить</button>' : ""}<button class="btn right" onclick="closeModal()">Отмена</button></div>`);
+  <div class="row mt"><button class="btn pri" id="q-ok">Сохранить</button>${x && !x.core ? '<button class="btn bad" id="q-del">Удалить</button>' : ""}<button class="btn right" data-close>Отмена</button></div>`);
   $("#q-ok").onclick = async () => { const body = { expr: $("#q-e").value, kind: $("#q-k").value, message_ru: $("#q-m").value, message_uz: $("#q-u").value, active: $("#q-a").checked };
     try { await api(x ? "/api/rules/" + x.id : "/api/rules", { method: x ? "PATCH" : "POST", body }); closeModal(); indicators(); } catch (e) { fail(e); } };
   const d = $("#q-del"); if (d) d.onclick = async () => { if (!confirm("Удалить правило?")) return; try { await api("/api/rules/" + x.id, { method: "DELETE" }); closeModal(); indicators(); } catch (e) { fail(e); } };
@@ -391,7 +433,7 @@ function route() {
   document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.t === tab[0]));
   Promise.resolve(tab[2]()).catch(fail);
 }
-$("#pwbtn").onclick = () => { modal(`<h2>Смена пароля</h2><label>Текущий пароль<input type="password" id="o"></label><label>Новый пароль (от 8 знаков)<input type="password" id="n"></label><div class="row mt"><button class="btn pri" id="ok">Сменить</button><button class="btn right" onclick="closeModal()">Отмена</button></div>`);
+$("#pwbtn").onclick = () => { modal(`<h2>Смена пароля</h2><label>Текущий пароль<input type="password" id="o"></label><label>Новый пароль (от 8 знаков)<input type="password" id="n"></label><div class="row mt"><button class="btn pri" id="ok">Сменить</button><button class="btn right" data-close>Отмена</button></div>`);
   $("#ok").onclick = async () => { try { await api("/api/me/password", { method: "POST", body: { old: $("#o").value, new: $("#n").value } }); closeModal(); toast("Пароль изменён"); } catch (e) { fail(e); } }; };
 (async () => {
   try { ME = await api("/api/me"); META = await api("/api/meta"); } catch (e) { return; }

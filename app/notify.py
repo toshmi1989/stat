@@ -129,3 +129,45 @@ def admin_text(c, user, d: str, st: dict, overdue: bool) -> str | None:
     for reg, facs in sorted(by.items(), key=lambda x: -len(x[1]))[:12]:
         lines.append(f"• {bot.esc(reg)}: {len(facs)}" + (" (" + ", ".join(bot.esc(f) for f in facs[:3]) + ("…" if len(facs) > 3 else "") + ")" if len(facs) <= 6 else ""))
     return "\n".join(lines)
+
+
+MANUAL_PAUSE_MIN = 60   # the same person is not nagged again within this time by the button
+
+
+def remind_now(c, user, d: str, region_id=None, dry: bool = False) -> dict:
+    """The 'remind those who have not reported' button: a message to every responsible person (and region manager) who still owes a
+    report for the date. Limited to the regions of the administrator; a person reminded less than an hour ago is skipped."""
+    st = all_settings(c)
+    ctl = reports.control(c, user, d, region_id=region_id, st=st)
+    missing = {r["facility_id"]: r for r in ctl["rows"] if r["state"] in ("not_sent", "overdue")}
+    orphans = [f"{r['region']} — {r['facility']}" for r in missing.values() if not r["has_responsible"]]
+    people: dict = {}
+    for tid, facs in unsent_by_person(c, d, st).items():
+        mine = [f for f in facs if f["fid"] in missing]
+        if mine:
+            people[tid] = mine
+    names = {u["tg_id"]: (" ".join(x for x in (u["first_name"], u["last_name"]) if x) or u["username"] or u["tg_id"]) for u in c.execute("SELECT * FROM tg_users")}
+    cutoff = (now_dt() - timedelta(minutes=MANUAL_PAUSE_MIN)).strftime("%Y-%m-%d %H:%M:%S")
+    res = {"date": d, "missing": len(missing), "people": len(people), "sent": 0, "skipped": 0, "errors": 0, "no_responsible": orphans[:50], "no_responsible_total": len(orphans), "items": [], "dry": dry}
+    for tid, facs in people.items():
+        lang = facs[0]["lang"]
+        rec = {"tg_id": tid, "name": names.get(tid, tid), "facilities": len(facs), "status": ""}
+        recent = c.execute("SELECT 1 FROM notify_log WHERE kind='remind_manual' AND tg_id=? AND day=? AND ok=1 AND at>=?", (tid, d, cutoff)).fetchone()
+        if recent:
+            rec["status"] = "skipped"
+            res["skipped"] += 1
+        elif dry:
+            rec["status"] = "would_send"
+        else:
+            items = "\n".join(f"🏥 {bot.esc(bot.nm(f, lang))}" for f in facs[:20]) + (("\n" + bot.t(lang, "and_more", n=len(facs) - 20)) if len(facs) > 20 else "")
+            ok, err = tg.send(tid, bot.t(lang, "remind", date=d, items=items), bot.ik([[bot.btn(bot.t(lang, "go"), "sub")]]))
+            rec["status"] = "sent" if ok else "error"
+            rec["detail"] = err
+            res["sent" if ok else "errors"] += 1
+            _log(c, "remind_manual", tid, d, "manual", ok, err)
+        res["items"].append(rec)
+    if not dry:
+        from .db import audit
+        audit(c, "notify.manual", "notify", d, {"sent": res["sent"], "skipped": res["skipped"], "errors": res["errors"], "region": region_id})
+        c.commit()
+    return res
