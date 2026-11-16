@@ -180,3 +180,102 @@ def test_no_reminder_on_disabled_weekday(env, monkeypatch):
         c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES ('remind_weekdays','1,2,3,4,5')")
     notify.run_due(datetime(2026, 2, 8, 15, 5))   # Sunday
     assert sent == []
+
+
+def kb_of(uid):
+    m = [m for c, t, m in SENT if c == str(uid) and m][-1]
+    return [x["callback_data"] for row in (m.get("inline_keyboard") or []) for x in row]
+
+
+def region_user(uid, region=1):
+    from app import people
+    from app.db import tx
+    with tx() as c:
+        people.add_tg_user(c, str(uid), "Али")
+        people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, str(uid), region)
+
+
+def test_empty_region_explains_instead_of_silence(bot):
+    region_user(700700)
+    msg(bot, 700700, "/submit")
+    assert "нет районов" in last(700700).lower()
+
+
+def test_district_and_facility_by_typed_name(bot):
+    f = make_facility(1, "Мирзо Улугбекский район", "Поликлиника №5")
+    make_facility(1, "Чиланзарский район", "Поликлиника №1")
+    region_user(700701)
+    msg(bot, 700701, "/submit")
+    msg(bot, 700701, "несуществующий")
+    assert "не нашёл" in last(700701).lower()          # still waiting for a district
+    msg(bot, 700701, "мирзо улугбек")                   # lower case, as typed in the real chat
+    assert f"sd:{f}:2026-02-10" in kb_of(700701)       # the only facility of the district: straight to the dates
+
+
+def test_date_choice_and_typed_date(bot):
+    from app.db import connect
+    f = make_facility()
+    assign(700702, f)
+    cb(bot, 700702, f"sf:{f}")
+    flat = kb_of(700702)
+    assert f"sd:{f}:2026-02-10" in flat and f"sd:{f}:2026-02-09" in flat and f"sx:{f}" in flat
+    cb(bot, 700702, f"sx:{f}")
+    msg(bot, 700702, "abc")
+    assert "не понял" in last(700702).lower()
+    msg(bot, 700702, "15.02.2026")
+    assert "будущ" in last(700702).lower()
+    msg(bot, 700702, "01.02.2026")
+    assert "нельзя" in last(700702).lower()            # outside the backfill window
+    msg(bot, 700702, "09.02")
+    assert "Показатель 1/" in last(700702) and "2026-02-09" in last(700702)
+
+
+ANS = ["100", "40", "20", "50", "5", "1", "1", "1", "0", "0", "10", "6"]
+
+
+def send_report(uid, f, d, answers):
+    cb(bot_mod(), uid, f"sd:{f}:{d}")
+    for a in answers:
+        msg(bot_mod(), uid, a)
+
+
+def bot_mod():
+    from app import bot as b
+    return b
+
+
+def test_repeat_submission_is_compared_and_needs_confirmation(bot):
+    from app.db import connect
+    f = make_facility()
+    assign(700703, f)
+    send_report(700703, f, "2026-02-10", ANS)
+    cb(bot, 700703, "ok")
+    assert connect().execute("SELECT version FROM reports WHERE facility_id=?", (f,)).fetchone()["version"] == 1
+    # second time: the visits changed from 50 to 70, everything else is kept with the button
+    SENT.clear()
+    cb(bot, 700703, f"sd:{f}:2026-02-10")
+    assert "уже отправлена" in " ".join(t for c, t, m in SENT)
+    for i, a in enumerate(ANS):
+        msg(bot, 700703, "70" if i == 3 else f"↩️ Оставить: {a}")
+    prev = last(700703)
+    assert "50 → <b>70</b>" in prev and prev.count("→ <b>") == 1
+    assert "ok" in kb_of(700703)
+    assert connect().execute("SELECT version FROM reports WHERE facility_id=?", (f,)).fetchone()["version"] == 1   # nothing accepted before the confirmation
+    cb(bot, 700703, "ok")
+    r = connect().execute("SELECT id, version FROM reports WHERE facility_id=?", (f,)).fetchone()
+    assert r["version"] == 2
+    assert connect().execute("SELECT value FROM report_values WHERE report_id=? AND code='visits'", (r["id"],)).fetchone()["value"] == 70
+
+
+def test_repeat_with_same_numbers_offers_no_confirm(bot):
+    from app.db import connect
+    f = make_facility()
+    assign(700704, f)
+    send_report(700704, f, "2026-02-10", ANS)
+    cb(bot, 700704, "ok")
+    cb(bot, 700704, f"sd:{f}:2026-02-10")
+    for a in ANS:
+        msg(bot, 700704, f"↩️ Оставить: {a}")
+    assert "совпадают" in last(700704)
+    assert "ok" not in kb_of(700704)
+    assert connect().execute("SELECT version FROM reports WHERE facility_id=?", (f,)).fetchone()["version"] == 1

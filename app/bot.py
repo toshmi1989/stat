@@ -2,7 +2,8 @@
 Every right is checked on the server in reports.submit(); the bot only hides what a person may not do."""
 import html
 import json
-from datetime import timedelta
+import re
+from datetime import date, timedelta
 
 from . import people, reports, rules, tg
 from .db import all_settings, connect, now, now_dt, today, tx
@@ -76,6 +77,37 @@ T["uz"].update({
     "rejected_region": "❌ <b>{fac}</b> вилоятига рухсат сўрови рад этилди.{note}",
     "pick_district_sub": "Вилоят: <b>{region}</b>\n<b>Туманни</b> танланг:", "my_region": "📍 Вилоят: {name} — туманни танлаш", "rights_region": "Бутун вилоят (исталган туман ва муассаса)",
     "status_region": "\n<b>{name} вилояти</b>: {date} санаси учун {total} тадан {n} таси юбормаган", "and_more": "…яна {n} та",
+})
+
+T["ru"].update({
+    "keep": "↩️ Оставить", "pick_district_sub": "Регион: <b>{region}</b>\nВыберите <b>район</b> кнопкой или напишите его название:",
+    "pick_facility": "Район: <b>{district}</b>\nВыберите <b>учреждение</b> кнопкой или напишите его название:",
+    "no_districts": "В регионе <b>{region}</b> пока нет районов и учреждений: администратор ещё не внёс их. Сообщите администратору — после этого отправка станет доступна.",
+    "no_facilities": "В районе <b>{district}</b> нет учреждений. Сообщите администратору.",
+    "bad_find": "Не нашёл «{q}». Проверьте написание или выберите из списка кнопкой.", "many_found": "Найдено несколько ({n}), уточните название или выберите:",
+    "pick_date": "За какую <b>дату</b> отправляете сводку?\n<i>➕ — ещё не отправлено, ✏️ — отправлено (можно исправить), 🔒 — исправление закрыто</i>",
+    "other_date": "📅 Другая дата", "ask_date": "Напишите дату в формате <b>ДД.ММ.ГГГГ</b> (например, 14.11.2026) или <b>ДД.ММ</b> для текущего года.",
+    "bad_date": "⚠️ Не понял дату. Пример: 14.11.2026 или 14.11.", "date_future": "⚠️ Сводку за будущую дату отправить нельзя.",
+    "date_range": "⚠️ За {date} новую сводку отправить нельзя: принимаются даты с {from_} по {to}. За более раннюю дату обратитесь к администратору.",
+    "today_w": "Сегодня", "yesterday_w": "Вчера",
+    "exists_edit": "Сводка за <b>{date}</b> уже отправлена (версия {ver}). Введите новые значения: перед сохранением я покажу, что изменилось, и попрошу подтвердить. Кнопка «Оставить» сохраняет прежнее значение.",
+    "preview_fix": "<b>Повторная отправка: сверьте изменения</b>\n{path}\nОтчётная дата: <b>{date}</b>\nИзменённые показатели отмечены ✏️ (было → стало):\n\n{lines}",
+    "confirm_fix": "✅ Подтвердить изменения", "no_changes": "\n\nℹ️ Значения совпадают с уже отправленными: менять нечего.",
+})
+T["uz"].update({
+    "keep": "↩️ Қолдириш", "pick_district_sub": "Вилоят: <b>{region}</b>\n<b>Туманни</b> тугма билан танланг ёки номини ёзинг:",
+    "pick_facility": "Туман: <b>{district}</b>\n<b>Муассасани</b> тугма билан танланг ёки номини ёзинг:",
+    "no_districts": "<b>{region}</b> вилоятида ҳали туманлар ва муассасалар йўқ: администратор уларни киритмаган. Администраторга хабар беринг.",
+    "no_facilities": "<b>{district}</b> туманида муассасалар йўқ. Администраторга хабар беринг.",
+    "bad_find": "«{q}» топилмади. Ёзилишини текширинг ёки рўйхатдан танланг.", "many_found": "Бир нечта топилди ({n}), номини аниқлаштиринг ёки танланг:",
+    "pick_date": "Маълумотни қайси <b>санага</b> юборасиз?\n<i>➕ — юборилмаган, ✏️ — юборилган (тузатиш мумкин), 🔒 — тузатиш ёпилган</i>",
+    "other_date": "📅 Бошқа сана", "ask_date": "Санани <b>КК.ОО.ЙЙЙЙ</b> форматида ёзинг (масалан, 14.11.2026) ёки жорий йил учун <b>КК.ОО</b>.",
+    "bad_date": "⚠️ Санани тушунмадим. Мисол: 14.11.2026 ёки 14.11.", "date_future": "⚠️ Келгуси сана учун маълумот юбориб бўлмайди.",
+    "date_range": "⚠️ {date} санаси учун янги маълумот юбориб бўлмайди: {from_} дан {to} гача қабул қилинади. Олдинги сана учун администраторга мурожаат қилинг.",
+    "today_w": "Бугун", "yesterday_w": "Кеча",
+    "exists_edit": "<b>{date}</b> санаси учун маълумот аллақачон юборилган (версия {ver}). Янги қийматларни киритинг: сақлашдан олдин нима ўзгарганини кўрсатаман ва тасдиқлашни сўрайман. «Қолдириш» тугмаси олдинги қийматни сақлайди.",
+    "preview_fix": "<b>Такрорий юбориш: ўзгаришларни текширинг</b>\n{path}\nҲисобот санаси: <b>{date}</b>\nЎзгарган кўрсаткичлар ✏️ билан белгиланган (эди → бўлди):\n\n{lines}",
+    "confirm_fix": "✅ Ўзгаришларни тасдиқлаш", "no_changes": "\n\nℹ️ Қийматлар олдин юборилганлар билан бир хил: ўзгартиришга ҳожат йўқ.",
 })
 
 
@@ -156,6 +188,8 @@ def handle_update(u: dict) -> None:
             return do_action(c, user, chat["id"], action, has)
         if st["state"] in ("form", "edit_field"):
             return form_input(c, user, chat["id"], st, text, has)
+        if st["state"] in ("pick_district", "pick_facility", "pick_date_text"):
+            return pick_text(c, user, chat["id"], st, text, has)
         tg.send(chat["id"], t(lang, "pick"), main_kb(lang, has))
 
 
@@ -264,6 +298,10 @@ def pick_district_to_submit(c, user, chat, region_id: int, page: int) -> None:
         return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
     r = c.execute("SELECT * FROM regions WHERE id=?", (region_id,)).fetchone()
     ds = c.execute("SELECT id, name_ru, name_uz FROM districts WHERE region_id=? AND active=1 ORDER BY name_ru", (region_id,)).fetchall()
+    if not ds:
+        set_state(c, user["tg_id"])
+        return tg.send(chat, t(lang, "no_districts", region=esc(nm(r, lang))), main_kb(lang, True))
+    set_state(c, user["tg_id"], "pick_district", {"rid": region_id})
     paged(chat, lang, t(lang, "pick_district_sub", region=esc(nm(r, lang))), ds, "sg:", page, f"sr:{region_id}")
 
 
@@ -274,8 +312,71 @@ def pick_facility_to_submit(c, user, chat, district_id: int, page: int) -> None:
         return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому району"))
     fs = c.execute("SELECT id, name_ru, name_uz FROM facilities WHERE district_id=? AND active=1 ORDER BY name_ru", (district_id,)).fetchall()
     if not fs:
-        return tg.send(chat, t(lang, "fail", msg="В районе нет учреждений"))
+        return tg.send(chat, t(lang, "no_facilities", district=esc(nm(d, lang))))
+    set_state(c, user["tg_id"], "pick_facility", {"did": district_id})
+    if len(fs) == 1:
+        return pick_facility(c, user, chat, fs[0]["id"])
     paged(chat, lang, t(lang, "pick_facility", district=esc(nm(d, lang))), fs, "sf:", page, f"sg:{district_id}")
+
+
+def fold(x: str) -> str:
+    return " ".join(str(x).lower().replace("ё", "е").replace("ў", "у").replace("қ", "к").replace("ғ", "г").replace("ҳ", "х").split())
+
+
+def find_named(rows, q: str) -> list:
+    q = fold(q)
+    exact = [r for r in rows if q in (fold(r["name_ru"]), fold(r["name_uz"] or ""))]
+    return exact or [r for r in rows if q and (q in fold(r["name_ru"]) or q in fold(r["name_uz"] or ""))]
+
+
+def parse_user_date(text: str):
+    m = re.fullmatch(r"\s*(\d{1,2})[.\-/ ](\d{1,2})(?:[.\-/ ](\d{2}|\d{4}))?\s*", text) or None
+    if m:
+        dd, mm, yy = int(m.group(1)), int(m.group(2)), m.group(3)
+        yy = today().year if not yy else (2000 + int(yy) if len(yy) == 2 else int(yy))
+    else:
+        m = re.fullmatch(r"\s*(\d{4})-(\d{2})-(\d{2})\s*", text)
+        if not m:
+            return None
+        yy, mm, dd = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        return date(yy, mm, dd)
+    except ValueError:
+        return None
+
+
+def pick_text(c, user, chat, st: dict, text: str, has: bool) -> None:
+    """A name typed instead of pressing a button: a district, a facility or a date."""
+    lang, tid, data = user["lang"], user["tg_id"], st["data"]
+    if st["state"] == "pick_date_text":
+        d = parse_user_date(text)
+        if not d:
+            return tg.send(chat, t(lang, "bad_date"))
+        if d > today():
+            return tg.send(chat, t(lang, "date_future"))
+        return pick_date(c, user, chat, data["fid"], d.isoformat())
+    if st["state"] == "pick_district":
+        rows = c.execute("SELECT id, name_ru, name_uz FROM districts WHERE region_id=? AND active=1 ORDER BY name_ru", (data["rid"],)).fetchall()
+        found, prefix, nxt = find_named(rows, text), "sg:", None
+    else:
+        rows = c.execute("SELECT id, name_ru, name_uz FROM facilities WHERE district_id=? AND active=1 ORDER BY name_ru", (data["did"],)).fetchall()
+        found, prefix = find_named(rows, text), "sf:"
+    if not found:
+        return tg.send(chat, t(lang, "bad_find", q=esc(text[:40])))
+    if len(found) == 1:
+        return pick_district_to_facility(c, user, chat, found[0]["id"]) if prefix == "sg:" else pick_facility(c, user, chat, found[0]["id"])
+    tg.send(chat, t(lang, "many_found", n=len(found)), ik([[btn(nm(r, lang)[:60], f"{prefix}{r['id']}")] for r in found[:10]]))
+
+
+def pick_district_to_facility(c, user, chat, district_id: int) -> None:
+    pick_facility_to_submit(c, user, chat, district_id, 0)
+
+
+def date_label(lang: str, d, rep, st) -> str:
+    ref = today()
+    word = t(lang, "today_w") + ", " if d == ref else t(lang, "yesterday_w") + ", " if d == ref - timedelta(days=1) else ""
+    mark = "➕" if rep is None else ("✏️" if reports.user_can_edit(rep, st) else "🔒")
+    return f"{mark} {word}{d.strftime('%d.%m.%Y' if not word else '%d.%m')}"
 
 
 def pick_facility(c, user, chat, fid: int, message_id=None) -> None:
@@ -283,17 +384,14 @@ def pick_facility(c, user, chat, fid: int, message_id=None) -> None:
     st = all_settings(c)
     if not reports.access(c, user["tg_id"], fid):
         return tg.send(chat, t(lang, "fail", msg="У вас нет прав отправлять отчёт за это учреждение"))
-    options = []
-    for d in reports.allowed_dates(st):
-        rep = reports.find(c, fid, d.isoformat())
-        if rep is None or reports.user_can_edit(rep, st):
-            options.append((d, rep))
-    if not options:
-        return tg.send(chat, t(lang, "nothing_to_send"), main_kb(lang, True))
-    if len(options) == 1:
-        return pick_date(c, user, chat, fid, options[0][0].isoformat())
-    kb = [[btn(d.strftime("%d.%m.%Y") + (" ✏️" if rep else ""), f"sd:{fid}:{d.isoformat()}")] for d, rep in options]
-    tg.send(chat, t(lang, "pick_date"), ik(kb))
+    dates = reports.allowed_dates(st)
+    f = reports.facility_info(c, fid)
+    if len(dates) == 1:
+        return pick_date(c, user, chat, fid, dates[0].isoformat())
+    kb = [[btn(date_label(lang, d, reports.find(c, fid, d.isoformat()), st), f"sd:{fid}:{d.isoformat()}")] for d in dates]
+    kb.append([btn(t(lang, "other_date"), f"sx:{fid}")])
+    set_state(c, user["tg_id"])
+    tg.send(chat, f"<b>{esc(nm(f, lang))}</b>\n" + t(lang, "pick_date"), ik(kb))
 
 
 def pick_date(c, user, chat, fid: int, d: str) -> None:
@@ -303,6 +401,9 @@ def pick_date(c, user, chat, fid: int, d: str) -> None:
         return tg.send(chat, t(lang, "fail", msg="У вас нет прав отправлять отчёт за это учреждение"))
     rep = reports.find(c, fid, d)
     values = {}
+    if rep is None and date.fromisoformat(d) not in reports.allowed_dates(st):
+        dates = reports.allowed_dates(st)
+        return tg.send(chat, t(lang, "date_range", date=d, from_=dates[-1].strftime("%d.%m.%Y"), to=dates[0].strftime("%d.%m.%Y")), main_kb(lang, True))
     if rep:
         if not reports.user_can_edit(rep, st):
             return tg.send(chat, t(lang, "exists_locked", date=d, sent=rep["submitted_at"][:16]), main_kb(lang, True))
@@ -310,7 +411,7 @@ def pick_date(c, user, chat, fid: int, d: str) -> None:
         note = t(lang, "returned", why=esc(rep["return_reason"])) if rep["status"] == "returned" else t(lang, "exists_edit", date=d, ver=rep["version"])
         tg.send(chat, note)
     codes = [i["code"] for i in indicator_list(c)]
-    set_state(c, user["tg_id"], "form", {"fid": fid, "date": d, "codes": codes, "idx": 0, "values": values, "fix": bool(rep)})
+    set_state(c, user["tg_id"], "form", {"fid": fid, "date": d, "codes": codes, "idx": 0, "values": dict(values), "orig": dict(values) if rep else None, "fix": bool(rep)})
     ask(c, user, chat, get_state(c, user["tg_id"])["data"])
 
 
@@ -323,8 +424,8 @@ def ask(c, user, chat, data: dict) -> None:
     old = data["values"].get(ind["code"])
     hint = (ind["hint_uz"] if lang == "uz" and ind["hint_uz"] else ind["hint_ru"])
     text = t(lang, "form_head", fac=esc(nm(f, lang)), date=data["date"], i=i + 1, n=len(data["codes"]), name=esc(nm(ind, lang))) + "\n\n" + t(lang, "form_hint", old=(f"\nТекущее значение: <b>{old}</b>" if old is not None else "")) + (f"\n<i>{esc(hint)}</i>" if hint else "")
-    kb = {"keyboard": [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]], "resize_keyboard": True}
-    tg.send(chat, text, kb)
+    rows = ([[{"text": f"{t(lang, 'keep')}: {old}"}]] if old is not None else []) + [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]]
+    tg.send(chat, text, {"keyboard": rows, "resize_keyboard": True})
 
 
 def form_input(c, user, chat, st: dict, text: str, has: bool) -> None:
@@ -337,10 +438,12 @@ def form_input(c, user, chat, st: dict, text: str, has: bool) -> None:
         return
     if text == t(lang, "back") and st["state"] == "edit_field":
         return preview(c, user, chat, data)
+    code = data["codes"][data["idx"]] if st["state"] == "form" else data["edit_code"]
     s = text.replace(" ", "")
+    if text.startswith(t(lang, "keep")) and data["values"].get(code) is not None:
+        s = str(data["values"][code])
     if not s.isdigit():
         return tg.send(chat, t(lang, "bad_number"))
-    code = data["codes"][data["idx"]] if st["state"] == "form" else data["edit_code"]
     data["values"][code] = int(s)
     if st["state"] == "form":
         data["idx"] += 1
@@ -355,17 +458,28 @@ def preview(c, user, chat, data: dict, message_id=None) -> None:
     lang, tid = user["lang"], user["tg_id"]
     f = reports.facility_info(c, data["fid"])
     inds = indicator_list(c)
-    lines = "\n".join(f"{esc(nm(i, lang))}: <b>{data['values'].get(i['code'], '—')}</b>" for i in inds)
+    orig = data.get("orig")
+    changed = 0
+    out = []
+    for i in inds:
+        new, old = data["values"].get(i["code"]), (orig or {}).get(i["code"])
+        if orig is not None and new != old:
+            changed += 1
+            out.append(f"✏️ {esc(nm(i, lang))}: {old if old is not None else '—'} → <b>{new if new is not None else '—'}</b>")
+        else:
+            out.append(f"{esc(nm(i, lang))}: <b>{new if new is not None else '—'}</b>")
     res = rules.validate(c, data["values"], lang, data["fid"], data["date"])
     path = f"{esc(nm(f, lang, 'region'))} / {esc(nm(f, lang, 'district'))} / <b>{esc(nm(f, lang))}</b>"
-    text = t(lang, "preview", path=path, date=data["date"], lines=lines)
+    text = t(lang, "preview_fix" if orig is not None else "preview", path=path, date=data["date"], lines="\n".join(out))
+    if orig is not None and not changed:
+        text += t(lang, "no_changes")
     if res["errors"]:
         text += t(lang, "errors", items="\n".join("• " + esc(e) for e in res["errors"]))
     if res["warnings"]:
         text += t(lang, "warnings", items="\n".join("• " + esc(w) for w in res["warnings"]))
     rows = []
-    if not res["errors"]:
-        rows.append([btn(t(lang, "send_anyway") if res["warnings"] else t(lang, "confirm"), "ok")])
+    if not res["errors"] and (orig is None or changed):
+        rows.append([btn(t(lang, "confirm_fix") if orig is not None else (t(lang, "send_anyway") if res["warnings"] else t(lang, "confirm")), "ok")])
     rows.append([btn(t(lang, "change"), "ch")])
     rows.append([btn(t(lang, "cancel"), "no")])
     set_state(c, tid, "preview", data)
@@ -389,6 +503,11 @@ def handle_callback(cq: dict) -> None:
             return request_flow(c, user, chat, msg, p)
         if k == "sf":
             return pick_facility(c, user, chat, int(p[1]))
+        if k == "sx":
+            if not reports.access(c, user["tg_id"], int(p[1])):
+                return tg.send(chat, t(lang, "fail", msg="У вас нет прав отправлять отчёт за это учреждение"))
+            set_state(c, user["tg_id"], "pick_date_text", {"fid": int(p[1])})
+            return tg.send(chat, t(lang, "ask_date"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
         if k == "sr":
             return pick_district_to_submit(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
         if k == "sg":
