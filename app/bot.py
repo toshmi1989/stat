@@ -125,6 +125,21 @@ T["uz"].update({
     "fac_limit": "⚠️ Бир кунда {n} тадан ортиқ муассаса қўшиб бўлмайди. Администраторга мурожаат қилинг.",
 })
 
+T["ru"].update({
+    "pick_date": "📅 <b>За какую дату</b> отправляете сводку?\nНажмите кнопку «Сегодня» или напишите дату, например <b>15.11</b> или <b>14.11.2026</b>.",
+    "today_btn": "📅 Сегодня, {d}", "today_btn_sent": "✏️ Сегодня, {d} (уже отправлена)", "ask_date": "Напишите дату: <b>15.11</b> или <b>14.11.2026</b>.",
+    "form_head": "📝 <b>{fac}</b> · {date}\n\n<b>Вопрос {i} из {n}</b>  {bar}\n{name}", "form_hint": "Введите число (0 или больше).{old}",
+    "exists_edit": "✏️ Сводка за <b>{date}</b> уже отправлена (версия {ver}). Введите новые значения — кнопка «↩️ Оставить» сохраняет прежнее. Перед сохранением покажу, что изменилось, и попрошу подтвердить.",
+    "bad_number": "⚠️ Нужно целое число, 0 или больше. Попробуйте ещё раз.",
+})
+T["uz"].update({
+    "pick_date": "📅 Маълумотни <b>қайси санага</b> юборасиз?\n«Бугун» тугмасини босинг ёки санани ёзинг, масалан <b>15.11</b> ёки <b>14.11.2026</b>.",
+    "today_btn": "📅 Бугун, {d}", "today_btn_sent": "✏️ Бугун, {d} (юборилган)", "ask_date": "Санани ёзинг: <b>15.11</b> ёки <b>14.11.2026</b>.",
+    "form_head": "📝 <b>{fac}</b> · {date}\n\n<b>Савол {i} / {n}</b>  {bar}\n{name}", "form_hint": "Сон киритинг (0 ёки катта).{old}",
+    "exists_edit": "✏️ <b>{date}</b> санаси учун маълумот юборилган (версия {ver}). Янги қийматларни киритинг — «↩️ Қолдириш» олдингисини сақлайди. Сақлашдан олдин ўзгаришларни кўрсатаман.",
+    "bad_number": "⚠️ Бутун сон керак, 0 ёки катта. Яна уриниб кўринг.",
+})
+
 
 def t(lang: str, key: str, **kw) -> str:
     s = T.get(lang, T["ru"]).get(key) or T["ru"][key]
@@ -419,7 +434,8 @@ def pick_text(c, user, chat, st: dict, text: str, has: bool) -> None:
     """A name typed instead of pressing a button: a district, a facility or a date."""
     lang, tid, data = user["lang"], user["tg_id"], st["data"]
     if st["state"] == "pick_date_text":
-        d = parse_user_date(text)
+        word = fold(text)
+        d = today() if word in ("сегодня", "бугун") else today() - timedelta(days=1) if word in ("вчера", "кеча") else parse_user_date(text)
         if not d:
             return tg.send(chat, t(lang, "bad_date"))
         if d > today():
@@ -451,26 +467,17 @@ def pick_district_to_facility(c, user, chat, district_id: int) -> None:
     pick_facility_to_submit(c, user, chat, district_id, 0)
 
 
-def date_label(lang: str, d, rep, st) -> str:
-    ref = today()
-    word = t(lang, "today_w") + ", " if d == ref else t(lang, "yesterday_w") + ", " if d == ref - timedelta(days=1) else ""
-    mark = "➕" if rep is None else ("✏️" if reports.user_can_edit(rep, st) else "🔒")
-    return f"{mark} {word}{d.strftime('%d.%m.%Y' if not word else '%d.%m')}"
-
-
 def pick_facility(c, user, chat, fid: int, message_id=None) -> None:
     lang = user["lang"]
     st = all_settings(c)
     if not reports.access(c, user["tg_id"], fid):
         return tg.send(chat, t(lang, "fail", msg="У вас нет прав отправлять отчёт за это учреждение"))
-    dates = reports.allowed_dates(st)
     f = reports.facility_info(c, fid)
-    if len(dates) == 1:
-        return pick_date(c, user, chat, fid, dates[0].isoformat())
-    kb = [[btn(date_label(lang, d, reports.find(c, fid, d.isoformat()), st), f"sd:{fid}:{d.isoformat()}")] for d in dates]
-    kb.append([btn(t(lang, "other_date"), f"sx:{fid}")])
-    set_state(c, user["tg_id"])
-    tg.send(chat, f"<b>{esc(nm(f, lang))}</b>\n" + t(lang, "pick_date"), ik(kb))
+    now_d = today()
+    sent_today = reports.find(c, fid, now_d.isoformat()) is not None
+    label = t(lang, "today_btn_sent" if sent_today else "today_btn", d=now_d.strftime("%d.%m"))
+    set_state(c, user["tg_id"], "pick_date_text", {"fid": fid})        # a typed date is understood too
+    tg.send(chat, f"🏥 <b>{esc(nm(f, lang))}</b>\n\n" + t(lang, "pick_date"), ik([[btn(label, f"sd:{fid}:{now_d.isoformat()}")]]))
 
 
 def pick_date(c, user, chat, fid: int, d: str) -> None:
@@ -502,7 +509,9 @@ def ask(c, user, chat, data: dict) -> None:
     f = reports.facility_info(c, data["fid"])
     old = data["values"].get(ind["code"])
     hint = (ind["hint_uz"] if lang == "uz" and ind["hint_uz"] else ind["hint_ru"])
-    text = t(lang, "form_head", fac=esc(nm(f, lang)), date=data["date"], i=i + 1, n=len(data["codes"]), name=esc(nm(ind, lang))) + "\n\n" + t(lang, "form_hint", old=(f"\nТекущее значение: <b>{old}</b>" if old is not None else "")) + (f"\n<i>{esc(hint)}</i>" if hint else "")
+    n = len(data["codes"])
+    bar = "▰" * (i + 1) + "▱" * (n - i - 1)
+    text = t(lang, "form_head", fac=esc(nm(f, lang)), date=data["date"], i=i + 1, n=n, bar=bar, name=esc(nm(ind, lang))) + "\n\n" + t(lang, "form_hint", old=(f"\nТекущее значение: <b>{old}</b>" if old is not None else "")) + (f"\n<i>{esc(hint)}</i>" if hint else "")
     rows = ([[{"text": f"{t(lang, 'keep')}: {old}"}]] if old is not None else []) + [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]]
     tg.send(chat, text, {"keyboard": rows, "resize_keyboard": True})
 

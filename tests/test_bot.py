@@ -230,14 +230,12 @@ def test_facility_by_typed_name_in_region(bot):
     assert f"sd:{f}:2026-02-10" in kb_of(700701)
 
 
-def test_date_choice_and_typed_date(bot):
-    from app.db import connect
+def test_date_step_is_one_button_plus_typed_date(bot):
     f = make_facility()
     assign(700702, f)
     cb(bot, 700702, f"sf:{f}")
     flat = kb_of(700702)
-    assert f"sd:{f}:2026-02-10" in flat and f"sd:{f}:2026-02-09" in flat and f"sx:{f}" in flat
-    cb(bot, 700702, f"sx:{f}")
+    assert flat == [f"sd:{f}:2026-02-10"]               # only "today"; no list of past days
     msg(bot, 700702, "abc")
     assert "не понял" in last(700702).lower()
     msg(bot, 700702, "15.02.2026")
@@ -245,7 +243,15 @@ def test_date_choice_and_typed_date(bot):
     msg(bot, 700702, "01.02.2026")
     assert "нельзя" in last(700702).lower()            # outside the backfill window
     msg(bot, 700702, "09.02")
-    assert "Показатель 1/" in last(700702) and "2026-02-09" in last(700702)
+    assert "Вопрос 1 из" in last(700702) and "2026-02-09" in last(700702) and "▰▱" in last(700702)
+
+
+def test_typed_word_yesterday(bot):
+    f = make_facility()
+    assign(700705, f)
+    cb(bot, 700705, f"sf:{f}")
+    msg(bot, 700705, "вчера")
+    assert "2026-02-09" in last(700705)
 
 
 ANS = ["100", "40", "20", "50", "5", "1", "1", "1", "0", "0", "10", "6"]
