@@ -100,7 +100,7 @@ async function dashboard() {
     <div class="grid2"><div class="card"><h2>Нагрузка по регионам</h2><div id="tiles">…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>норма до ${th.elevated}%</span><span><i style="background:var(--warn)"></i>повышенная до ${th.critical}%</span><span><i style="background:var(--bad)"></i>критическая от ${th.critical}%</span></div></div>
       <div class="card"><div class="row"><h2>Лидеры по обращениям</h2></div><div id="rank">…</div></div></div>
     <div class="card"><div class="row"><h2>Регионы</h2><input id="rt-q" placeholder="Поиск" class="right"></div><div class="scroll-x" id="rt"></div></div>
-    <div class="grid2"><div class="card"><h3>Динамика</h3><div class="row"><div id="dyn-m"></div><label class="sm">Сравнить регионы <select id="dyn-r" multiple size="3">${META.regions.map(r => `<option value="${r.id}">${esc(r.name_ru)}</option>`).join("")}</select></label></div><div id="dyn"></div></div>
+    <div class="grid2"><div class="card"><h3>Динамика</h3><div class="lbl">Показатель</div><div class="chips" id="dyn-m"></div><div class="lbl">Сравнить регионы <span class="muted">(до 5)</span></div><div class="chips" id="dyn-r"></div><div id="dyn"></div></div>
     <div class="card"><h3>Госпитализации и выписки</h3><div id="hd"></div></div></div>
     <div class="card"><h3>Баланс коек</h3><div class="scroll-x" id="beds"></div></div>`;
   countUp($("#dash")); tilt($("#dash"));
@@ -130,21 +130,39 @@ async function remindDlg(date) {
   const go = $("#rm-go"); if (go) go.onclick = async () => { go.disabled = true; try { const r = await api("/api/notify/remind", { method: "POST", body: { date, region_id: F.region_id || null, dry: false } });
     modal(`<h2>${r.errors ? "⚠️" : "✅"} Готово</h2><p>Отправлено: <b>${r.sent}</b>${r.errors ? `, не доставлено: <b>${r.errors}</b> (человек мог заблокировать бота)` : ""}${r.skipped ? `, пропущено: ${r.skipped}` : ""}.</p><button class="btn pri" data-close>Закрыть</button>`); } catch (e) { fail(e); go.disabled = false; } };
 }
-let METRICS = ["visits"];
+let METRICS = ["visits"], REGSEL = [];
 function loadDyn() {
-  const mEl = $("#dyn-m"); if (!mEl) return;
-  mEl.innerHTML = ["visits", "severe", "extreme", "hosp", "disch"].map(m => `<label class="sm"><input type="checkbox" value="${m}" ${METRICS.includes(m) ? "checked" : ""}> ${NAMES[m]}</label> `).join("");
+  const mEl = $("#dyn-m"), rEl = $("#dyn-r"); if (!mEl || !rEl) return;
+  const short = n => n.replace("Республика ", "").replace(" область", "").replace("город ", "г. ");
+  const drawChips = () => {
+    mEl.innerHTML = ["visits", "severe", "extreme", "hosp", "disch"].map(m => `<button class="chip ${METRICS.includes(m) ? "on" : ""}" data-m="${m}">${NAMES[m]}</button>`).join("");
+    rEl.innerHTML = `<button class="chip ${REGSEL.length ? "" : "on"}" data-r="">Вся территория</button>` + META.regions.map(r => `<button class="chip ${REGSEL.includes(String(r.id)) ? "on" : ""}" data-r="${r.id}">${esc(short(r.name_ru))}</button>`).join("");
+    mEl.querySelectorAll("[data-m]").forEach(b => b.onclick = () => {
+      const m = b.dataset.m;
+      if (REGSEL.length >= 2) METRICS = [m];                       // regions are compared on one figure at a time
+      else METRICS = METRICS.includes(m) ? METRICS.filter(x => x !== m) : [...METRICS, m];
+      if (!METRICS.length) METRICS = ["visits"]; drawChips(); draw();
+    });
+    rEl.querySelectorAll("[data-r]").forEach(b => b.onclick = () => {
+      const r = b.dataset.r;
+      if (!r) REGSEL = [];
+      else if (REGSEL.includes(r)) REGSEL = REGSEL.filter(x => x !== r);
+      else if (REGSEL.length >= 5) return toast("Сравнивать можно до 5 регионов");
+      else REGSEL = [...REGSEL, r];
+      if (REGSEL.length >= 2 && METRICS.length > 1) METRICS = [METRICS[0]];
+      drawChips(); draw();
+    });
+  };
   const draw = async () => {
-    const regions = [...$("#dyn-r").selectedOptions].map(o => o.value).join("");
     const [d1, d2] = periodOf(); const a = d2 === d1 ? addDays(d1, -13) : d1;
     try {
-      const r = await api("/api/dynamics?" + qs({ d1: a, d2, metrics: METRICS.join(","), regions, region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }));
+      const r = await api("/api/dynamics?" + qs({ d1: a, d2, metrics: METRICS.join(","), regions: REGSEL.join(","), region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }));
       if (!$("#dyn")) return;
-      $("#dyn").innerHTML = lineChart(r.dates, r.series.map(s => ({ name: s.name + (METRICS.length > 1 ? " — " + NAMES[s.metric] : ""), points: s.points })));
+      $("#dyn").innerHTML = (REGSEL.length >= 2 ? `<p class="muted sm">Сравнение по показателю «${NAMES[METRICS[0]]}»</p>` : "") +
+        lineChart(r.dates, r.series.map(s => ({ name: REGSEL.length >= 2 ? s.name : REGSEL.length === 1 && METRICS.length > 1 ? s.name + " — " + NAMES[s.metric] : METRICS.length > 1 ? NAMES[s.metric] : s.name, points: s.points })));
     } catch (e) { fail(e); }
   };
-  mEl.onchange = () => { METRICS = [...mEl.querySelectorAll("input:checked")].map(i => i.value); if (!METRICS.length) METRICS = ["visits"]; draw(); };
-  $("#dyn-r").onchange = draw; draw();
+  drawChips(); draw();
 }
 async function loadHD() {
   const [d1, d2] = periodOf(); const a = d2 === d1 ? addDays(d1, -13) : d1;
