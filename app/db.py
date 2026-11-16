@@ -79,6 +79,17 @@ CREATE TABLE IF NOT EXISTS assignments (
     created_by INTEGER, created_at TEXT NOT NULL DEFAULT '',
     UNIQUE (tg_id, facility_id)
 );
+-- access to a whole region: the person reports for any facility of it (any district)
+CREATE TABLE IF NOT EXISTS region_access (
+    id INTEGER PRIMARY KEY,
+    tg_id TEXT NOT NULL REFERENCES tg_users(tg_id),
+    region_id INTEGER NOT NULL REFERENCES regions(id),
+    kind TEXT NOT NULL DEFAULT 'primary' CHECK (kind IN ('primary','reserve')),
+    fio TEXT NOT NULL DEFAULT '', contact TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1,
+    created_by INTEGER, created_at TEXT NOT NULL DEFAULT '',
+    UNIQUE (tg_id, region_id)
+);
 CREATE TABLE IF NOT EXISTS access_requests (
     id INTEGER PRIMARY KEY,
     tg_id TEXT NOT NULL REFERENCES tg_users(tg_id),
@@ -154,6 +165,7 @@ CREATE INDEX IF NOT EXISTS idx_vals_report ON report_values(report_id);
 CREATE INDEX IF NOT EXISTS idx_fac_district ON facilities(district_id);
 CREATE INDEX IF NOT EXISTS idx_dist_region ON districts(region_id);
 CREATE INDEX IF NOT EXISTS idx_assign_fac ON assignments(facility_id);
+CREATE INDEX IF NOT EXISTS idx_regacc_tg ON region_access(tg_id);
 CREATE INDEX IF NOT EXISTS idx_versions_report ON report_versions(report_id, id);
 CREATE INDEX IF NOT EXISTS idx_notify ON notify_log(kind, day, tg_id, slot);
 """

@@ -514,15 +514,16 @@ async def api_validate(request: Request):
 
 # ---------------------------------------------------------------- Telegram users, assignments, requests
 def tg_users_scope(c, user) -> list:
-    """Telegram users the person may see: all for the super administrator, otherwise those assigned in their regions or with a request there."""
-    base = """SELECT u.*, (SELECT COUNT(*) FROM assignments a WHERE a.tg_id=u.tg_id AND a.active=1) AS facilities FROM tg_users u"""
-    if auth.is_super(user):
-        return c.execute(base + " ORDER BY u.created_at DESC LIMIT 1000").fetchall()
+    """Telegram users the person may see: all for the super administrator, otherwise those with access or a request in their regions."""
+    base = """SELECT u.*, (SELECT COUNT(*) FROM assignments a WHERE a.tg_id=u.tg_id AND a.active=1) AS facilities,
+                     (SELECT COUNT(*) FROM region_access ra WHERE ra.tg_id=u.tg_id AND ra.active=1) AS regions_count FROM tg_users u"""
     s, a = auth.region_filter_sql(user, "d.region_id")
-    if not s:
+    if auth.is_super(user) or not s:
         return c.execute(base + " ORDER BY u.created_at DESC LIMIT 1000").fetchall()
+    s2, a2 = auth.region_filter_sql(user, "x.region_id")
     return c.execute(base + f""" WHERE u.tg_id IN (SELECT a.tg_id FROM assignments a JOIN facilities f ON f.id=a.facility_id JOIN districts d ON d.id=f.district_id WHERE {s})
-                       OR u.tg_id IN (SELECT q.tg_id FROM access_requests q JOIN districts d ON d.id=q.district_id WHERE {s}) ORDER BY u.created_at DESC LIMIT 1000""", a + a).fetchall()
+                       OR u.tg_id IN (SELECT x.tg_id FROM region_access x WHERE {s2})
+                       OR u.tg_id IN (SELECT x.tg_id FROM access_requests x WHERE {s2}) ORDER BY u.created_at DESC LIMIT 1000""", a + a2 + a2).fetchall()
 
 
 def need_users(request: Request) -> dict:
@@ -539,10 +540,12 @@ def api_tg_users(request: Request):
     try:
         out = []
         for r in tg_users_scope(c, u):
-            asg = [dict(x) for x in c.execute("""SELECT a.id, a.kind, a.fio, a.contact, f.id AS facility_id, f.name_ru AS facility, d.name_ru AS district, r.name_ru AS region
+            asg = [dict(x) for x in c.execute("""SELECT a.id, a.kind, a.fio, a.contact, f.id AS facility_id, f.name_ru AS facility, d.name_ru AS district, r.name_ru AS region, r.id AS region_id
                                                    FROM assignments a JOIN facilities f ON f.id=a.facility_id JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id
-                                                   WHERE a.tg_id=? AND a.active=1""", (r["tg_id"],)) if auth.sees_region(u, x["region_id"] if "region_id" in x.keys() else 0) or auth.is_super(u) or u["regions"] is None]
-            out.append(dict(r) | {"assignments": asg})
+                                                   WHERE a.tg_id=? AND a.active=1""", (r["tg_id"],)) if auth.sees_region(u, x["region_id"])]
+            regs = [dict(x) for x in c.execute("""SELECT ra.id, ra.kind, ra.fio, ra.contact, r.id AS region_id, r.name_ru AS region FROM region_access ra JOIN regions r ON r.id=ra.region_id
+                                                    WHERE ra.tg_id=? AND ra.active=1""", (r["tg_id"],)) if auth.sees_region(u, x["region_id"])]
+            out.append(dict(r) | {"assignments": asg, "regions": regs})
         return {"items": out}
     finally:
         c.close()
@@ -556,6 +559,8 @@ async def api_tg_user_add(request: Request):
         people.add_tg_user(c, str(b.get("tg_id") or ""), str(b.get("name") or ""))
         if b.get("facility_id"):
             people.assign(c, u, str(b["tg_id"]), int(b["facility_id"]), b.get("kind") or "primary", str(b.get("fio") or ""), str(b.get("contact") or ""))
+        elif b.get("region_id"):
+            people.assign_region(c, u, str(b["tg_id"]), int(b["region_id"]), b.get("kind") or "primary", str(b.get("fio") or ""), str(b.get("contact") or ""))
     return {"ok": True}
 
 
@@ -580,8 +585,19 @@ async def api_assign(request: Request):
     u = need_users(request)
     b = await jbody(request)
     with tx() as c:
-        aid = people.assign(c, u, str(b.get("tg_id") or ""), int(b.get("facility_id") or 0), b.get("kind") or "primary", str(b.get("fio") or ""), str(b.get("contact") or ""))
+        if b.get("facility_id"):
+            aid = people.assign(c, u, str(b.get("tg_id") or ""), int(b["facility_id"]), b.get("kind") or "primary", str(b.get("fio") or ""), str(b.get("contact") or ""))
+        else:
+            aid = people.assign_region(c, u, str(b.get("tg_id") or ""), int(b.get("region_id") or 0), b.get("kind") or "primary", str(b.get("fio") or ""), str(b.get("contact") or ""))
     return {"id": aid}
+
+
+@app.delete("/api/region-access/{aid}")
+def api_unassign_region(request: Request, aid: int):
+    u = need_users(request)
+    with tx() as c:
+        people.unassign_region(c, u, aid)
+    return {"ok": True}
 
 
 @app.delete("/api/assignments/{aid}")
@@ -608,7 +624,7 @@ async def api_request_decide(request: Request, rid: int):
     b = await jbody(request)
     with tx() as c:
         out = people.decide(c, u, rid, bool(b.get("approve")), b.get("kind") or "primary", str(b.get("fio") or ""), str(b.get("note") or ""))
-    bot.notify_decision(out["tg_id"], out["facility_id"], out["approved"], out["note"])
+    bot.notify_decision(out["tg_id"], out["facility_id"], out["approved"], out["note"], out["region_id"])
     return {"ok": True}
 
 

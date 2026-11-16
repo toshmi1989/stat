@@ -163,3 +163,22 @@ def test_territory_import(client):
     assert r2.status_code == 200
     fac = client.get("/api/facilities?q=Поликлиника 7").json()
     assert fac["total"] == 1
+
+
+def test_region_access_api_and_scope(client):
+    seed()
+    from app import people
+    from app.db import tx
+    with tx() as c:
+        people.add_tg_user(c, "400400", "Али")
+    a = mk_staff(client, "regmgr", "admin", [1])
+    assert a.post("/api/assignments", json={"tg_id": "400400", "region_id": 1}).status_code == 403     # no right to manage access
+    sid = [x for x in client.get("/api/staff").json()["items"] if x["login"] == "regmgr"][0]["id"]
+    client.patch(f"/api/staff/{sid}", json={"can_manage_users": True})
+    assert a.post("/api/assignments", json={"tg_id": "400400", "region_id": 2}).status_code == 403     # not their region
+    r = a.post("/api/assignments", json={"tg_id": "400400", "region_id": 1})
+    assert r.status_code == 200
+    assert client.get("/api/tg-users").json()["items"][0]["regions"][0]["region_id"] == 1
+    assert a.get("/api/tg-users").json()["items"][0]["regions"][0]["region_id"] == 1
+    assert a.delete(f"/api/region-access/{r.json()['id']}").status_code == 200
+    assert client.get("/api/tg-users").json()["items"][0]["regions"] == []

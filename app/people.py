@@ -77,6 +77,41 @@ def assign(c, user, tg_id: str, facility_id: int, kind: str = "primary", fio: st
     return c.execute("SELECT id FROM assignments WHERE tg_id=? AND facility_id=?", (str(tg_id), facility_id)).fetchone()["id"]
 
 
+def can_manage_region(user, region_id: int) -> bool:
+    if not user:
+        return False
+    if auth.is_super(user):
+        return True
+    return user["role"] == "admin" and bool(user["can_manage_users"]) and auth.sees_region(user, region_id)
+
+
+def assign_region(c, user, tg_id: str, region_id: int, kind: str = "primary", fio: str = "", contact: str = "") -> int:
+    """Access to a whole region: the person may send the summary for any facility of it."""
+    if kind not in ("primary", "reserve"):
+        raise PeopleError("Вид назначения: основной или резервный")
+    if not can_manage_region(user, region_id):
+        raise PeopleError("Недостаточно прав для этого региона", 403)
+    if not c.execute("SELECT 1 FROM tg_users WHERE tg_id=?", (str(tg_id),)).fetchone():
+        raise PeopleError("Пользователь Telegram не найден: сначала добавьте его", 404)
+    if not c.execute("SELECT 1 FROM regions WHERE id=?", (region_id,)).fetchone():
+        raise PeopleError("Регион не найден", 404)
+    c.execute("""INSERT INTO region_access(tg_id, region_id, kind, fio, contact, active, created_by, created_at) VALUES (?,?,?,?,?,1,?,?)
+                 ON CONFLICT(tg_id, region_id) DO UPDATE SET kind=excluded.kind, fio=excluded.fio, contact=excluded.contact, active=1""",
+              (str(tg_id), region_id, kind, fio.strip(), contact.strip(), user["id"], now()))
+    audit(c, "region_access.set", "region", region_id, {"tg_id": str(tg_id), "kind": kind})
+    return c.execute("SELECT id FROM region_access WHERE tg_id=? AND region_id=?", (str(tg_id), region_id)).fetchone()["id"]
+
+
+def unassign_region(c, user, access_id: int) -> None:
+    a = c.execute("SELECT * FROM region_access WHERE id=?", (access_id,)).fetchone()
+    if not a:
+        raise PeopleError("Назначение не найдено", 404)
+    if not can_manage_region(user, a["region_id"]):
+        raise PeopleError("Недостаточно прав для этого региона", 403)
+    c.execute("UPDATE region_access SET active=0 WHERE id=?", (access_id,))
+    audit(c, "region_access.remove", "region", a["region_id"], {"tg_id": a["tg_id"]})
+
+
 def unassign(c, user, assignment_id: int) -> None:
     a = c.execute("SELECT * FROM assignments WHERE id=?", (assignment_id,)).fetchone()
     if not a:
@@ -88,17 +123,19 @@ def unassign(c, user, assignment_id: int) -> None:
 
 
 # ---------------------------------------------------------------- requests for access
-def create_request(c, tg_id: str, facility_id: int) -> int:
-    f = c.execute("""SELECT f.id, d.id AS did, r.id AS rid FROM facilities f JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id
-                     WHERE f.id=? AND f.active=1 AND d.active=1 AND r.active=1""", (facility_id,)).fetchone()
-    if not f:
-        raise PeopleError("Учреждение не найдено или отключено", 404)
-    if c.execute("SELECT 1 FROM assignments WHERE tg_id=? AND facility_id=? AND active=1", (str(tg_id), facility_id)).fetchone():
-        raise PeopleError("У вас уже есть доступ к этому учреждению")
-    if c.execute("SELECT 1 FROM access_requests WHERE tg_id=? AND facility_id=? AND status='pending'", (str(tg_id), facility_id)).fetchone():
-        raise PeopleError("Запрос на это учреждение уже ожидает рассмотрения")
-    cur = c.execute("INSERT INTO access_requests(tg_id, region_id, district_id, facility_id, created_at) VALUES (?,?,?,?,?)", (str(tg_id), f["rid"], f["did"], facility_id, now()))
-    audit(c, "request.create", "request", cur.lastrowid, {"tg_id": str(tg_id), "facility": facility_id}, actor="telegram " + str(tg_id))
+def create_request(c, tg_id: str, region_id: int, district_id: int | None = None) -> int:
+    """A request for access to a region. The district, if given, only tells the administrator where the person works."""
+    r = c.execute("SELECT id FROM regions WHERE id=? AND active=1", (region_id,)).fetchone()
+    if not r:
+        raise PeopleError("Регион не найден или отключён", 404)
+    if district_id and not c.execute("SELECT 1 FROM districts WHERE id=? AND region_id=? AND active=1", (district_id, region_id)).fetchone():
+        district_id = None
+    if c.execute("SELECT 1 FROM region_access WHERE tg_id=? AND region_id=? AND active=1", (str(tg_id), region_id)).fetchone():
+        raise PeopleError("У вас уже есть доступ к этому региону")
+    if c.execute("SELECT 1 FROM access_requests WHERE tg_id=? AND region_id=? AND facility_id IS NULL AND status='pending'", (str(tg_id), region_id)).fetchone():
+        raise PeopleError("Запрос на этот регион уже ожидает рассмотрения")
+    cur = c.execute("INSERT INTO access_requests(tg_id, region_id, district_id, facility_id, created_at) VALUES (?,?,?,NULL,?)", (str(tg_id), region_id, district_id, now()))
+    audit(c, "request.create", "request", cur.lastrowid, {"tg_id": str(tg_id), "region": region_id}, actor="telegram " + str(tg_id))
     return cur.lastrowid
 
 
@@ -121,14 +158,19 @@ def decide(c, user, request_id: int, approve: bool, kind: str = "primary", fio: 
         raise PeopleError("Запрос не найден", 404)
     if q["status"] != "pending":
         raise PeopleError("Запрос уже рассмотрен")
-    if not can_manage_facility(user, c, q["facility_id"]):
-        raise PeopleError("Недостаточно прав для этого учреждения", 403)
+    by_facility = q["facility_id"] is not None
+    if not (can_manage_facility(user, c, q["facility_id"]) if by_facility else can_manage_region(user, q["region_id"])):
+        raise PeopleError("Недостаточно прав для этого региона", 403)
     if approve:
         u = c.execute("SELECT * FROM tg_users WHERE tg_id=?", (q["tg_id"],)).fetchone()
-        assign(c, user, q["tg_id"], q["facility_id"], kind, fio or " ".join(x for x in (u["first_name"], u["last_name"]) if x))
+        name = fio or " ".join(x for x in (u["first_name"], u["last_name"]) if x)
+        if by_facility:
+            assign(c, user, q["tg_id"], q["facility_id"], kind, name)
+        else:
+            assign_region(c, user, q["tg_id"], q["region_id"], kind, name)
     c.execute("UPDATE access_requests SET status=?, decided_by=?, decided_at=?, note=? WHERE id=?", ("approved" if approve else "rejected", user["id"], now(), note.strip(), request_id))
     audit(c, "request.approve" if approve else "request.reject", "request", request_id, {"tg_id": q["tg_id"], "facility": q["facility_id"], "note": note})
-    return {"tg_id": q["tg_id"], "facility_id": q["facility_id"], "approved": approve, "note": note}
+    return {"tg_id": q["tg_id"], "facility_id": q["facility_id"], "region_id": q["region_id"], "approved": approve, "note": note}
 
 
 # ---------------------------------------------------------------- import of territories from Excel / CSV

@@ -41,23 +41,70 @@ def test_start_without_access_offers_request(bot):
     assert SENT and "доступ" in last(100).lower()
 
 
-def test_access_request_flow_and_decision(bot, monkeypatch):
-    fid = make_facility()
+def test_access_request_for_region_only(bot):
     from app import people
     from app.db import connect, tx
     msg(bot, 100, "/start")
     cb(bot, 100, "rq:r:1")
-    d = connect().execute("SELECT id FROM districts WHERE region_id=1").fetchone()["id"]
-    cb(bot, 100, f"rq:d:{d}")
-    cb(bot, 100, f"rq:f:{fid}")
-    c = connect()
-    q = c.execute("SELECT * FROM access_requests").fetchone()
-    assert q["status"] == "pending"
+    kb = [m for c, t, m in SENT if c == "100" and m][-1]
+    flat = [x["callback_data"] for row in kb["inline_keyboard"] for x in row]
+    assert "rq:g:1" in flat                      # a region alone is enough
+    cb(bot, 100, "rq:g:1")
+    q = connect().execute("SELECT * FROM access_requests").fetchone()
+    assert q["status"] == "pending" and q["region_id"] == 1 and q["facility_id"] is None
+    cb(bot, 100, "rq:g:1")                       # the second request is refused politely
+    assert "ожидает" in last(100)
     with tx() as cc:
         out = people.decide(cc, {"id": 1, "role": "super_admin", "regions": None}, q["id"], True)
-    bot.notify_decision(out["tg_id"], out["facility_id"], True, "")
-    assert connect().execute("SELECT COUNT(*) FROM assignments WHERE tg_id='100' AND active=1").fetchone()[0] == 1
-    assert "одобрен" in last(100).lower() or "доступ" in last(100).lower()
+    bot.notify_decision(out["tg_id"], out["facility_id"], True, "", out["region_id"])
+    assert connect().execute("SELECT COUNT(*) FROM region_access WHERE tg_id='100' AND active=1").fetchone()[0] == 1
+    assert "регион" in last(100).lower()
+
+
+def test_region_user_reports_for_any_district_of_region(bot):
+    from app import people
+    from app.db import connect, tx
+    f1 = make_facility(1, "Район А", "A1")
+    f2 = make_facility(1, "Район Б", "B1")
+    other = make_facility(2, "Район В", "C1")
+    with tx() as c:
+        people.add_tg_user(c, "200200", "Али")
+        people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, "200200", 1)
+    msg(bot, 200200, "/submit")
+    kb = [m for c, t, m in SENT if c == "200200" and m][-1]
+    flat = [x["callback_data"] for row in kb["inline_keyboard"] for x in row]
+    c = connect()
+    dids = [r["id"] for r in c.execute("SELECT id FROM districts WHERE region_id=1")]
+    assert all(f"sg:{d}" in flat for d in dids)             # both districts of the region are offered
+    cb(bot, 200200, f"sg:{dids[1]}")
+    cb(bot, 200200, f"sf:{f2}")
+    cb(bot, 200200, f"sd:{f2}:2026-02-10")
+    for a in ["100", "40", "20", "50", "5", "1", "1", "1", "0", "0", "10", "6"]:
+        msg(bot, 200200, a)
+    cb(bot, 200200, "ok")
+    assert connect().execute("SELECT COUNT(*) FROM reports WHERE facility_id=?", (f2,)).fetchone()[0] == 1
+    # another region is closed, even if somebody forges the callback
+    SENT.clear()
+    cb(bot, 200200, f"sf:{other}")
+    assert connect().execute("SELECT COUNT(*) FROM reports WHERE facility_id=?", (other,)).fetchone()[0] == 0
+    assert "нет прав" in last(200200).lower()
+    cb(bot, 200200, f"sg:{connect().execute('SELECT id FROM districts WHERE region_id=2').fetchone()['id']}")
+    assert "нет доступа" in last(200200).lower()
+
+
+def test_region_user_gets_one_reminder_with_unsent_list(env, monkeypatch):
+    from datetime import datetime
+    from app import notify, people, tg
+    from app.db import tx
+    sent = []
+    monkeypatch.setattr(tg, "send", lambda chat, text, markup=None: (sent.append((str(chat), text)) or (True, "")))
+    f1, f2 = make_facility(1, fac="A"), make_facility(1, "Район Б", "B")
+    with tx() as c:
+        people.add_tg_user(c, "300300", "Али")
+        people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, "300300", 1)
+    put_report(f1, "2026-02-10")
+    notify.run_due(datetime(2026, 2, 10, 15, 5))
+    assert len(sent) == 1 and "B" in sent[0][1] and "A" not in sent[0][1].replace("Район", "")
 
 
 def test_unassigned_cannot_submit_for_facility(bot):

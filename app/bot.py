@@ -61,6 +61,24 @@ T = {
 }
 
 
+T["ru"].update({
+    "pick_district_req": "Регион: <b>{region}</b>\nДостаточно региона: нажмите кнопку ниже. Район можно указать, но это необязательно — отправлять сводки вы сможете по любым районам региона.",
+    "all_region": "✅ Запросить доступ ко всему региону", "req_sent_region": "✅ Запрос отправлен администратору.\nРегион: <b>{fac}</b>\nКогда доступ откроют, вы получите сообщение.",
+    "approved_region": "✅ Вам открыт доступ к региону <b>{fac}</b>. Можно отправлять сводки по любому району и учреждению региона.",
+    "rejected_region": "❌ Запрос на доступ к региону <b>{fac}</b> отклонён.{note}",
+    "pick_district_sub": "Регион: <b>{region}</b>\nВыберите <b>район</b>:", "my_region": "📍 Регион: {name} — выбрать район", "rights_region": "Весь регион (любые районы и учреждения)",
+    "status_region": "\n<b>Регион {name}</b>: за {date} не сдали {n} из {total}", "and_more": "…и ещё {n}",
+})
+T["uz"].update({
+    "pick_district_req": "Вилоят: <b>{region}</b>\nВилоятнинг ўзи етарли: пастдаги тугмани босинг. Туманни кўрсатиш мумкин, лекин шарт эмас — вилоятнинг исталган тумани бўйича маълумот юбора оласиз.",
+    "all_region": "✅ Бутун вилоятга рухсат сўраш", "req_sent_region": "✅ Сўров администраторга юборилди.\nВилоят: <b>{fac}</b>\nРухсат берилгач, сизга хабар келади.",
+    "approved_region": "✅ Сизга <b>{fac}</b> вилояти бўйича рухсат берилди. Вилоятнинг исталган тумани ва муассасаси бўйича маълумот юбориш мумкин.",
+    "rejected_region": "❌ <b>{fac}</b> вилоятига рухсат сўрови рад этилди.{note}",
+    "pick_district_sub": "Вилоят: <b>{region}</b>\n<b>Туманни</b> танланг:", "my_region": "📍 Вилоят: {name} — туманни танлаш", "rights_region": "Бутун вилоят (исталган туман ва муассаса)",
+    "status_region": "\n<b>{name} вилояти</b>: {date} санаси учун {total} тадан {n} таси юбормаган", "and_more": "…яна {n} та",
+})
+
+
 def t(lang: str, key: str, **kw) -> str:
     s = T.get(lang, T["ru"]).get(key) or T["ru"][key]
     return s.format(**kw) if kw else s
@@ -125,7 +143,7 @@ def handle_update(u: dict) -> None:
         if not user["active"]:
             tg.send(chat["id"], t(lang, "stopped"))
             return
-        has = bool(reports.user_facilities(c, user["tg_id"]))
+        has = reports.has_access(c, user["tg_id"])
         st = get_state(c, user["tg_id"])
         cmd = text.split()[0].split("@")[0].lower()
         action = MENU_TEXT.get(text) or {"/start": "start", "/help": "help", "/status": "status", "/cancel": "cancel", "/submit": "submit", "/lang": "lang"}.get(cmd)
@@ -170,7 +188,9 @@ def show_rights(c, user, chat, has) -> None:
     lang = user["lang"]
     facs = reports.user_facilities(c, user["tg_id"])
     lines = [f"• <b>{esc(nm(f, lang))}</b>\n   {esc(nm(f, lang, 'region'))} / {esc(nm(f, lang, 'district'))} ({t(lang, f['kind'])})" for f in facs]
-    pend = c.execute("""SELECT f.name_ru, f.name_uz FROM access_requests q JOIN facilities f ON f.id=q.facility_id WHERE q.tg_id=? AND q.status='pending'""", (user["tg_id"],)).fetchall()
+    lines = [f"• <b>{esc(nm(r, lang))}</b>\n   {t(lang, 'rights_region')} ({t(lang, r['kind'])})" for r in reports.user_regions(c, user["tg_id"])] + lines
+    pend = c.execute("""SELECT COALESCE(f.name_ru, r.name_ru) AS name_ru, COALESCE(f.name_uz, r.name_uz) AS name_uz FROM access_requests q LEFT JOIN facilities f ON f.id=q.facility_id
+                        LEFT JOIN regions r ON r.id=q.region_id WHERE q.tg_id=? AND q.status='pending'""", (user["tg_id"],)).fetchall()
     text = t(lang, "rights") + "\n\n" + ("\n".join(lines) if lines else t(lang, "rights_none"))
     if pend:
         text += t(lang, "rights_pending") + "\n" + "\n".join("• " + esc(nm(p, lang)) for p in pend)
@@ -181,9 +201,19 @@ def show_status(c, user, chat, has) -> None:
     lang = user["lang"]
     st = all_settings(c)
     facs = reports.user_facilities(c, user["tg_id"])
-    if not facs:
+    regs = reports.user_regions(c, user["tg_id"])
+    if not facs and not regs:
         return tg.send(chat, t(lang, "no_access"), main_kb(lang, has))
     out = [t(lang, "status_head")]
+    for rg in regs:
+        total = c.execute("SELECT COUNT(*) FROM facilities f JOIN districts d ON d.id=f.district_id WHERE d.region_id=? AND f.active=1 AND d.active=1", (rg["id"],)).fetchone()[0]
+        for d in reports.allowed_dates(st):
+            miss = c.execute("""SELECT f.name_ru, f.name_uz FROM facilities f JOIN districts d ON d.id=f.district_id WHERE d.region_id=? AND f.active=1 AND d.active=1
+                                AND NOT EXISTS (SELECT 1 FROM reports rep WHERE rep.facility_id=f.id AND rep.report_date=?) ORDER BY f.name_ru""", (rg["id"], d.isoformat())).fetchall()
+            out.append(t(lang, "status_region", name=esc(nm(rg, lang)), date=d.strftime("%d.%m"), n=len(miss), total=total))
+            out += ["• " + esc(nm(m, lang)) for m in miss[:15]]
+            if len(miss) > 15:
+                out.append(t(lang, "and_more", n=len(miss) - 15))
     for f in facs:
         out.append(f"\n<b>{esc(nm(f, lang))}</b>")
         for d in reports.allowed_dates(st):
@@ -199,7 +229,10 @@ def show_status(c, user, chat, has) -> None:
 def show_history(c, user, chat, has) -> None:
     lang = user["lang"]
     rows = c.execute("""SELECT rep.id, rep.report_date, rep.version, rep.status, f.name_ru, f.name_uz FROM reports rep JOIN facilities f ON f.id=rep.facility_id
-                        JOIN assignments a ON a.facility_id=f.id AND a.tg_id=? AND a.active=1 ORDER BY rep.report_date DESC, rep.id DESC LIMIT 10""", (user["tg_id"],)).fetchall()
+                        JOIN districts d ON d.id=f.district_id
+                        WHERE f.id IN (SELECT facility_id FROM assignments WHERE tg_id=? AND active=1)
+                           OR d.region_id IN (SELECT region_id FROM region_access WHERE tg_id=? AND active=1)
+                        ORDER BY rep.report_date DESC, rep.id DESC LIMIT 10""", (user["tg_id"], user["tg_id"])).fetchall()
     if not rows:
         return tg.send(chat, t(lang, "hist_none"), main_kb(lang, has))
     kb = [[btn(t(lang, "hist_item", date=r["report_date"][5:].replace("-", "."), fac=nm(r, lang)[:28], ver=r["version"], st="↩️" if r["status"] == "returned" else "✅"), f"hi:{r['id']}")] for r in rows]
@@ -214,11 +247,35 @@ def indicator_list(c) -> list:
 def begin_submit(c, user, chat, has) -> None:
     lang = user["lang"]
     facs = reports.user_facilities(c, user["tg_id"])
-    if not facs:
+    regs = reports.user_regions(c, user["tg_id"])
+    if not facs and not regs:
         return tg.send(chat, t(lang, "no_access"), main_kb(lang, has))
-    if len(facs) == 1:
+    if len(facs) == 1 and not regs:
         return pick_facility(c, user, chat, facs[0]["id"])
-    tg.send(chat, t(lang, "pick_fac_submit"), ik([[btn(nm(f, lang)[:60], f"sf:{f['id']}")] for f in facs]))
+    if not facs and len(regs) == 1:
+        return pick_district_to_submit(c, user, chat, regs[0]["id"], 0)
+    rows = [[btn(t(lang, "my_region", name=nm(r, lang))[:60], f"sr:{r['id']}")] for r in regs] + [[btn(nm(f, lang)[:60], f"sf:{f['id']}")] for f in facs]
+    tg.send(chat, t(lang, "pick_fac_submit"), ik(rows))
+
+
+def pick_district_to_submit(c, user, chat, region_id: int, page: int) -> None:
+    lang = user["lang"]
+    if not any(r["id"] == region_id for r in reports.user_regions(c, user["tg_id"])):
+        return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
+    r = c.execute("SELECT * FROM regions WHERE id=?", (region_id,)).fetchone()
+    ds = c.execute("SELECT id, name_ru, name_uz FROM districts WHERE region_id=? AND active=1 ORDER BY name_ru", (region_id,)).fetchall()
+    paged(chat, lang, t(lang, "pick_district_sub", region=esc(nm(r, lang))), ds, "sg:", page, f"sr:{region_id}")
+
+
+def pick_facility_to_submit(c, user, chat, district_id: int, page: int) -> None:
+    lang = user["lang"]
+    d = c.execute("SELECT * FROM districts WHERE id=? AND active=1", (district_id,)).fetchone()
+    if not d or not any(r["id"] == d["region_id"] for r in reports.user_regions(c, user["tg_id"])):
+        return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому району"))
+    fs = c.execute("SELECT id, name_ru, name_uz FROM facilities WHERE district_id=? AND active=1 ORDER BY name_ru", (district_id,)).fetchall()
+    if not fs:
+        return tg.send(chat, t(lang, "fail", msg="В районе нет учреждений"))
+    paged(chat, lang, t(lang, "pick_facility", district=esc(nm(d, lang))), fs, "sf:", page, f"sg:{district_id}")
 
 
 def pick_facility(c, user, chat, fid: int, message_id=None) -> None:
@@ -322,7 +379,7 @@ def handle_callback(cq: dict) -> None:
     with tx() as c:
         user = people.touch(c, cq["from"], all_settings(c)["default_lang"])
         lang = user["lang"]
-        has = bool(reports.user_facilities(c, user["tg_id"]))
+        has = reports.has_access(c, user["tg_id"])
         tg.answer(cq["id"])
         if not user["active"]:
             return
@@ -332,6 +389,10 @@ def handle_callback(cq: dict) -> None:
             return request_flow(c, user, chat, msg, p)
         if k == "sf":
             return pick_facility(c, user, chat, int(p[1]))
+        if k == "sr":
+            return pick_district_to_submit(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
+        if k == "sg":
+            return pick_facility_to_submit(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
         if k == "sd":
             return pick_date(c, user, chat, int(p[1]), p[2])
         if k == "go" or k == "sub":
@@ -360,29 +421,43 @@ def handle_callback(cq: dict) -> None:
 
 
 def request_flow(c, user, chat, msg, p) -> None:
+    """Access is requested for a region; the district is optional (it only tells the administrator where the person works)."""
     lang = user["lang"]
     step = p[1]
-    if step == "r":
+    if step in ("r", "d"):
+        if step == "d":
+            d = c.execute("SELECT * FROM districts WHERE id=? AND active=1", (int(p[2]),)).fetchone()
+            if not d:
+                return
+            return send_request(c, user, chat, d["region_id"], d["id"])
         r = c.execute("SELECT * FROM regions WHERE id=? AND active=1", (int(p[2]),)).fetchone()
         if not r:
             return
         ds = c.execute("SELECT id, name_ru, name_uz FROM districts WHERE region_id=? AND active=1 ORDER BY name_ru", (r["id"],)).fetchall()
-        return paged(chat, lang, t(lang, "pick_district", region=esc(nm(r, lang))), ds, f"rq:d:", int(p[3]) if len(p) > 3 else 0, f"rq:r:{r['id']}")
-    if step == "d":
-        d = c.execute("SELECT * FROM districts WHERE id=? AND active=1", (int(p[2]),)).fetchone()
-        if not d:
-            return
-        fs = c.execute("SELECT id, name_ru, name_uz FROM facilities WHERE district_id=? AND active=1 ORDER BY name_ru", (d["id"],)).fetchall()
-        return paged(chat, lang, t(lang, "pick_facility", district=esc(nm(d, lang))), fs, "rq:f:", int(p[3]) if len(p) > 3 else 0, f"rq:d:{d['id']}")
-    if step == "f":
-        fid = int(p[2])
-        f = c.execute("SELECT name_ru, name_uz FROM facilities WHERE id=?", (fid,)).fetchone()
-        try:
-            rid = people.create_request(c, user["tg_id"], fid)
-        except people.PeopleError as e:
-            return tg.send(chat, t(lang, "req_dup", why=esc(e.message)))
-        tg.send(chat, t(lang, "req_sent", fac=esc(nm(f, lang))))
-        notify_admins_about_request(c, rid)
+        chunk_page = int(p[3]) if len(p) > 3 else 0
+        chunk = ds[chunk_page * 10:(chunk_page + 1) * 10]
+        rows = [[btn(t(lang, "all_region"), f"rq:g:{r['id']}")]] + [[btn(nm(i, lang)[:60], f"rq:d:{i['id']}")] for i in chunk]
+        nav = []
+        if chunk_page > 0:
+            nav.append(btn(t(lang, "prev"), f"rq:r:{r['id']}:{chunk_page - 1}"))
+        if (chunk_page + 1) * 10 < len(ds):
+            nav.append(btn(t(lang, "next"), f"rq:r:{r['id']}:{chunk_page + 1}"))
+        if nav:
+            rows.append(nav)
+        return tg.send(chat, t(lang, "pick_district_req", region=esc(nm(r, lang))), ik(rows))
+    if step == "g":
+        return send_request(c, user, chat, int(p[2]), None)
+
+
+def send_request(c, user, chat, region_id: int, district_id) -> None:
+    lang = user["lang"]
+    r = c.execute("SELECT name_ru, name_uz FROM regions WHERE id=?", (region_id,)).fetchone()
+    try:
+        rid = people.create_request(c, user["tg_id"], region_id, district_id)
+    except people.PeopleError as e:
+        return tg.send(chat, t(lang, "req_dup", why=esc(e.message)))
+    tg.send(chat, t(lang, "req_sent_region", fac=esc(nm(r, lang))))
+    notify_admins_about_request(c, rid)
 
 
 def paged(chat, lang, text, items, prefix, page, self_cb, per=10) -> None:
@@ -427,28 +502,29 @@ def show_report(c, user, chat, rid: int) -> None:
 # ---------------------------------------------------------------- notifications triggered from the web
 def notify_admins_about_request(c, request_id: int) -> None:
     q = c.execute("""SELECT q.*, u.first_name, u.last_name, u.username, r.name_ru AS region, d.name_ru AS district, f.name_ru AS facility
-                     FROM access_requests q JOIN tg_users u ON u.tg_id=q.tg_id JOIN regions r ON r.id=q.region_id JOIN districts d ON d.id=q.district_id JOIN facilities f ON f.id=q.facility_id WHERE q.id=?""", (request_id,)).fetchone()
+                     FROM access_requests q JOIN tg_users u ON u.tg_id=q.tg_id JOIN regions r ON r.id=q.region_id LEFT JOIN districts d ON d.id=q.district_id LEFT JOIN facilities f ON f.id=q.facility_id WHERE q.id=?""", (request_id,)).fetchone()
     if not q:
         return
     who = " ".join(x for x in (q["first_name"], q["last_name"]) if x) or "—"
     text = (f"🔑 <b>Новый запрос доступа</b>\n{esc(who)}" + (f" (@{esc(q['username'])})" if q["username"] else "") + f", Telegram ID {q['tg_id']}\n"
-            f"{esc(q['region'])} / {esc(q['district'])} / <b>{esc(q['facility'])}</b>\nРассмотрите запрос в разделе «Запросы доступа».")
+            f"<b>{esc(q['region'])}</b>" + (f" / {esc(q['district'])}" if q["district"] else "") + (f" / <b>{esc(q['facility'])}</b>" if q["facility"] else " (доступ ко всему региону)") + "\nРассмотрите запрос в разделе «Запросы доступа».")
     for s in c.execute("SELECT * FROM staff WHERE active=1 AND tg_id != '' AND (role='super_admin' OR (role='admin' AND can_manage_users=1))").fetchall():
         if s["role"] == "admin" and not c.execute("SELECT 1 FROM staff_scope WHERE staff_id=? AND region_id=?", (s["id"], q["region_id"])).fetchone():
             continue
         tg.send(s["tg_id"], text)
 
 
-def notify_decision(tg_id: str, facility_id: int, approved: bool, note: str = "") -> None:
+def notify_decision(tg_id: str, facility_id, approved: bool, note: str = "", region_id=None) -> None:
     c = connect()
     try:
         u = c.execute("SELECT * FROM tg_users WHERE tg_id=?", (tg_id,)).fetchone()
-        f = c.execute("SELECT name_ru, name_uz FROM facilities WHERE id=?", (facility_id,)).fetchone()
+        f = c.execute("SELECT name_ru, name_uz FROM facilities WHERE id=?", (facility_id,)).fetchone() if facility_id else c.execute("SELECT name_ru, name_uz FROM regions WHERE id=?", (region_id,)).fetchone()
         if not u or not f:
             return
         lang = u["lang"]
-        has = bool(reports.user_facilities(c, tg_id))
-        text = t(lang, "approved", fac=esc(nm(f, lang))) if approved else t(lang, "rejected", fac=esc(nm(f, lang)), note=("\n" + esc(note)) if note else "")
+        has = reports.has_access(c, tg_id)
+        suffix = "" if facility_id else "_region"
+        text = t(lang, "approved" + suffix, fac=esc(nm(f, lang))) if approved else t(lang, "rejected" + suffix, fac=esc(nm(f, lang)), note=("\n" + esc(note)) if note else "")
         tg.send(tg_id, text, main_kb(lang, has))
     finally:
         c.close()

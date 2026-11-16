@@ -47,7 +47,26 @@ def facility_info(c, fid: int):
 
 
 def access(c, tg_id: str, facility_id: int):
-    """The active assignment of this Telegram user to this facility, or None. The server decides, whatever the bot shows."""
+    """The active right of this Telegram user to report for this facility, or None: a direct assignment, or access to the whole
+    region the facility belongs to. The server decides, whatever the bot shows."""
+    direct = _direct_access(c, tg_id, facility_id)
+    if direct:
+        return direct
+    return c.execute("""SELECT ra.* FROM region_access ra JOIN tg_users u ON u.tg_id=ra.tg_id JOIN regions r ON r.id=ra.region_id
+                        JOIN districts d ON d.region_id=r.id JOIN facilities f ON f.district_id=d.id
+                        WHERE ra.tg_id=? AND f.id=? AND ra.active=1 AND u.active=1 AND f.active=1 AND d.active=1 AND r.active=1""", (str(tg_id), facility_id)).fetchone()
+
+
+def user_regions(c, tg_id: str) -> list:
+    return c.execute("""SELECT r.id, r.name_ru, r.name_uz, ra.kind FROM region_access ra JOIN tg_users u ON u.tg_id=ra.tg_id JOIN regions r ON r.id=ra.region_id
+                        WHERE ra.tg_id=? AND ra.active=1 AND u.active=1 AND r.active=1 ORDER BY r.sort""", (str(tg_id),)).fetchall()
+
+
+def has_access(c, tg_id: str) -> bool:
+    return bool(user_facilities(c, tg_id) or user_regions(c, tg_id))
+
+
+def _direct_access(c, tg_id: str, facility_id: int):
     return c.execute("""SELECT a.* FROM assignments a JOIN tg_users u ON u.tg_id=a.tg_id JOIN facilities f ON f.id=a.facility_id
                         JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id
                         WHERE a.tg_id=? AND a.facility_id=? AND a.active=1 AND u.active=1 AND f.active=1 AND d.active=1 AND r.active=1""", (str(tg_id), facility_id)).fetchone()
@@ -242,6 +261,10 @@ def control(c, user, d: str, region_id=None, district_id=None, facility_id=None,
                          FROM facilities f JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id
                          LEFT JOIN reports rep ON rep.facility_id=f.id AND rep.report_date=?
                          WHERE {' AND '.join(where)} ORDER BY r.sort, d.name_ru, f.name_ru""", [d] + args).fetchall()
+    reg_resp: dict[int, list] = {}
+    for a_ in c.execute("""SELECT ra.region_id, ra.kind, ra.fio, u.first_name, u.last_name, u.username, ra.tg_id FROM region_access ra JOIN tg_users u ON u.tg_id=ra.tg_id
+                           WHERE ra.active=1 AND u.active=1"""):
+        reg_resp.setdefault(a_["region_id"], []).append((a_["fio"] or " ".join(x for x in (a_["first_name"], a_["last_name"]) if x) or a_["username"] or a_["tg_id"]) + (" (регион, резерв)" if a_["kind"] == "reserve" else " (регион)"))
     resp: dict[int, list] = {}
     for a_ in c.execute("""SELECT a.facility_id, a.kind, a.fio, u.first_name, u.last_name, u.username, a.tg_id FROM assignments a JOIN tg_users u ON u.tg_id=a.tg_id
                            WHERE a.active=1 AND u.active=1"""):
@@ -253,7 +276,7 @@ def control(c, user, d: str, region_id=None, district_id=None, facility_id=None,
             status = "returned" if r["status"] == "returned" else "corrected" if r["corrected"] else "sent"
         else:
             status = "overdue" if overdue else "not_sent"
-        has_resp = r["facility_id"] in resp
+        has_resp = r["facility_id"] in resp or r["region_id"] in reg_resp
         counts["total"] += 1
         if status in ("sent", "corrected"):
             counts["sent"] += 1
@@ -262,7 +285,7 @@ def control(c, user, d: str, region_id=None, district_id=None, facility_id=None,
             counts[status] += 1
         if not has_resp:
             counts["no_responsible"] += 1
-        out.append({**dict(r), "state": status, "responsible": ", ".join(resp.get(r["facility_id"], [])), "has_responsible": has_resp, "late": bool(r["late"]),
+        out.append({**dict(r), "state": status, "responsible": ", ".join(resp.get(r["facility_id"], []) + reg_resp.get(r["region_id"], [])), "has_responsible": has_resp, "late": bool(r["late"]),
                     "time": (r["submitted_at"] or "")[11:16]})
     counts["reported"] = counts["sent"] + counts["returned"]
     return {"date": d, "deadline": deadline(st, dd).strftime("%Y-%m-%d %H:%M"), "overdue": overdue, "counts": counts, "rows": out}

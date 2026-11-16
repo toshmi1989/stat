@@ -31,6 +31,14 @@ def unsent_by_person(c, d: str, st: dict) -> dict:
                           LEFT JOIN reports rep ON rep.facility_id=f.id AND rep.report_date=?
                           WHERE a.active=1 AND u.active=1 AND f.active=1 AND dd.active=1 AND r.active=1 AND (rep.id IS NULL OR rep.status='returned') ORDER BY f.name_ru""", (d,)):
         out.setdefault(r["tg_id"], []).append(r)
+    # access to a whole region: every facility of the region that has not reported
+    seen = {(tid, r["fid"]) for tid, rows in out.items() for r in rows}
+    for r in c.execute("""SELECT ra.tg_id, f.id AS fid, f.name_ru, f.name_uz, u.lang FROM region_access ra JOIN tg_users u ON u.tg_id=ra.tg_id JOIN regions r ON r.id=ra.region_id
+                          JOIN districts dd ON dd.region_id=r.id JOIN facilities f ON f.district_id=dd.id
+                          LEFT JOIN reports rep ON rep.facility_id=f.id AND rep.report_date=?
+                          WHERE ra.active=1 AND u.active=1 AND f.active=1 AND dd.active=1 AND r.active=1 AND (rep.id IS NULL OR rep.status='returned') ORDER BY f.name_ru""", (d,)):
+        if (r["tg_id"], r["fid"]) not in seen:
+            out.setdefault(r["tg_id"], []).append(r)
     return out
 
 
@@ -59,7 +67,9 @@ def run_due(at=None, force: bool = False, dry: bool = False) -> list[dict]:
                         res.append(rec)
                         continue
                     lang = facs[0]["lang"]
-                    items = "\n".join(f"🏥 {bot.esc(bot.nm(f, lang))}" for f in facs)
+                    items = "\n".join(f"🏥 {bot.esc(bot.nm(f, lang))}" for f in facs[:20])
+                    if len(facs) > 20:
+                        items += "\n" + bot.t(lang, "and_more", n=len(facs) - 20)
                     text = bot.t(lang, "remind" if n == 0 else "remind_late", date=d, items=items)
                     if dry:
                         rec["status"] = "would_send"

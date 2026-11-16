@@ -85,7 +85,7 @@ async function dashboard() {
     <div class="grid2"><div class="card"><h3>Динамика</h3><div class="row"><div id="dyn-m"></div><label class="sm">Сравнить регионы <select id="dyn-r" multiple size="3">${META.regions.map(r => `<option value="${r.id}">${esc(r.name_ru)}</option>`).join("")}</select></label></div><div id="dyn"></div></div>
     <div class="card"><h3>Госпитализации и выписки</h3><div id="hd"></div></div></div>
     <div class="card"><h3>Баланс коек</h3><div class="scroll-x" id="beds"></div></div>`;
-  api("/api/alerts").then(a => $("#alerts").innerHTML = a.items.slice(0, 6).map(x => `<div class="alert ${x.level}">${esc(x.text)}</div>`).join("") + (a.items.length > 6 ? `<p class="muted sm">Ещё предупреждений: ${a.items.length - 6} (раздел «Прогноз»)</p>` : "")).catch(fail);
+  api("/api/alerts").then(a => $("#alerts") && ($("#alerts").innerHTML = a.items.slice(0, 6).map(x => `<div class="alert ${x.level}">${esc(x.text)}</div>`).join("") + (a.items.length > 6 ? `<p class="muted sm">Ещё предупреждений: ${a.items.length - 6} (раздел «Прогноз»)</p>` : ""))).catch(fail);
   const [u1, u2] = dash.fallback ? [dash.used_date, dash.used_date] : [d1, d2];   // tables follow the day the KPI cards show
   loadTable(u1, u2); loadDyn(); loadHD(); loadBeds(u1, u2);
 }
@@ -98,6 +98,7 @@ function loadDyn() {
     const [d1, d2] = periodOf(); const a = d2 === d1 ? addDays(d1, -13) : d1;
     try {
       const r = await api("/api/dynamics?" + qs({ d1: a, d2, metrics: METRICS.join(","), regions, region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }));
+      if (!$("#dyn")) return;
       $("#dyn").innerHTML = lineChart(r.dates, r.series.map(s => ({ name: s.name + (METRICS.length > 1 ? " — " + NAMES[s.metric] : ""), points: s.points })));
     } catch (e) { fail(e); }
   };
@@ -108,6 +109,7 @@ async function loadHD() {
   const [d1, d2] = periodOf(); const a = d2 === d1 ? addDays(d1, -13) : d1;
   try {
     const r = await api("/api/hosp-disch?" + qs({ d1: a, d2, region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }));
+    if (!$("#hd")) return;
     $("#hd").innerHTML = barChart(r.rows.map(x => x.date), [{ name: "Госпитализации", values: r.rows.map(x => x.hosp) }, { name: "Выписки", values: r.rows.map(x => x.disch) }]) +
       `<div class="scroll-x" style="max-height:200px;overflow:auto"><table><tr><th>Дата</th><th class="n">Госп.</th><th class="n">Выписки</th><th class="n">Разница</th><th class="n">Занято</th><th class="n">Изм.</th></tr>${r.rows.slice().reverse().map(x => `<tr><td>${x.date}</td><td class="n">${num(x.hosp)}</td><td class="n">${num(x.disch)}</td><td class="n">${num(x.diff)}</td><td class="n">${num(x.occupied)}</td><td class="n">${x.occ_change == null ? "—" : (x.occ_change > 0 ? "+" : "") + x.occ_change}</td></tr>`).join("")}</table></div>`;
   } catch (e) { fail(e); }
@@ -116,6 +118,7 @@ async function loadTable(d1, d2) {
   const level = DRILL.length === 0 ? "region" : DRILL.length === 1 ? "district" : "facility";
   const pid = DRILL.length ? DRILL[DRILL.length - 1].id : "";
   let r; try { r = await api("/api/regions-table?" + qs({ d1, d2, level, parent_id: pid })); } catch (e) { return fail(e); }
+  if (!$("#rt-q")) return;   // the person has already left the dashboard
   const cols = [["name", "Название"], ["reported", "Отчётов"], ["visits", "Обращения"], ["severe", "Тяжёлые"], ["extreme", "Крайне тяж."], ["hosp", "Госп."], ["disch", "Выписки"], ["beds_flu", "Коек"], ["beds_occupied", "Занято"], ["beds_free", "Своб."], ["occupancy", "Загрузка"]];
   const draw = () => {
     const q = ($("#rt-q").value || "").toLowerCase();
@@ -133,6 +136,7 @@ async function loadTable(d1, d2) {
 async function loadBeds(d1, d2) {
   try {
     const r = await api("/api/beds?" + qs({ d1, d2 })); const th = r.thresholds;
+    if (!$("#beds")) return;
     $("#beds").innerHTML = `<p class="muted sm">Пороги: повышенная нагрузка ≥ ${th.elevated}%, критическая ≥ ${th.critical}%, учреждение ≥ ${th.facility}%.</p><table><tr><th>Регион</th><th class="n">Коек для гриппа</th><th class="n">Занято</th><th class="n">Свободно</th><th class="n">Загрузка</th><th>Состояние</th></tr>${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${num(x.beds_flu)}</td><td class="n">${num(x.occupied)}</td><td class="n">${num(x.free)}</td><td class="n">${x.occupancy == null ? "—" : num(x.occupancy) + "%"}</td><td>${pill(x.state)}</td></tr>`).join("")}</table>` +
       (r.hot.length ? `<h3 class="mt">Учреждения с высокой загрузкой</h3><table><tr><th>Учреждение</th><th>Регион</th><th class="n">Загрузка</th><th class="n">Свободно</th></tr>${r.hot.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.region)}, ${esc(x.district)}</td><td class="n"><span class="pill critical">${num(x.occupancy)}%</span></td><td class="n">${num(x.free)}</td></tr>`).join("")}</table>` : "");
   } catch (e) { fail(e); }
@@ -234,12 +238,13 @@ async function editReport(r) {
 async function people() {
   view.innerHTML = `<div class="card"><div class="row"><h2>Заявки на доступ</h2></div><div id="rq" class="scroll-x"></div></div><div class="card"><div class="row"><h2>Ответственные (Telegram)</h2><button class="btn pri right" id="tg-add">+ Добавить</button></div><div id="tgl" class="scroll-x"></div></div><div id="staffbox"></div>`;
   const loadReq = async () => { try { const r = await api("/api/requests?status=pending");
-    $("#rq").innerHTML = r.items.length ? `<table><tr><th>Дата</th><th>Telegram</th><th>Учреждение</th><th></th></tr>${r.items.map(x => `<tr><td>${esc(x.created_at)}</td><td>${esc(x.name || x.tg_id)} <span class="muted">${esc(x.tg_id)}</span></td><td>${esc(x.region)} — ${esc(x.district)} — ${esc(x.facility)}</td><td class="row"><button class="btn sm pri" data-ap="${x.id}">Одобрить</button><button class="btn sm bad" data-no="${x.id}">Отклонить</button></td></tr>`).join("")}</table>` : `<p class="muted">Новых заявок нет.</p>`;
+    $("#rq").innerHTML = r.items.length ? `<table><tr><th>Дата</th><th>Telegram</th><th>Учреждение</th><th></th></tr>${r.items.map(x => `<tr><td>${esc(x.created_at)}</td><td>${esc(x.name || x.tg_id)} <span class="muted">${esc(x.tg_id)}</span></td><td><b>${esc(x.region)}</b>${x.district ? " — " + esc(x.district) : ""}${x.facility ? " — " + esc(x.facility) : ' <span class="pill">весь регион</span>'}</td><td class="row"><button class="btn sm pri" data-ap="${x.id}">Одобрить</button><button class="btn sm bad" data-no="${x.id}">Отклонить</button></td></tr>`).join("")}</table>` : `<p class="muted">Новых заявок нет.</p>`;
     document.querySelectorAll("[data-ap]").forEach(b => b.onclick = () => decide(+b.dataset.ap, true)); document.querySelectorAll("[data-no]").forEach(b => b.onclick = () => decide(+b.dataset.no, false)); } catch (e) { fail(e); } };
   const decide = async (id, approve) => { const note = approve ? "" : prompt("Причина отказа (увидит заявитель):") ?? null; if (note === null) return; try { await api(`/api/requests/${id}/decide`, { method: "POST", body: { approve, note } }); loadReq(); loadTg(); } catch (e) { fail(e); } };
   const loadTg = async () => { try { const r = await api("/api/tg-users");
-    $("#tgl").innerHTML = `<table><tr><th>Пользователь</th><th>Telegram ID</th><th>Учреждения</th><th></th></tr>${r.items.map(u => `<tr><td>${esc([u.first_name, u.last_name].filter(Boolean).join(" ") || "—")} ${u.username ? "@" + esc(u.username) : ""}${u.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(u.tg_id)}</td><td>${u.assignments.map(a => `${esc(a.facility)} (${a.kind === "reserve" ? "резерв" : "основной"}) <a href="#" data-un="${a.id}">✕</a>`).join("<br>")}</td><td class="row"><button class="btn sm" data-as="${u.tg_id}">Назначить</button><button class="btn sm" data-tog="${u.tg_id}" data-a="${u.active}">${u.active ? "Отключить" : "Включить"}</button></td></tr>`).join("")}</table>`;
+    $("#tgl").innerHTML = `<table><tr><th>Пользователь</th><th>Telegram ID</th><th>Доступ</th><th></th></tr>${r.items.map(u => `<tr><td>${esc([u.first_name, u.last_name].filter(Boolean).join(" ") || "—")} ${u.username ? "@" + esc(u.username) : ""}${u.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(u.tg_id)}</td><td>${u.regions.map(a => `<b>${esc(a.region)}</b> — весь регион${a.kind === "reserve" ? " (резерв)" : ""} <a href="#" data-unr="${a.id}">✕</a>`).join("<br>")}${u.regions.length && u.assignments.length ? "<br>" : ""}${u.assignments.map(a => `${esc(a.facility)} (${a.kind === "reserve" ? "резерв" : "основной"}) <a href="#" data-un="${a.id}">✕</a>`).join("<br>")}</td><td class="row"><button class="btn sm" data-as="${u.tg_id}">Назначить</button><button class="btn sm" data-tog="${u.tg_id}" data-a="${u.active}">${u.active ? "Отключить" : "Включить"}</button></td></tr>`).join("")}</table>`;
     document.querySelectorAll("[data-un]").forEach(a => a.onclick = async e => { e.preventDefault(); if (!confirm("Снять назначение?")) return; try { await api("/api/assignments/" + a.dataset.un, { method: "DELETE" }); loadTg(); } catch (x) { fail(x); } });
+    document.querySelectorAll("[data-unr]").forEach(a => a.onclick = async e => { e.preventDefault(); if (!confirm("Снять доступ к региону?")) return; try { await api("/api/region-access/" + a.dataset.unr, { method: "DELETE" }); loadTg(); } catch (x) { fail(x); } });
     document.querySelectorAll("[data-tog]").forEach(b => b.onclick = async () => { try { await api("/api/tg-users/" + b.dataset.tog, { method: "PATCH", body: { active: b.dataset.a !== "1" } }); loadTg(); } catch (x) { fail(x); } });
     document.querySelectorAll("[data-as]").forEach(b => b.onclick = () => assignDlg(b.dataset.as, loadTg)); } catch (e) { fail(e); } };
   $("#tg-add").onclick = () => assignDlg("", loadTg);
@@ -248,12 +253,12 @@ async function people() {
 }
 async function assignDlg(tg, done) {
   modal(`<h2>Назначить ответственного</h2>${tg ? "" : `<label>Telegram ID<input id="a-id" inputmode="numeric"></label><label>Имя<input id="a-n"></label>`}
-  <label>Регион<select id="a-r">${opts(META.regions, "", "—")}</select></label><label>Район<select id="a-d" disabled></select></label><label>Учреждение<select id="a-f" disabled></select></label>
+  <label>Регион<select id="a-r">${opts(META.regions, "", "—")}</select></label><label>Район (необязательно)<select id="a-d" disabled></select></label><label>Учреждение (необязательно; если пусто — доступ ко всему региону)<select id="a-f" disabled></select></label>
   <label>Тип<select id="a-k"><option value="primary">Основной</option><option value="reserve">Резервный</option></select></label><label>ФИО (для отчётов)<input id="a-fio"></label>
   <div class="row mt"><button class="btn pri" id="a-ok">Сохранить</button><button class="btn right" onclick="closeModal()">Отмена</button></div>`);
   $("#a-r").onchange = async e => { const d = await api("/api/districts?region_id=" + e.target.value); $("#a-d").innerHTML = opts(d.items, "", "—"); $("#a-d").disabled = false; $("#a-f").disabled = true; };
   $("#a-d").onchange = async e => { const f = await api("/api/facilities?" + qs({ district_id: e.target.value, size: 200 })); $("#a-f").innerHTML = opts(f.items, "", "—"); $("#a-f").disabled = false; };
-  $("#a-ok").onclick = async () => { const body = { tg_id: tg || $("#a-id").value.trim(), name: tg ? "" : $("#a-n").value, facility_id: +$("#a-f").value || 0, kind: $("#a-k").value, fio: $("#a-fio").value };
+  $("#a-ok").onclick = async () => { if (!+$("#a-r").value) return toast("Выберите регион"); const body = { tg_id: tg || $("#a-id").value.trim(), name: tg ? "" : $("#a-n").value, facility_id: +$("#a-f").value || 0, region_id: +$("#a-r").value || 0, kind: $("#a-k").value, fio: $("#a-fio").value };
     try { if (tg) await api("/api/assignments", { method: "POST", body }); else await api("/api/tg-users", { method: "POST", body }); closeModal(); toast("Сохранено"); done(); } catch (e) { fail(e); } };
 }
 async function staffBox() {
