@@ -138,7 +138,7 @@ async function loadBeds(d1, d2) {
     const r = await api("/api/beds?" + qs({ d1, d2 })); const th = r.thresholds;
     if (!$("#beds")) return;
     $("#beds").innerHTML = `<p class="muted sm">Пороги: повышенная нагрузка ≥ ${th.elevated}%, критическая ≥ ${th.critical}%, учреждение ≥ ${th.facility}%.</p><table><tr><th>Регион</th><th class="n">Коек для гриппа</th><th class="n">Занято</th><th class="n">Свободно</th><th class="n">Загрузка</th><th>Состояние</th></tr>${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${num(x.beds_flu)}</td><td class="n">${num(x.occupied)}</td><td class="n">${num(x.free)}</td><td class="n">${x.occupancy == null ? "—" : num(x.occupancy) + "%"}</td><td>${pill(x.state)}</td></tr>`).join("")}</table>` +
-      (r.hot.length ? `<h3 class="mt">Учреждения с высокой загрузкой</h3><table><tr><th>Учреждение</th><th>Регион</th><th class="n">Загрузка</th><th class="n">Свободно</th></tr>${r.hot.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.region)}, ${esc(x.district)}</td><td class="n"><span class="pill critical">${num(x.occupancy)}%</span></td><td class="n">${num(x.free)}</td></tr>`).join("")}</table>` : "");
+      (r.hot.length ? `<h3 class="mt">Учреждения с высокой загрузкой</h3><table><tr><th>Учреждение</th><th>Регион</th><th class="n">Загрузка</th><th class="n">Свободно</th></tr>${r.hot.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.region)}${x.district === "Без района" ? "" : ", " + esc(x.district)}</td><td class="n"><span class="pill critical">${num(x.occupancy)}%</span></td><td class="n">${num(x.free)}</td></tr>`).join("")}</table>` : "");
   } catch (e) { fail(e); }
 }
 
@@ -279,7 +279,7 @@ async function staffBox() {
 
 // ---------- territories
 async function territories() {
-  view.innerHTML = `<div class="card"><div class="row"><h2>Территории</h2><button class="btn right" id="t-imp">Импорт из Excel/CSV</button><button class="btn pri" id="t-add">+ Регион</button></div><div id="tt"></div></div>`;
+  view.innerHTML = `<div class="card"><div class="row"><h2>Территории</h2><button class="btn right" id="t-rep">Загрузить данные из Excel (учреждения и показатели за 2 дня)</button><button class="btn" id="t-imp">Импорт территорий</button><button class="btn pri" id="t-add">+ Регион</button></div><div id="tt"></div></div>`;
   const load = async () => {
     META = await api("/api/meta");
     $("#tt").innerHTML = `<table><tr><th>Регион</th><th>Название (узб.)</th><th></th></tr>${META.regions.map(r => `<tr class="link" data-id="${r.id}"><td>${esc(r.name_ru)}${r.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(r.name_uz)}</td><td><button class="btn sm" data-er="${r.id}">Изменить</button></td></tr>`).join("")}</table><div id="tsub"></div>`;
@@ -301,6 +301,7 @@ async function territories() {
   };
   $("#t-add").onclick = () => nameDlg("regions", {}, load, true);
   $("#t-imp").onclick = () => importDlg(load);
+  $("#t-rep").onclick = () => reportImportDlg(load);
   load();
 }
 function nameDlg(kind, o, done, isNew) {
@@ -308,6 +309,16 @@ function nameDlg(kind, o, done, isNew) {
   ${isNew ? "" : `<label><input type="checkbox" id="n-ac" ${o.active ? "checked" : ""} style="width:auto"> Активно (отключённое не входит в отчёты)</label>`}<div class="row mt"><button class="btn pri" id="n-ok">Сохранить</button><button class="btn right" onclick="closeModal()">Отмена</button></div>`);
   $("#n-ok").onclick = async () => { const body = { name_ru: $("#n-ru").value, name_uz: $("#n-uz").value }; if (!isNew) body.active = $("#n-ac").checked; else Object.assign(body, o);
     try { await api(isNew ? "/api/" + kind : `/api/${kind}/${o.id}`, { method: isNew ? "POST" : "PATCH", body }); closeModal(); done(); } catch (e) { fail(e); } };
+}
+function reportImportDlg(done) {
+  modal(`<h2>Загрузка учреждений и показателей из Excel</h2><p class="muted">Файл вида «места для больных»: по листу на область, строка на учреждение (койки, свободные, обращения за 24 часа, поступило и выписано вчера/сегодня). Новые учреждения создаются в своей области, показатели записываются как отчёты. Чего в файле нет (тяжёлые и т.п.), остаётся пустым.</p>
+  <div class="row"><label>«Вчера» записать на дату<input type="date" id="ri-p" value="${addDays(ME.today, -1)}"></label><label>«Сегодня» записать на дату<input type="date" id="ri-t" value="${ME.today}"></label></div>
+  <input type="file" id="ri-f" accept=".xlsx" class="mt"><div id="ri-r" class="mt"></div><div class="row mt"><button class="btn" id="ri-pre">Проверить</button><button class="btn pri" id="ri-go" disabled>Загрузить</button><button class="btn right" onclick="closeModal()">Закрыть</button></div>`, true);
+  const run = async dry => { const f = $("#ri-f").files[0]; if (!f) return toast("Выберите файл"); const fd = new FormData(); fd.append("file", f);
+    try { const r = await api("/api/import/reports?" + qs({ dry, d_prev: $("#ri-p").value, d_today: $("#ri-t").value }), { method: "POST", form: fd });
+      $("#ri-r").innerHTML = `<p><b>${r.dry ? "Будет сделано" : "Готово"}:</b> учреждений в файле ${r.facilities}, новых ${r.new_facilities}, отчётов ${r.reports}${r.errors_total ? `, ошибок ${r.errors_total}` : ""}. Даты: ${r.dates.join(" и ")}.</p>${r.errors.length ? `<div class="alert critical">${r.errors.map(esc).join("<br>")}</div>` : ""}${r.new_list.length ? `<details><summary>Новые учреждения (${r.new_facilities})</summary><p class="sm">${r.new_list.map(esc).join("<br>")}</p></details>` : ""}`;
+      $("#ri-go").disabled = !r.dry || !!r.errors_total; if (!r.dry) { toast("Загружено"); done(); } } catch (e) { fail(e); } };
+  $("#ri-pre").onclick = () => run(1); $("#ri-go").onclick = () => run(0);
 }
 function importDlg(done) {
   modal(`<h2>Импорт территорий</h2><p class="muted">Столбцы: Регион, Район, Учреждение (+ необязательно «Район (узб)», «Учреждение (узб)»). Сначала предпросмотр.</p><input type="file" id="i-f" accept=".xlsx,.csv"><div id="i-r" class="mt"></div><div class="row mt"><button class="btn" id="i-pre">Проверить</button><button class="btn pri" id="i-go" disabled>Загрузить</button><button class="btn right" onclick="closeModal()">Закрыть</button></div>`);

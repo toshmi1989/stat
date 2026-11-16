@@ -110,6 +110,21 @@ T["uz"].update({
     "confirm_fix": "✅ Ўзгаришларни тасдиқлаш", "no_changes": "\n\nℹ️ Қийматлар олдин юборилганлар билан бир хил: ўзгартиришга ҳожат йўқ.",
 })
 
+T["ru"].update({
+    "pick_fac_region": "Регион: <b>{region}</b>\nВыберите <b>учреждение</b> кнопкой или напишите его название. Нет в списке — нажмите «➕ Добавить новое».",
+    "no_fac_region": "В регионе <b>{region}</b> пока нет учреждений. Добавьте своё — нажмите кнопку ниже.", "add_new": "➕ Добавить новое учреждение",
+    "ask_new_name": "Напишите <b>название нового учреждения</b> (как оно называется официально).", "bad_name": "⚠️ Название слишком короткое или длинное (от 3 до 120 знаков). Напишите ещё раз.",
+    "fac_exists": "Такое учреждение уже есть в списке — выбрано оно.", "fac_added": "✅ Учреждение <b>{name}</b> добавлено в регион <b>{region}</b>.",
+    "fac_limit": "⚠️ За сутки можно добавить не больше {n} учреждений. Обратитесь к администратору.",
+})
+T["uz"].update({
+    "pick_fac_region": "Вилоят: <b>{region}</b>\n<b>Муассасани</b> тугма билан танланг ёки номини ёзинг. Рўйхатда йўқ бўлса — «➕ Янгисини қўшиш» тугмасини босинг.",
+    "no_fac_region": "<b>{region}</b> вилоятида ҳозирча муассасалар йўқ. Ўзингизникини қўшинг — пастдаги тугмани босинг.", "add_new": "➕ Янги муассаса қўшиш",
+    "ask_new_name": "<b>Янги муассаса номини</b> ёзинг (расмий номи билан).", "bad_name": "⚠️ Ном жуда қисқа ёки узун (3 дан 120 белгигача). Яна ёзинг.",
+    "fac_exists": "Бундай муассаса рўйхатда бор — шу танланди.", "fac_added": "✅ <b>{name}</b> муассасаси <b>{region}</b> вилоятига қўшилди.",
+    "fac_limit": "⚠️ Бир кунда {n} тадан ортиқ муассаса қўшиб бўлмайди. Администраторга мурожаат қилинг.",
+})
+
 
 def t(lang: str, key: str, **kw) -> str:
     s = T.get(lang, T["ru"]).get(key) or T["ru"][key]
@@ -188,7 +203,7 @@ def handle_update(u: dict) -> None:
             return do_action(c, user, chat["id"], action, has)
         if st["state"] in ("form", "edit_field"):
             return form_input(c, user, chat["id"], st, text, has)
-        if st["state"] in ("pick_district", "pick_facility", "pick_date_text"):
+        if st["state"] in ("pick_district", "pick_facility", "pick_date_text", "pick_region_fac", "add_facility"):
             return pick_text(c, user, chat["id"], st, text, has)
         tg.send(chat["id"], t(lang, "pick"), main_kb(lang, has))
 
@@ -287,22 +302,77 @@ def begin_submit(c, user, chat, has) -> None:
     if len(facs) == 1 and not regs:
         return pick_facility(c, user, chat, facs[0]["id"])
     if not facs and len(regs) == 1:
-        return pick_district_to_submit(c, user, chat, regs[0]["id"], 0)
+        return pick_region_facility(c, user, chat, regs[0]["id"], 0)
     rows = [[btn(t(lang, "my_region", name=nm(r, lang))[:60], f"sr:{r['id']}")] for r in regs] + [[btn(nm(f, lang)[:60], f"sf:{f['id']}")] for f in facs]
     tg.send(chat, t(lang, "pick_fac_submit"), ik(rows))
 
 
-def pick_district_to_submit(c, user, chat, region_id: int, page: int) -> None:
+def region_facilities(c, region_id: int) -> list:
+    return c.execute("""SELECT f.id, f.name_ru, f.name_uz FROM facilities f JOIN districts d ON d.id=f.district_id
+                        WHERE d.region_id=? AND f.active=1 AND d.active=1 ORDER BY f.name_ru""", (region_id,)).fetchall()
+
+
+def facility_keyboard(lang: str, region_id: int, items, page: int, per: int = 10) -> dict:
+    chunk = items[page * per:(page + 1) * per]
+    rows = [[btn(nm(i, lang)[:60], f"sf:{i['id']}")] for i in chunk]
+    nav = []
+    if page > 0:
+        nav.append(btn(t(lang, "prev"), f"sr:{region_id}:{page - 1}"))
+    if (page + 1) * per < len(items):
+        nav.append(btn(t(lang, "next"), f"sr:{region_id}:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([btn(t(lang, "add_new"), f"sn:{region_id}")])
+    return ik(rows)
+
+
+def pick_region_facility(c, user, chat, region_id: int, page: int) -> None:
+    """The person with access to a region sees its facilities (any district) and may add a new one at the bottom."""
     lang = user["lang"]
     if not any(r["id"] == region_id for r in reports.user_regions(c, user["tg_id"])):
         return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
     r = c.execute("SELECT * FROM regions WHERE id=?", (region_id,)).fetchone()
-    ds = c.execute("SELECT id, name_ru, name_uz FROM districts WHERE region_id=? AND active=1 ORDER BY name_ru", (region_id,)).fetchall()
-    if not ds:
-        set_state(c, user["tg_id"])
-        return tg.send(chat, t(lang, "no_districts", region=esc(nm(r, lang))), main_kb(lang, True))
-    set_state(c, user["tg_id"], "pick_district", {"rid": region_id})
-    paged(chat, lang, t(lang, "pick_district_sub", region=esc(nm(r, lang))), ds, "sg:", page, f"sr:{region_id}")
+    items = region_facilities(c, region_id)
+    set_state(c, user["tg_id"], "pick_region_fac", {"rid": region_id})
+    text = t(lang, "pick_fac_region" if items else "no_fac_region", region=esc(nm(r, lang)))
+    tg.send(chat, text, facility_keyboard(lang, region_id, items, page))
+
+
+def pick_district_to_submit(c, user, chat, region_id: int, page: int) -> None:
+    pick_region_facility(c, user, chat, region_id, page)
+
+
+def add_facility(c, user, chat, region_id: int, name: str) -> None:
+    from . import xlsx_import
+    lang = user["lang"]
+    if not any(r["id"] == region_id for r in reports.user_regions(c, user["tg_id"])):
+        return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
+    name = " ".join(name.split())
+    if not 3 <= len(name) <= 120 or name.isdigit():
+        return tg.send(chat, t(lang, "bad_name"))
+    actor = "telegram " + user["tg_id"]
+    r = c.execute("SELECT * FROM regions WHERE id=?", (region_id,)).fetchone()
+    existing = [f for f in region_facilities(c, region_id) if xlsx_import.fold(f["name_ru"]) == xlsx_import.fold(name)]
+    if existing:
+        tg.send(chat, t(lang, "fac_exists"))
+        return pick_facility(c, user, chat, existing[0]["id"])
+    limit = 10
+    today_n = c.execute("SELECT COUNT(*) FROM audit WHERE action='facility.create' AND actor=? AND at >= ?", (actor, today().isoformat())).fetchone()[0]
+    if today_n >= limit:
+        return tg.send(chat, t(lang, "fac_limit", n=limit))
+    fid, _ = xlsx_import.find_or_create_facility(c, region_id, name, actor)
+    tg.send(chat, t(lang, "fac_added", name=esc(name), region=esc(nm(r, lang))))
+    notify_admins_new_facility(c, user, r, name)
+    pick_facility(c, user, chat, fid)
+
+
+def notify_admins_new_facility(c, user, region, name: str) -> None:
+    who = " ".join(x for x in (user["first_name"], user["last_name"]) if x) or user["username"] or user["tg_id"]
+    text = f"🏥 <b>Добавлено новое учреждение</b>\n{esc(region['name_ru'])} / <b>{esc(name)}</b>\nДобавил: {esc(who)} (Telegram ID {user['tg_id']}). Проверьте название в разделе «Территории»."
+    for s in c.execute("SELECT * FROM staff WHERE active=1 AND tg_id != '' AND (role='super_admin' OR (role='admin' AND can_manage_users=1))").fetchall():
+        if s["role"] == "admin" and not c.execute("SELECT 1 FROM staff_scope WHERE staff_id=? AND region_id=?", (s["id"], region["id"])).fetchone():
+            continue
+        tg.send(s["tg_id"], text)
 
 
 def pick_facility_to_submit(c, user, chat, district_id: int, page: int) -> None:
@@ -355,6 +425,15 @@ def pick_text(c, user, chat, st: dict, text: str, has: bool) -> None:
         if d > today():
             return tg.send(chat, t(lang, "date_future"))
         return pick_date(c, user, chat, data["fid"], d.isoformat())
+    if st["state"] == "add_facility":
+        return add_facility(c, user, chat, data["rid"], text)
+    if st["state"] == "pick_region_fac":
+        found = find_named(region_facilities(c, data["rid"]), text)
+        if not found:
+            return tg.send(chat, t(lang, "bad_find", q=esc(text[:40])), facility_keyboard(lang, data["rid"], region_facilities(c, data["rid"]), 0))
+        if len(found) == 1:
+            return pick_facility(c, user, chat, found[0]["id"])
+        return tg.send(chat, t(lang, "many_found", n=len(found)), ik([[btn(nm(r, lang)[:60], f"sf:{r['id']}")] for r in found[:10]]))
     if st["state"] == "pick_district":
         rows = c.execute("SELECT id, name_ru, name_uz FROM districts WHERE region_id=? AND active=1 ORDER BY name_ru", (data["rid"],)).fetchall()
         found, prefix, nxt = find_named(rows, text), "sg:", None
@@ -508,8 +587,13 @@ def handle_callback(cq: dict) -> None:
                 return tg.send(chat, t(lang, "fail", msg="У вас нет прав отправлять отчёт за это учреждение"))
             set_state(c, user["tg_id"], "pick_date_text", {"fid": int(p[1])})
             return tg.send(chat, t(lang, "ask_date"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
+        if k == "sn":
+            if not any(r["id"] == int(p[1]) for r in reports.user_regions(c, user["tg_id"])):
+                return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
+            set_state(c, user["tg_id"], "add_facility", {"rid": int(p[1])})
+            return tg.send(chat, t(lang, "ask_new_name"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
         if k == "sr":
-            return pick_district_to_submit(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
+            return pick_region_facility(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
         if k == "sg":
             return pick_facility_to_submit(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
         if k == "sd":

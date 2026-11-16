@@ -61,7 +61,7 @@ def test_access_request_for_region_only(bot):
     assert "регион" in last(100).lower()
 
 
-def test_region_user_reports_for_any_district_of_region(bot):
+def test_region_user_reports_for_any_facility_of_region(bot):
     from app import people
     from app.db import connect, tx
     f1 = make_facility(1, "Район А", "A1")
@@ -71,24 +71,20 @@ def test_region_user_reports_for_any_district_of_region(bot):
         people.add_tg_user(c, "200200", "Али")
         people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, "200200", 1)
     msg(bot, 200200, "/submit")
-    kb = [m for c, t, m in SENT if c == "200200" and m][-1]
-    flat = [x["callback_data"] for row in kb["inline_keyboard"] for x in row]
-    c = connect()
-    dids = [r["id"] for r in c.execute("SELECT id FROM districts WHERE region_id=1")]
-    assert all(f"sg:{d}" in flat for d in dids)             # both districts of the region are offered
-    cb(bot, 200200, f"sg:{dids[1]}")
+    flat = kb_of(200200)
+    assert f"sf:{f1}" in flat and f"sf:{f2}" in flat and "sn:1" in flat   # facilities of the region (any district) and "add new"
+    assert f"sf:{other}" not in flat
     cb(bot, 200200, f"sf:{f2}")
     cb(bot, 200200, f"sd:{f2}:2026-02-10")
     for a in ["100", "40", "20", "50", "5", "1", "1", "1", "0", "0", "10", "6"]:
         msg(bot, 200200, a)
     cb(bot, 200200, "ok")
     assert connect().execute("SELECT COUNT(*) FROM reports WHERE facility_id=?", (f2,)).fetchone()[0] == 1
-    # another region is closed, even if somebody forges the callback
     SENT.clear()
-    cb(bot, 200200, f"sf:{other}")
+    cb(bot, 200200, f"sf:{other}")                       # another region is closed, even with a forged callback
     assert connect().execute("SELECT COUNT(*) FROM reports WHERE facility_id=?", (other,)).fetchone()[0] == 0
     assert "нет прав" in last(200200).lower()
-    cb(bot, 200200, f"sg:{connect().execute('SELECT id FROM districts WHERE region_id=2').fetchone()['id']}")
+    cb(bot, 200200, "sn:2")
     assert "нет доступа" in last(200200).lower()
 
 
@@ -195,21 +191,43 @@ def region_user(uid, region=1):
         people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, str(uid), region)
 
 
-def test_empty_region_explains_instead_of_silence(bot):
+def test_empty_region_offers_to_add_first_facility(bot):
+    from app.db import connect
     region_user(700700)
     msg(bot, 700700, "/submit")
-    assert "нет районов" in last(700700).lower()
+    assert "пока нет учреждений" in last(700700).lower() and "sn:1" in kb_of(700700)
+    cb(bot, 700700, "sn:1")
+    msg(bot, 700700, "аб")                                # too short
+    assert "слишком" in last(700700).lower()
+    msg(bot, 700700, "  Городская   больница №3 ")
+    c = connect()
+    f = c.execute("SELECT f.id, f.name_ru, d.name_ru AS d FROM facilities f JOIN districts d ON d.id=f.district_id").fetchall()
+    assert len(f) == 1 and f[0]["name_ru"] == "Городская больница №3" and f[0]["d"] == "Без района"
+    assert any(f"sd:{f[0]['id']}:2026-02-10" == x for x in kb_of(700700))   # straight on to the date
+    assert c.execute("SELECT COUNT(*) FROM audit WHERE action='facility.create'").fetchone()[0] == 1
+    # the same name again does not duplicate
+    cb(bot, 700700, "sn:1"); msg(bot, 700700, "городская больница №3")
+    assert connect().execute("SELECT COUNT(*) FROM facilities").fetchone()[0] == 1
 
 
-def test_district_and_facility_by_typed_name(bot):
+def test_add_facility_daily_limit_and_other_region(bot):
+    from app.db import connect
+    region_user(700710)
+    for i in range(10):
+        cb(bot, 700710, "sn:1"); msg(bot, 700710, f"Больница номер {i}")
+    cb(bot, 700710, "sn:1"); msg(bot, 700710, "Одиннадцатая больница")
+    assert "не больше" in last(700710) and connect().execute("SELECT COUNT(*) FROM facilities").fetchone()[0] == 10
+
+
+def test_facility_by_typed_name_in_region(bot):
     f = make_facility(1, "Мирзо Улугбекский район", "Поликлиника №5")
     make_facility(1, "Чиланзарский район", "Поликлиника №1")
     region_user(700701)
     msg(bot, 700701, "/submit")
-    msg(bot, 700701, "несуществующий")
-    assert "не нашёл" in last(700701).lower()          # still waiting for a district
-    msg(bot, 700701, "мирзо улугбек")                   # lower case, as typed in the real chat
-    assert f"sd:{f}:2026-02-10" in kb_of(700701)       # the only facility of the district: straight to the dates
+    msg(bot, 700701, "несуществующая")
+    assert "не нашёл" in last(700701).lower()
+    msg(bot, 700701, "поликлиника №5")
+    assert f"sd:{f}:2026-02-10" in kb_of(700701)
 
 
 def test_date_choice_and_typed_date(bot):

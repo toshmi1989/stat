@@ -128,8 +128,8 @@ def _clean(c, values: dict) -> dict:
     return {k: v for k, v in values.items() if k in codes}
 
 
-def _check(c, facility_id, d, values, lang):
-    res = rules.validate(c, values, lang, facility_id, d)
+def _check(c, facility_id, d, values, lang, partial=False):
+    res = rules.validate(c, values, lang, facility_id, d, partial)
     if res["errors"]:
         raise ReportError(res["errors"][0], 422, res)
     return res
@@ -179,7 +179,7 @@ def _edit(c, rep, values: dict, by: dict, action: str, reason: str, warnings: li
     return {"id": rid, "version": ver, "late": bool(rep["late"]), "warnings": warnings, "created": False, "changed": True}
 
 
-def admin_save(c, facility_id: int, d: str, values: dict, reason: str, by: dict, lang: str = "ru") -> dict:
+def admin_save(c, facility_id: int, d: str, values: dict, reason: str, by: dict, lang: str = "ru", partial: bool = False) -> dict:
     """An administrator fixes (or adds a missing) report. A reason is always required and kept."""
     if not reason.strip():
         raise ReportError("Укажите причину изменения")
@@ -190,7 +190,7 @@ def admin_save(c, facility_id: int, d: str, values: dict, reason: str, by: dict,
     values = _clean(c, values)
     rep = find(c, facility_id, d)
     merged = (values_of(c, rep["id"]) if rep else {}) | values
-    res = _check(c, facility_id, d, merged, lang)
+    res = _check(c, facility_id, d, merged, lang, partial)
     if rep is None:
         out = submit_new_by_admin(c, facility_id, d, merged, by, reason)
         out["warnings"] = res["warnings"]

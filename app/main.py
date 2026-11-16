@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, backup, bot, exports, forecast, notify, people, reports, rules, stats, tg
+from . import auth, backup, bot, exports, forecast, notify, people, reports, rules, stats, tg, xlsx_import
 from .db import all_settings, audit, connect, init_db, now, now_dt, today, tx
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -717,6 +717,21 @@ async def api_geo_import(request: Request, file: UploadFile = File(...), dry: in
         bad("Файл больше 10 МБ")
     with tx() as c:
         return people.import_territories(c, data, file.filename or "x.xlsx", bool(dry), u)
+
+
+@app.post("/api/import/reports")
+async def api_import_reports(request: Request, file: UploadFile = File(...), dry: int = 1, d_prev: str = "", d_today: str = ""):
+    """Hospitals and the figures of two days from the 'places for patients' workbook (see xlsx_import)."""
+    u = need_super(request)
+    data = await file.read(10_000_001)
+    if len(data) > 10_000_000:
+        bad("Файл больше 10 МБ")
+    d_today = d_today or today().isoformat()
+    d_prev = d_prev or (date.fromisoformat(d_today) - timedelta(days=1)).isoformat()
+    for d in (d_prev, d_today):
+        reports.parse_date(d)
+    with tx() as c:
+        return xlsx_import.load(c, data, d_prev, d_today, bool(dry), reports.by_staff(u))
 
 
 # ---------------------------------------------------------------- staff accounts (super administrator)
