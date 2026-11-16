@@ -1,0 +1,67 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>chat</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:1280px;height:720px;overflow:hidden;font-family:Inter,system-ui,sans-serif}
+body{background:radial-gradient(900px 600px at 15% 10%,#4c6fff55,transparent 60%),radial-gradient(900px 600px at 95% 90%,#8a5cf655,transparent 60%),#0f172a;color:#fff;display:flex}
+.phone{position:absolute;left:90px;top:30px;width:390px;height:660px;border-radius:38px;background:#0b1220;padding:10px;box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 2px #26324d inset}
+.screen{width:100%;height:100%;border-radius:30px;overflow:hidden;display:flex;flex-direction:column;background:#dfe9d6}
+.hdr{height:58px;background:#2a85d0;color:#fff;display:flex;align-items:center;gap:10px;padding:0 14px;flex:none}.av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7aa7ff,#a27bff);display:grid;place-items:center;font-size:18px}.nm{font-weight:700;font-size:15px}.st{font-size:11px;opacity:.8}
+.msgs{flex:1;overflow:hidden;padding:10px 10px 4px;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;background:linear-gradient(180deg,#cfe2c4,#dfe9d6);position:relative}
+.b{max-width:86%;padding:8px 11px;border-radius:14px;font-size:13.2px;line-height:1.38;white-space:pre-wrap;word-wrap:break-word;color:#16202e;box-shadow:0 1px 1px rgba(0,0,0,.12);animation:in .28s ease both;flex:none}
+.bot{background:#fff;align-self:flex-start;border-bottom-left-radius:4px}.usr{background:#e1ffc7;align-self:flex-end;border-bottom-right-radius:4px}
+@keyframes in{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+.ik{display:flex;flex-direction:column;gap:4px;align-self:stretch;max-width:100%;animation:in .3s ease both;flex:none}.ik .r{display:flex;gap:4px}.ik button{flex:1;border:0;border-radius:10px;background:rgba(30,60,90,.62);color:#fff;font:inherit;font-size:12.5px;padding:8px 6px;min-width:0}
+.ik button.tap{background:#2a85d0;transform:scale(.96);box-shadow:0 0 0 3px #fff8,0 0 18px #2a85d0;transition:all .15s}
+.doc{display:flex;gap:10px;align-items:center}.doc .fi{width:40px;height:40px;border-radius:50%;background:#2a85d0;display:grid;place-items:center;font-size:18px}.doc b{font-size:13px}.doc small{display:block;color:#6a7a8c}
+.hl{background:#fff1a6;border-radius:4px;padding:1px 3px;box-shadow:0 0 0 2px #ffd54a}.b.long{font-size:11.6px;line-height:1.28}
+.typing{align-self:flex-start;background:#fff;border-radius:14px;padding:8px 12px;font-size:20px;letter-spacing:2px;color:#8a99ab;animation:in .2s both;flex:none}
+.kb{flex:none;background:#e9eef4;padding:6px;display:flex;flex-direction:column;gap:5px;border-top:1px solid #cdd6df}.kb .r{display:flex;gap:5px}.kb button{flex:1;border:0;border-radius:8px;background:#fff;font:inherit;font-size:12px;padding:9px 4px;color:#16202e;box-shadow:0 1px 1px rgba(0,0,0,.15);min-width:0;transition:all .15s}.kb button.tap{background:#2a85d0;color:#fff}
+.inp{flex:none;height:46px;background:#fff;display:flex;align-items:center;padding:0 14px;color:#8a99ab;font-size:13px;border-top:1px solid #cdd6df}.inp.typing-now{color:#16202e}
+.cap{position:absolute;left:560px;top:0;width:680px;height:720px;display:flex;flex-direction:column;justify-content:center;gap:16px}
+.cap .t{font-size:38px;font-weight:800;line-height:1.15;letter-spacing:-.02em;animation:capin .5s ease both}.cap .x{font-size:21px;line-height:1.45;color:#c7d2e6;max-width:600px;animation:capin .6s .08s ease both}
+@keyframes capin{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}.tag{display:inline-block;font-size:13px;font-weight:700;color:#9db4ff;letter-spacing:.14em;text-transform:uppercase}
+.cursor{position:absolute;width:22px;height:22px;pointer-events:none;z-index:9;transition:left .45s ease,top .45s ease}
+</style></head><body>
+<div class="phone"><div class="screen"><div class="hdr"><div class="av">🌡</div><div><div class="nm" id="who">Мониторинг гриппа</div><div class="st">бот</div></div></div>
+<div class="msgs" id="m"></div><div id="kbwrap"></div></div></div>
+<div class="cap"><div class="tag">Мониторинг гриппа</div><div class="t" id="ct"></div><div class="x" id="cx"></div></div>
+<script>
+const q = new URLSearchParams(location.search), FROM = q.get("from") || "", TO = q.get("to") || FROM, SP = +(q.get("speed") || 1);
+const $ = s => document.querySelector(s), sleep = ms => new Promise(r => setTimeout(r, ms / SP));
+const M = $("#m"); let reply = null, started = !FROM, ended = false;
+const esc = s => s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+function scroll() { M.scrollTop = M.scrollHeight; }
+function setKb(rows) { reply = rows; const w = $("#kbwrap"); w.innerHTML = rows ? `<div class="kb">${rows.map(r => `<div class="r">${r.map(t => `<button>${esc(t)}</button>`).join("")}</div>`).join("")}</div>` : '<div class="inp">Сообщение…</div>'; }
+function bubble(cls, html) { const d = document.createElement("div"); d.className = "b " + cls; d.innerHTML = html; M.appendChild(d); while (M.children.length > 7) M.removeChild(M.firstChild); scroll(); return d; }
+function addInline(rows) { const d = document.createElement("div"); d.className = "ik"; d.innerHTML = rows.map(r => `<div class="r">${r.map(([t]) => `<button>${esc(t)}</button>`).join("")}</div>`).join(""); M.appendChild(d); scroll(); }
+async function typing(ms, user) { if (user) { const i = $(".inp"); } const t = document.createElement("div"); t.className = "typing"; t.textContent = "• • •"; M.appendChild(t); scroll(); await sleep(ms); t.remove(); }
+function press(label) { const all = [...document.querySelectorAll(".ik button, .kb button")].reverse(); const b = all.find(x => x.textContent === label); if (b) b.classList.add("tap"); return b; }
+async function run() {
+  const ev = await (await fetch("transcript.json")).json();
+  for (const e of ev) {
+    if (e.t === "scene") { if (e.id === FROM) started = true; else if (started && FROM && e.id !== FROM && e.id === nextScene(ev, TO)) break; continue; }
+    const live = started && !ended;
+    const fast = !live || e.fast;
+    if (e.t === "cap") { if (live) { $("#ct").textContent = e.title; $("#cx").textContent = e.text; $("#ct").style.animation = $("#cx").style.animation = "none"; void $("#ct").offsetWidth; $("#ct").style.animation = $("#cx").style.animation = ""; await sleep(900); } continue; }
+    if (e.t === "wait") { if (live) await sleep(e.ms); continue; }
+    if (e.t === "who") { M.innerHTML = ""; $("#who").textContent = e.name; setKb(null); continue; }
+    if (e.t === "user") { if (live && !e.fast) { const i = $(".inp"); if (i) { i.classList.add("typing-now"); i.textContent = e.text; } await sleep(650); } bubble("usr", esc(e.text)); setKb(reply); if (!fast) await sleep(350); else if (live) await sleep(160); continue; }
+    if (e.t === "tap") { if (live && !e.fast) await sleep(500); const b = press(e.label); if (live) await sleep(e.fast ? 150 : 750); document.querySelectorAll(".ik").forEach(x => x.remove()); continue; }
+    if (e.t === "tap2") { if (live) { await sleep(900); press(e.label); await sleep(900); } continue; }
+    if (e.t === "bot") {
+      if (live) await typing(e.fast ? 200 : 650);
+      document.querySelectorAll(".ik").forEach(x => x.remove());
+      const safe = e.html.replace(/<(?!\/?(b|i)>)/g, "&lt;"), hasDiff = /→ <b>/.test(safe);
+      const bb = bubble("bot" + (safe.length > 380 ? " long" : ""), safe.replace(/^(✏️ .*→.*)$/gm, '<span class="hl">$1</span>'));
+      const hl = bb.querySelector(".hl"); if (hl && live) { await sleep(500); M.scrollTop = Math.max(0, bb.offsetTop + hl.offsetTop - M.clientHeight / 2); }
+      if (e.reply) setKb(e.reply); else if (!reply) setKb(null);
+      if (e.inline) addInline(e.inline);
+      if (live) await sleep(hasDiff ? 5200 : Math.min(3200, 900 + e.html.length * 14));
+      continue;
+    }
+    if (e.t === "doc") { if (live) await typing(900); bubble("bot", `<div class="doc"><div class="fi">📊</div><div><b>${esc(e.name)}</b><small>Excel · 18 КБ</small></div></div><div style="margin-top:6px">${e.caption.replace(/<(?!\/?(b|i)>)/g, "&lt;")}</div>`); if (live) await sleep(2600); continue; }
+  }
+  await sleep(900); window.__done = true;
+}
+function nextScene(ev, id) { const ids = ev.filter(x => x.t === "scene").map(x => x.id); const i = ids.indexOf(id); return ids[i + 1] || "__none__"; }
+setKb(null); run();
+</script></body></html>
