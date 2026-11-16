@@ -146,7 +146,19 @@ def t(lang: str, key: str, **kw) -> str:
     return s.format(**kw) if kw else s
 
 
-MENU_KEYS = {"m_submit": "submit", "m_fac": "fac", "m_status": "status", "m_hist": "hist", "m_req": "req", "m_help": "help", "m_lang": "lang", "m_rights": "rights"}
+T["ru"].update({
+    "m_dl": "📥 Скачать сводку", "dl_pick": "Что скачать?", "dl_region": "📍 Регион: {name}", "dl_fac": "🏥 {name}",
+    "dl_date": "📅 <b>За какую дату</b> скачать сводку ({scope})?\nНажмите «Сегодня» или напишите дату, например <b>15.11</b> или <b>14.11.2026</b>.",
+    "dl_today": "📅 Сегодня, {d}", "dl_fmt": "<b>{scope}</b>, {date}\nВ каком виде прислать?", "dl_none": "За <b>{date}</b> по «{scope}» сводок ещё нет: нечего скачивать.",
+    "dl_caption": "📥 Сводка: <b>{scope}</b>\nДата: {date}\nОтправлено учреждений: {n}", "dl_fail": "⚠️ Не удалось отправить файл: {why}", "dl_wait": "⏳ Готовлю файл…",
+})
+T["uz"].update({
+    "m_dl": "📥 Маълумотни юклаб олиш", "dl_pick": "Нимани юклаб оламиз?", "dl_region": "📍 Вилоят: {name}", "dl_fac": "🏥 {name}",
+    "dl_date": "📅 Маълумотни <b>қайси санага</b> юклаб оламиз ({scope})?\n«Бугун» тугмасини босинг ёки санани ёзинг, масалан <b>15.11</b> ёки <b>14.11.2026</b>.",
+    "dl_today": "📅 Бугун, {d}", "dl_fmt": "<b>{scope}</b>, {date}\nҚандай кўринишда юборай?", "dl_none": "<b>{date}</b> санаси учун «{scope}» бўйича маълумот ҳали йўқ.",
+    "dl_caption": "📥 Маълумот: <b>{scope}</b>\nСана: {date}\nЮборган муассасалар: {n}", "dl_fail": "⚠️ Файлни юбориб бўлмади: {why}", "dl_wait": "⏳ Файл тайёрланмоқда…",
+})
+MENU_KEYS = {"m_dl": "dl", "m_submit": "submit", "m_fac": "fac", "m_status": "status", "m_hist": "hist", "m_req": "req", "m_help": "help", "m_lang": "lang", "m_rights": "rights"}
 MENU_TEXT = {T[lang][k]: a for lang in T for k, a in MENU_KEYS.items()}
 CANCEL_TEXT = {T[lang]["cancel"] for lang in T}
 
@@ -163,8 +175,9 @@ def nm(row, lang: str, base: str = "name") -> str:
 
 
 def main_kb(lang: str, has_access: bool) -> dict:
-    rows = [[{"text": t(lang, "m_submit")}], [{"text": t(lang, "m_fac")}, {"text": t(lang, "m_status")}], [{"text": t(lang, "m_hist")}, {"text": t(lang, "m_req")}],
-            [{"text": t(lang, "m_rights") if not has_access else t(lang, "m_help")}, {"text": t(lang, "m_lang")}]]
+    rows = [[{"text": t(lang, "m_submit")}], [{"text": t(lang, "m_fac")}, {"text": t(lang, "m_status")}], [{"text": t(lang, "m_hist")}, {"text": t(lang, "m_dl")}],
+            [{"text": t(lang, "m_req")}, {"text": t(lang, "m_rights") if not has_access else t(lang, "m_help")}],
+            [{"text": t(lang, "m_lang")}]]
     if not has_access:
         rows = [[{"text": t(lang, "m_req")}], [{"text": t(lang, "m_rights")}, {"text": t(lang, "m_help")}], [{"text": t(lang, "m_lang")}]]
     return {"keyboard": rows, "resize_keyboard": True, "is_persistent": True}
@@ -218,7 +231,7 @@ def handle_update(u: dict) -> None:
             return do_action(c, user, chat["id"], action, has)
         if st["state"] in ("form", "edit_field"):
             return form_input(c, user, chat["id"], st, text, has)
-        if st["state"] in ("pick_district", "pick_facility", "pick_date_text", "pick_region_fac", "add_facility"):
+        if st["state"] in ("pick_district", "pick_facility", "pick_date_text", "pick_region_fac", "add_facility", "dl_date"):
             return pick_text(c, user, chat["id"], st, text, has)
         tg.send(chat["id"], t(lang, "pick"), main_kb(lang, has))
 
@@ -246,6 +259,8 @@ def do_action(c, user, chat, action: str, has: bool) -> None:
         show_history(c, user, chat, has)
     elif action == "submit":
         begin_submit(c, user, chat, has)
+    elif action == "dl":
+        start_download(c, user, chat, has)
 
 
 def show_rights(c, user, chat, has) -> None:
@@ -430,9 +445,90 @@ def parse_user_date(text: str):
         return None
 
 
+def scope_of(c, user, scope: str):
+    """(pseudo-user for the export, filters, title) of a download scope 'r<region>' / 'f<facility>' the person really has access to; None otherwise."""
+    kind, ident = scope[:1], scope[1:]
+    if not ident.isdigit():
+        return None
+    ident = int(ident)
+    if kind == "r":
+        r = next((x for x in reports.user_regions(c, user["tg_id"]) if x["id"] == ident), None)
+        if not r:
+            return None
+        return {"id": 0, "role": "viewer", "regions": [ident], "name": "Telegram"}, {"region_id": ident}, nm(r, user["lang"])
+    if kind == "f" and reports.access(c, user["tg_id"], ident):
+        f = reports.facility_info(c, ident)
+        return {"id": 0, "role": "viewer", "regions": [f["region_id"]], "name": "Telegram"}, {"facility_id": ident}, nm(f, user["lang"])
+    return None
+
+
+def start_download(c, user, chat, has) -> None:
+    """'Download the summary': the region(s) of the person (or the facilities they report for), a date, a format."""
+    lang = user["lang"]
+    regs, facs = reports.user_regions(c, user["tg_id"]), reports.user_facilities(c, user["tg_id"])
+    scopes = [(f"r{r['id']}", t(lang, "dl_region", name=nm(r, lang))) for r in regs] + [(f"f{f['id']}", t(lang, "dl_fac", name=nm(f, lang))) for f in facs[:8]]
+    if not scopes:
+        return tg.send(chat, t(lang, "no_access"), main_kb(lang, has))
+    if len(scopes) == 1:
+        return ask_download_date(c, user, chat, scopes[0][0])
+    tg.send(chat, t(lang, "dl_pick"), ik([[btn(label[:60], f"dr:{sc}")] for sc, label in scopes]))
+
+
+def ask_download_date(c, user, chat, scope: str) -> None:
+    lang = user["lang"]
+    sc = scope_of(c, user, scope)
+    if not sc:
+        return tg.send(chat, t(lang, "fail", msg="Нет доступа"))
+    set_state(c, user["tg_id"], "dl_date", {"scope": scope})
+    tg.send(chat, t(lang, "dl_date", scope=esc(sc[2])), ik([[btn(t(lang, "dl_today", d=today().strftime("%d.%m")), f"dd:{scope}:{today().isoformat()}")]]))
+
+
+def download_format(c, user, chat, scope: str, d: str) -> None:
+    lang = user["lang"]
+    sc = scope_of(c, user, scope)
+    if not sc:
+        return tg.send(chat, t(lang, "fail", msg="Нет доступа"))
+    set_state(c, user["tg_id"])
+    tg.send(chat, t(lang, "dl_fmt", scope=esc(sc[2]), date=d), ik([[btn("📊 Excel", f"dx:{scope}:{d}:xlsx"), btn("📄 PDF", f"dx:{scope}:{d}:pdf")]]))
+
+
+def deliver_download(c, user, chat, scope: str, d: str, fmt: str) -> None:
+    from . import exports, stats
+    lang = user["lang"]
+    sc = scope_of(c, user, scope)           # the right is checked again here: a forged button gets nothing
+    if not sc or fmt not in ("xlsx", "pdf"):
+        return tg.send(chat, t(lang, "fail", msg="Нет доступа"))
+    pseudo, flt, title = sc
+    try:
+        dd = date.fromisoformat(d)
+    except ValueError:
+        return tg.send(chat, t(lang, "bad_date"))
+    if dd > today():
+        return tg.send(chat, t(lang, "date_future"))
+    n = stats.kpis(c, pseudo, d, d, **flt)["reported"]
+    if not n:
+        return tg.send(chat, t(lang, "dl_none", date=d, scope=esc(title)))
+    tg.send(chat, t(lang, "dl_wait"))
+    data = exports.xlsx(c, pseudo, d, d, kind="daily", **flt) if fmt == "xlsx" else exports.pdf(c, pseudo, d, d, kind="daily", **flt)
+    ok, err = tg.send_document(chat, data, f"flu_{d}.{fmt}", t(lang, "dl_caption", scope=esc(title), date=d, n=n))
+    if not ok:
+        tg.send(chat, t(lang, "dl_fail", why=esc(err)))
+    else:
+        from .db import audit
+        audit(c, "export.bot", "export", fmt, {"scope": scope, "date": d}, actor="telegram " + user["tg_id"])
+
+
 def pick_text(c, user, chat, st: dict, text: str, has: bool) -> None:
     """A name typed instead of pressing a button: a district, a facility or a date."""
     lang, tid, data = user["lang"], user["tg_id"], st["data"]
+    if st["state"] == "dl_date":
+        word = fold(text)
+        d = today() if word in ("сегодня", "бугун") else today() - timedelta(days=1) if word in ("вчера", "кеча") else parse_user_date(text)
+        if not d:
+            return tg.send(chat, t(lang, "bad_date"))
+        if d > today():
+            return tg.send(chat, t(lang, "date_future"))
+        return download_format(c, user, chat, data["scope"], d.isoformat())
     if st["state"] == "pick_date_text":
         word = fold(text)
         d = today() if word in ("сегодня", "бугун") else today() - timedelta(days=1) if word in ("вчера", "кеча") else parse_user_date(text)
@@ -596,6 +692,12 @@ def handle_callback(cq: dict) -> None:
                 return tg.send(chat, t(lang, "fail", msg="У вас нет прав отправлять отчёт за это учреждение"))
             set_state(c, user["tg_id"], "pick_date_text", {"fid": int(p[1])})
             return tg.send(chat, t(lang, "ask_date"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
+        if k == "dr":
+            return ask_download_date(c, user, chat, p[1])
+        if k == "dd":
+            return download_format(c, user, chat, p[1], p[2])
+        if k == "dx":
+            return deliver_download(c, user, chat, p[1], p[2], p[3])
         if k == "sn":
             if not any(r["id"] == int(p[1]) for r in reports.user_regions(c, user["tg_id"])):
                 return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))

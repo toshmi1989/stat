@@ -4,6 +4,7 @@ import pytest
 from conftest import make_facility, put_report
 
 SENT = []
+DOCS = []
 
 
 @pytest.fixture()
@@ -13,6 +14,8 @@ def bot(env, monkeypatch):
     monkeypatch.setattr(tg, "send", lambda chat, text, markup=None: (SENT.append((str(chat), text, markup)) or (True, "")))
     monkeypatch.setattr(tg, "edit", lambda *a, **k: None)
     monkeypatch.setattr(tg, "answer", lambda *a, **k: None)
+    DOCS.clear()
+    monkeypatch.setattr(tg, "send_document", lambda chat, data, name, caption="": (DOCS.append((str(chat), data, name, caption)) or (True, "")))
     return b
 
 
@@ -303,3 +306,54 @@ def test_repeat_with_same_numbers_offers_no_confirm(bot):
     assert "совпадают" in last(700704)
     assert "ok" not in kb_of(700704)
     assert connect().execute("SELECT version FROM reports WHERE facility_id=?", (f,)).fetchone()["version"] == 1
+
+
+def test_download_region_summary_for_a_date(bot):
+    import io
+    import openpyxl
+    f1, f2 = make_facility(1, "Район А", "A1"), make_facility(1, "Район Б", "B1")
+    other = make_facility(2, "Район В", "C1")
+    put_report(f1, "2026-02-09", visits=11); put_report(f2, "2026-02-09", visits=22); put_report(other, "2026-02-09", visits=999)
+    region_user(800800)
+    msg(bot, 800800, "📥 Скачать сводку")
+    assert f"dd:r1:2026-02-10" in kb_of(800800)             # one region: straight to the date, with a Today button
+    msg(bot, 800800, "09.02")
+    assert "dx:r1:2026-02-09:xlsx" in kb_of(800800) and "dx:r1:2026-02-09:pdf" in kb_of(800800)
+    cb(bot, 800800, "dx:r1:2026-02-09:xlsx")
+    chat, data, name, cap = DOCS[-1]
+    assert chat == "800800" and name == "flu_2026-02-09.xlsx" and "Отправлено учреждений: 2" in cap
+    wb = openpyxl.load_workbook(io.BytesIO(data))
+    text = " ".join(str(c.value) for ws in wb for row in ws.iter_rows() for c in row if c.value is not None)
+    assert "A1" in text and "B1" in text and "C1" not in text and "999" not in text       # only their own region
+    cb(bot, 800800, "dx:r1:2026-02-09:pdf")
+    assert DOCS[-1][1][:4] == b"%PDF"
+
+
+def test_download_refuses_foreign_region_and_empty_date(bot):
+    f = make_facility(1, fac="A")
+    other = make_facility(2, "Район В", "C1")
+    put_report(other, "2026-02-09")
+    region_user(800801)
+    DOCS.clear()
+    cb(bot, 800801, "dx:r2:2026-02-09:xlsx")              # a forged button for a region without access
+    assert DOCS == [] and "нет доступа" in last(800801).lower()
+    cb(bot, 800801, "dx:f%d:2026-02-09:xlsx" % other)
+    assert DOCS == []
+    cb(bot, 800801, "dx:r1:2026-02-09:xlsx")              # allowed, but nobody of the region reported that day
+    assert DOCS == [] and "нечего скачивать" in last(800801)
+    cb(bot, 800801, "dx:r1:2030-01-01:xlsx")
+    assert DOCS == [] and "будущ" in last(800801).lower()
+
+
+def test_download_for_person_with_facility_only(bot):
+    f = make_facility(1, fac="Моя")
+    other = make_facility(1, "Район Б", "Чужая")
+    put_report(f, "2026-02-10"); put_report(other, "2026-02-10")
+    assign(800802, f)
+    msg(bot, 800802, "📥 Скачать сводку")
+    cb(bot, 800802, f"dd:f{f}:2026-02-10")
+    cb(bot, 800802, f"dx:f{f}:2026-02-10:xlsx")
+    import io, openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(DOCS[-1][1]))
+    text = " ".join(str(c.value) for ws in wb for row in ws.iter_rows() for c in row if c.value is not None)
+    assert "Моя" in text and "Чужая" not in text

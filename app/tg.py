@@ -63,6 +63,30 @@ def send(chat_id, text: str, markup: dict | None = None) -> tuple[bool, str]:
     return False, "не удалось отправить"
 
 
+def send_document(chat_id, data: bytes, filename: str, caption: str = "") -> tuple[bool, str]:
+    """Sends a file (multipart upload). (ok, error)."""
+    import uuid
+    boundary = uuid.uuid4().hex
+    parts = []
+    for k, v in (("chat_id", str(chat_id)), ("caption", caption[:1000]), ("parse_mode", "HTML")):
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+    safe = filename.replace('"', "")
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="{safe}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode() + data + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    req = urllib.request.Request(f"{API}/bot{token()}/sendDocument", b"".join(parts), {"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            body = json.load(r)
+        return (True, "") if body.get("ok") else (False, body.get("description", "ошибка Telegram"))
+    except urllib.error.HTTPError as e:
+        try:
+            return False, json.load(e).get("description", f"HTTP {e.code}")
+        except ValueError:
+            return False, f"HTTP {e.code}"
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        return False, "нет связи с Telegram: " + str(getattr(e, "reason", e)).replace(token(), "***")
+
+
 def edit(chat_id, message_id, text: str, markup: dict | None = None) -> None:
     try:
         api("editMessageText", {"chat_id": str(chat_id), "message_id": message_id, "text": text[:4000], "parse_mode": "HTML", "disable_web_page_preview": True,
