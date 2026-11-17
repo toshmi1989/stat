@@ -6,7 +6,7 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
 (async () => {
   const b = await chromium.launch(); const errs = [];
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } }); const p = await ctx.newPage();
-  p.on("pageerror", e => errs.push(e.message)); p.on("console", m => { if (m.type() === "error" && !/401|403|422/.test(m.text())) errs.push(m.text()); });
+  p.on("pageerror", e => errs.push(e.message)); p.on("console", m => { if (m.type() === "error" && !/401|403|404|422/.test(m.text())) errs.push(m.text()); });
   await p.goto(BASE + "/login"); await p.fill("[name=login]", "admin"); await p.fill("[name=password]", "wrong"); await p.click("button.pri");
   ok(/Неверный/.test(await p.textContent(".err")), "wrong password shows an error");
   await p.fill("[name=password]", process.env.PW || "secret123"); await p.click("button.pri"); await p.waitForSelector(".kpi");

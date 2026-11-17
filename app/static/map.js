@@ -36,16 +36,16 @@ function uzMap(rows, m, th, sel) {
   return `<svg class="uzmap" viewBox="0 0 ${M.w} ${M.h}" role="group" aria-label="Карта Узбекистана по регионам">${shadows}${order.map(g).join("")}</svg>`;
 }
 // the card: metric chips, the map, the side list of the regions that need attention
-function mapCard() { return `<div class="card mapcard"><div class="row"><h2>Карта регионов</h2><span class="muted sm right" id="map-cap"></span></div><div class="chips" id="map-m"></div>
-  <div class="mapwrap"><div class="mapbox"><div id="map"></div><div class="maptip" id="map-tip" hidden></div></div><div class="mapside" id="map-side"></div></div><div class="legend-dots" id="map-leg"></div></div>`; }
-function bindMap(rows, th, onPick) {
+function mapCard() { return `<div class="card mapcard"><div class="row"><h2>Карта регионов</h2><span class="muted sm right" id="map-cap" data-keep></span></div><div class="chips" id="map-m" data-keep></div>
+  <div class="mapwrap"><div class="mapbox"><div id="map" data-keep></div><div class="maptip" id="map-tip" data-keep hidden></div></div><div class="mapside" id="map-side" data-keep></div></div><div class="legend-dots" id="map-leg" data-keep></div></div>`; }
+function bindMap(rows, th, onPick, silent) {
   const box = $("#map"); if (!box) return;
   const draw = () => {
-    $("#map-m").innerHTML = MAP_METRICS.map(([k, l]) => `<button class="chip${k === MAPM ? " on" : ""}" data-m="${k}">${l}</button>`).join("");
-    box.innerHTML = uzMap(rows, MAPM, th, F.region_id);
+    H($("#map-m"), true).innerHTML = MAP_METRICS.map(([k, l]) => `<button class="chip${k === MAPM ? " on" : ""}" data-m="${k}">${l}</button>`).join("");
+    H(box, true).innerHTML = uzMap(rows, MAPM, th, F.region_id);          // patched: the map is not redrawn, only the regions that changed
     const S = mapStates(rows, MAPM, th), unit = MAP_METRICS.find(x => x[0] === MAPM)[2], hot = S.filter(s => s.st === "critical" || s.st === "warning").sort((a, b) => b.k - a.k);
-    $("#map-side").innerHTML = `<h3>Требуют внимания</h3>` + (hot.length ? hot.slice(0, 6).map(s => `<button class="mrow st-${s.st}" data-rid="${s.r.id}"><i></i><span>${esc(mapShort(s.r.name))}</span><b>${Math.round(s.v).toLocaleString("ru-RU")}${unit}</b></button>`).join("") : `<p class="muted sm">Нет регионов с повышенными значениями.</p>`);
-    $("#map-leg").innerHTML = MAPM === "occupancy"
+    H($("#map-side"), true).innerHTML = `<h3>Требуют внимания</h3>` + (hot.length ? hot.slice(0, 6).map(s => `<button class="mrow st-${s.st}" data-rid="${s.r.id}"><i></i><span>${esc(mapShort(s.r.name))}</span><b>${Math.round(s.v).toLocaleString("ru-RU")}${unit}</b></button>`).join("") : `<p class="muted sm">Нет регионов с повышенными значениями.</p>`);
+    H($("#map-leg"), true).innerHTML = MAPM === "occupancy"
       ? `<span><i style="background:var(--ok)"></i>норма до ${th.elevated}%</span><span><i style="background:var(--warn)"></i>повышенная до ${th.critical}%</span><span><i style="background:var(--bad)"></i>критическая от ${th.critical}% — пульсирует</span><span><i style="background:var(--mut)"></i>нет данных</span>`
       : `<span><i style="background:var(--ok)"></i>меньше 40% от лидера</span><span><i style="background:var(--warn)"></i>40–75% от лидера</span><span><i style="background:var(--bad)"></i>от 75% лидера${MAPM === "extreme" ? " и любой случай" : ""} — пульсирует</span><span class="muted">у этого показателя нет нормы, цвет считается относительно лидера</span>`;
     $("#map-cap").textContent = "Чем выше значение, тем чаще пульсирует регион. Нажмите на регион, чтобы открыть его.";
