@@ -20,7 +20,7 @@ def norm(s) -> str:
 
 
 # ---------------------------------------------------------------- Telegram users
-def touch(c, frm: dict, default_lang: str = "ru") -> dict:
+def touch(c, frm: dict, default_lang: str = "uz") -> dict:
     """Creates or updates the person that wrote to the bot from what Telegram tells us (id, name, username)."""
     tid = str(frm["id"])
     row = c.execute("SELECT * FROM tg_users WHERE tg_id=?", (tid,)).fetchone()

@@ -233,7 +233,7 @@ SETTINGS = {
     "allow_user_edit": "1", "edit_window_hours": "24", "lock_after_days": "3",
     "occ_elevated": "70", "occ_critical": "85", "fac_occ_warn": "90",
     "growth_warn_pct": "30", "growth_crit_pct": "60", "severe_growth_pct": "25", "hosp_growth_pct": "30",
-    "default_lang": "ru", "org_title": "Министерство здравоохранения Республики Узбекистан",
+    "default_lang": "uz", "org_title": "Министерство здравоохранения Республики Узбекистан",
 }
 
 
@@ -279,6 +279,9 @@ def init_db() -> None:
         for k, v in SETTINGS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?,?)", (k, v))
         questionnaire_v2(c)
+        if not c.execute("SELECT 1 FROM settings WHERE key='default_lang_uz_v1'").fetchone():     # one time: a database made earlier still has the old default
+            c.execute("UPDATE settings SET value='uz' WHERE key='default_lang'")
+            c.execute("INSERT INTO settings(key, value) VALUES ('default_lang_uz_v1', ?)", (now(),))
         auth.ensure_admin(c)
 
 

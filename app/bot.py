@@ -14,7 +14,7 @@ T = {
         "hello": "Здравствуйте, <b>{name}</b>!\nЭто бот ежедневной отчётности по гриппу.", "pick": "Выберите действие в меню ниже.",
         "no_access": "У вас отсутствуют права доступа для отправки отчётности. Вы можете отправить запрос администратору на предоставление доступа.",
         "m_submit": "📝 Отправить ежедневную сводку", "m_fac": "🏥 Мои учреждения", "m_status": "📊 Статус отчётности", "m_hist": "🗂 История отправленных отчётов",
-        "m_req": "🔑 Запросить доступ", "m_help": "❓ Помощь", "m_lang": "🌐 Тил / Язык", "m_rights": "📋 Мои права доступа",
+        "m_req": "🔑 Запросить доступ", "m_help": "❓ Помощь", "m_lang": "🌐 Til / Язык", "m_rights": "📋 Мои права доступа",
         "help": "<b>Как пользоваться</b>\n📝 «Отправить ежедневную сводку» — заполнить форму по вашему учреждению: бот спросит каждый показатель.\n📊 «Статус отчётности» — отправлен ли отчёт сегодня.\n🗂 «История» — ваши прошлые отчёты.\n🔑 «Запросить доступ» — если нужного учреждения нет в списке.\nОтмена в любой момент: кнопка «✖ Отмена».",
         "pick_region": "Выберите <b>регион</b>:", "pick_district": "Регион: <b>{region}</b>\nВыберите <b>район</b>:", "pick_facility": "Район: <b>{district}</b>\nВыберите <b>учреждение</b>:",
         "req_sent": "✅ Запрос отправлен администратору.\nУчреждение: <b>{fac}</b>\nКогда доступ откроют, вы получите сообщение.", "req_dup": "ℹ️ {why}",
@@ -39,7 +39,7 @@ T = {
         "hello": "Ассалому алайкум, <b>{name}</b>!\nБу грипп бўйича кундалик ҳисобот боти.", "pick": "Қуйидаги менюдан танланг.",
         "no_access": "Сизда ҳисобот юбориш учун рухсат йўқ. Администраторга рухсат бериш сўровини юборишингиз мумкин.",
         "m_submit": "📝 Кундалик маълумот юбориш", "m_fac": "🏥 Менинг муассасаларим", "m_status": "📊 Ҳисобот ҳолати", "m_hist": "🗂 Юборилган ҳисоботлар тарихи",
-        "m_req": "🔑 Рухсат сўраш", "m_help": "❓ Ёрдам", "m_lang": "🌐 Тил / Язык", "m_rights": "📋 Менинг рухсатларим",
+        "m_req": "🔑 Рухсат сўраш", "m_help": "❓ Ёрдам", "m_lang": "🌐 Til / Язык", "m_rights": "📋 Менинг рухсатларим",
         "help": "<b>Қандай фойдаланиш</b>\n📝 «Кундалик маълумот юбориш» — муассасангиз бўйича шаклни тўлдиринг: бот ҳар бир кўрсаткични сўрайди.\n📊 «Ҳисобот ҳолати» — бугун ҳисобот юборилганми.\n🗂 «Тарих» — олдинги ҳисоботларингиз.\n🔑 «Рухсат сўраш» — керакли муассаса рўйхатда бўлмаса.\nИстаган пайтда бекор қилиш: «✖ Бекор қилиш» тугмаси.",
         "pick_region": "<b>Вилоятни</b> танланг:", "pick_district": "Вилоят: <b>{region}</b>\n<b>Туманни</b> танланг:", "pick_facility": "Туман: <b>{district}</b>\n<b>Муассасани</b> танланг:",
         "req_sent": "✅ Сўров администраторга юборилди.\nМуассаса: <b>{fac}</b>\nРухсат берилгач, сизга хабар келади.", "req_dup": "ℹ️ {why}",
@@ -129,8 +129,8 @@ T["uz"].update({
 T["ru"].update({
     "pick_date": "📅 <b>За какую дату</b> отправляете сводку?\nНажмите кнопку «Сегодня» или напишите дату, например <b>15.11</b> или <b>14.11.2026</b>.",
     "today_btn": "📅 Сегодня, {d}", "today_btn_sent": "✏️ Сегодня, {d} (уже отправлена)", "ask_date": "Напишите дату: <b>15.11</b> или <b>14.11.2026</b>.",
-    "form_head": "📝 <b>{fac}</b> · {date}\n\n{section}<b>Вопрос {i} из {n}</b>  {bar}\n\n<b>{name}</b>", "form_hint": "Введите число (0 или больше).{old}",
-    "q_howto": "✏️ Напишите число цифрами, например <b>25</b>. Если таких нет, напишите <b>0</b>.", "q_limit": "ℹ️ Не больше, чем в вопросе {n}: <b>{v}</b>.", "q_old": "Текущее значение: <b>{old}</b>",
+    "form_head": "📝 <b>{fac}</b> · {date}\n\n<b>Вопрос {i} из {n}</b>  {bar}\n\n<b>{name}</b>", "form_hint": "Введите число (0 или больше).{old}",
+    "q_howto": "Напишите число цифрами, например 25. Если таких нет, напишите 0.", "q_placeholder": "Число, например 25 (0, если нет)", "q_limit": "Не больше <b>{v}</b> (вопрос {n})", "q_old": "Текущее значение: <b>{old}</b>",
     "q_over": "⚠️ Число не может быть больше <b>{v}</b>: столько вы указали в вопросе {n}. Введите число не больше {v}.",
     "sec_beds": "🛏 <b>Коечный фонд</b>\n", "sec_flow": "📥 <b>Обращения и госпитализация</b>\n", "sec_occ": "😷 <b>Занятые койки</b>\n", "sec_sev": "🚨 <b>Тяжёлые пациенты</b>\n",
     "exists_edit": "✏️ Сводка за <b>{date}</b> уже отправлена (версия {ver}). Введите новые значения — кнопка «↩️ Оставить» сохраняет прежнее. Перед сохранением покажу, что изменилось, и попрошу подтвердить.",
@@ -139,8 +139,8 @@ T["ru"].update({
 T["uz"].update({
     "pick_date": "📅 Маълумотни <b>қайси санага</b> юборасиз?\n«Бугун» тугмасини босинг ёки санани ёзинг, масалан <b>15.11</b> ёки <b>14.11.2026</b>.",
     "today_btn": "📅 Бугун, {d}", "today_btn_sent": "✏️ Бугун, {d} (юборилган)", "ask_date": "Санани ёзинг: <b>15.11</b> ёки <b>14.11.2026</b>.",
-    "form_head": "📝 <b>{fac}</b> · {date}\n\n{section}<b>{i}-savol / {n}</b>  {bar}\n\n<b>{name}</b>", "form_hint": "Son kiriting (0 yoki undan ko‘p).{old}",
-    "q_howto": "✏️ Sonni raqamlar bilan yozing, masalan <b>25</b>. Agar bunday bemor bo‘lmasa, <b>0</b> yozing.", "q_limit": "ℹ️ {n}-savoldagi sondan oshmasligi kerak: <b>{v}</b>.", "q_old": "Hozirgi qiymat: <b>{old}</b>",
+    "form_head": "📝 <b>{fac}</b> · {date}\n\n<b>{i}-savol / {n}</b>  {bar}\n\n<b>{name}</b>", "form_hint": "Son kiriting (0 yoki undan ko‘p).{old}",
+    "q_howto": "Sonni raqamlar bilan yozing, masalan 25. Agar bunday bemor bo‘lmasa, 0 yozing.", "q_placeholder": "Son, masalan 25 (yo‘q bo‘lsa 0)", "q_limit": "Ko‘pi bilan <b>{v}</b> ({n}-savol)", "q_old": "Hozirgi qiymat: <b>{old}</b>",
     "q_over": "⚠️ Son <b>{v}</b> dan oshmasligi kerak: {n}-savolda shuncha ko‘rsatdingiz. {v} dan oshmaydigan son kiriting.",
     "sec_beds": "🛏 <b>O‘rinlar fondi</b>\n", "sec_flow": "📥 <b>Murojaatlar va yotqizish</b>\n", "sec_occ": "😷 <b>Band o‘rinlar</b>\n", "sec_sev": "🚨 <b>Og‘ir ahvoldagi bemorlar</b>\n",
     "exists_edit": "✏️ <b>{date}</b> санаси учун маълумот юборилган (версия {ver}). Янги қийматларни киритинг — «↩️ Қолдириш» олдингисини сақлайди. Сақлашдан олдин ўзгаришларни кўрсатаман.",
@@ -150,7 +150,7 @@ T["uz"].update({
 
 def t(lang: str, key: str, **kw) -> str:
     s = T.get(lang, T["ru"]).get(key) or T["ru"][key]
-    if lang == "uz":
+    if lang == "uz" and key != "m_lang":          # the language button stays «Til / Язык» in both languages, so that a Russian speaker can always find it
         s = lat(s)           # Uzbek is written in Latin (the script of the questionnaire); the template is converted, the names inserted into it stay as they are
     return s.format(**kw) if kw else s
 
@@ -168,8 +168,8 @@ T["uz"].update({
     "dl_caption": "📥 Маълумот: <b>{scope}</b>\nСана: {date}\nЮборган муассасалар: {n}", "dl_fail": "⚠️ Файлни юбориб бўлмади: {why}", "dl_wait": "⏳ Файл тайёрланмоқда…",
 })
 MENU_KEYS = {"m_dl": "dl", "m_submit": "submit", "m_fac": "fac", "m_status": "status", "m_hist": "hist", "m_req": "req", "m_help": "help", "m_lang": "lang", "m_rights": "rights"}
-MENU_TEXT = {T[lang][k]: a for lang in T for k, a in MENU_KEYS.items()}
-CANCEL_TEXT = {T[lang]["cancel"] for lang in T}
+MENU_TEXT = {txt: a for lang in T for k, a in MENU_KEYS.items() for txt in {T[lang][k], t(lang, k)}}      # the button as it is drawn now, and as it was drawn before
+CANCEL_TEXT = {txt for lang in T for txt in {T[lang]["cancel"], t(lang, "cancel")}}
 
 
 def esc(s) -> str:
@@ -623,27 +623,24 @@ def bound_of(data: dict, code: str):
 
 
 def ask(c, user, chat, data: dict) -> None:
+    """One question and nothing else: where we are, the question itself, a limit when one applies, the current value when there is one.
+    «Write a number» is the placeholder of the input field, not a line of text."""
     lang = user["lang"]
     inds = {i["code"]: i for i in indicator_list(c)}
     i = data["idx"]
     ind = inds[data["codes"][i]]
     f = reports.facility_info(c, data["fid"])
     old = data["values"].get(ind["code"])
-    hint = (ind["hint_uz"] if lang == "uz" and ind["hint_uz"] else ind["hint_ru"])
     n = len(data["codes"])
     bar = "▰" * (i + 1) + "▱" * (n - i - 1)
-    sec = SECTION.get(ind["code"])
-    text = t(lang, "form_head", fac=esc(nm(f, lang)), date=data["date"], i=i + 1, n=n, bar=bar, name=esc(nm(ind, lang)), section=(t(lang, "sec_" + sec) if sec else ""))
-    if hint:
-        text += f"\n\n<i>{esc(lat(hint) if lang == 'uz' else hint)}</i>"
-    text += "\n\n" + t(lang, "q_howto")
+    text = t(lang, "form_head", fac=esc(nm(f, lang)), date=data["date"], i=i + 1, n=n, bar=bar, name=esc(nm(ind, lang)))
     bd = bound_of(data, ind["code"])
     if bd:
-        text += "\n" + t(lang, "q_limit", n=bd[1], v=bd[0])
+        text += "\n\n" + t(lang, "q_limit", n=bd[1], v=bd[0])
     if old is not None:
-        text += "\n" + t(lang, "q_old", old=old)
+        text += ("\n" if bd else "\n\n") + t(lang, "q_old", old=old)
     rows = ([[{"text": f"{t(lang, 'keep')}: {old}"}]] if old is not None else []) + [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]]
-    tg.send(chat, text, {"keyboard": rows, "resize_keyboard": True})
+    tg.send(chat, text, {"keyboard": rows, "resize_keyboard": True, "input_field_placeholder": t(lang, "q_placeholder")})
 
 
 def form_input(c, user, chat, st: dict, text: str, has: bool) -> None:
@@ -768,7 +765,7 @@ def handle_callback(cq: dict) -> None:
             ind = c.execute("SELECT name_ru, name_uz FROM indicators WHERE code=?", (p[1],)).fetchone()
             kb = {"keyboard": [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]], "resize_keyboard": True}
             bd = bound_of(d, p[1])
-            return tg.send(chat, f"<b>{esc(nm(ind, lang))}</b>\n\n" + t(lang, "q_howto") + (("\n" + t(lang, "q_limit", n=bd[1], v=bd[0])) if bd else "") + "\n" + t(lang, "q_old", old=d["values"].get(p[1], "—")), kb)
+            return tg.send(chat, f"<b>{esc(nm(ind, lang))}</b>\n\n" + (t(lang, "q_limit", n=bd[1], v=bd[0]) + "\n" if bd else "") + t(lang, "q_old", old=d["values"].get(p[1], "—")), {**kb, "input_field_placeholder": t(lang, "q_placeholder")})
         if k == "ok":
             return confirm(c, user, chat, d, has)
 

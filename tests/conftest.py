@@ -22,6 +22,8 @@ def env(monkeypatch):
         del sys.modules[m]
     from app import db
     db.init_db()
+    with db.tx() as c:
+        c.execute("UPDATE settings SET value='ru' WHERE key='default_lang'")   # the tests were written in Russian; the default for new databases is Uzbek (tested separately)
     return d
 
 

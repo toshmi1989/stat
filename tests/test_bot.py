@@ -367,18 +367,39 @@ def test_questionnaire_in_uzbek_latin_with_clear_questions_and_limits(bot):
         c.execute("UPDATE tg_users SET lang='uz' WHERE tg_id=700790")
     cb(bot, 700790, f"sd:{f}:2026-02-10")
     q1 = last(700790)
-    assert "1-savol / 12" in q1 and "Jami o‘rinlar soni" in q1 and "O‘rinlar fondi" in q1 and "raqamlar bilan" in q1
+    assert "1-savol / 12" in q1 and "Jami o‘rinlar soni" in q1
+    assert "Muassasadagi" not in q1 and "raqamlar bilan" not in q1 and "O‘rinlar fondi" not in q1          # only the question: no explanations, no section titles
+    assert "Son" in SENT[-1][2]["input_field_placeholder"]                                               # «write a number» is the placeholder of the input field
     assert not any("а" <= ch.lower() <= "я" for ch in q1.replace("Больница", ""))                # no Cyrillic in the questions of the Uzbek bot
     msg(bot, 700790, "40")
     q2 = last(700790)
-    assert "2-savol / 12" in q2 and "Shundan gripp bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni" in q2 and "1-savoldagi sondan oshmasligi kerak: <b>40</b>" in q2
+    assert "2-savol / 12" in q2 and "Shundan gripp bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni" in q2 and "Ko‘pi bilan <b>40</b> (1-savol)" in q2
     SENT.clear()
     msg(bot, 700790, "50")                                                                           # more than the answer to question 1
     both = " ".join(t for c, t, m in SENT)
     assert "<b>40</b> dan oshmasligi kerak" in both and "2-savol / 12" in last(700790)                      # told at once, and the same question again
     msg(bot, 700790, "30"); msg(bot, 700790, "5")                                                    # 2: 30, 3: 5 visits
-    assert "3-savol" in " ".join(t for c, t, m in SENT[-3:]) and "Murojaatlar va yotqizish" in " ".join(t for c, t, m in SENT[-4:])
+    assert "4-savol / 12" in last(700790)
     for a in ["2", "1", "9", "1", "1", "4", "1", "0", "0"]:                                           # questions 4..12 (occupied 9 <= 30; 7 and 8 <= 9; severe 4 <= visits 5)
         msg(bot, 700790, a)
     prev = last(700790)
     assert "6. Hisobot kuni yakunida gripp bilan kasallangan bemorlar band qilgan o‘rinlar soni: <b>9</b>" in prev and "12. " in prev
+
+
+def test_new_users_get_uzbek_by_default_and_the_menu_buttons_work_in_latin(bot):
+    from app.db import connect, tx
+    with tx() as c:
+        c.execute("UPDATE settings SET value='uz' WHERE key='default_lang'")
+    SENT.clear()
+    msg(bot, 990001, "/start")
+    assert connect().execute("SELECT lang FROM tg_users WHERE tg_id=990001").fetchone()["lang"] == "uz"
+    from app import people
+    with tx() as c:
+        people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, "990001", 1)     # with access the whole menu is drawn
+    SENT.clear()
+    msg(bot, 990001, "/start")
+    buttons = [x["text"] for row in SENT[-1][2]["keyboard"] for x in row]
+    assert len(buttons) >= 6 and all(not any("а" <= ch.lower() <= "я" for ch in x) for x in buttons if "Язык" not in x), buttons      # the menu is in Latin
+    assert "🌐 Til / Язык" in buttons                                                                     # except the language button: it can always be found
+    for x in buttons:                                                                                  # every drawn button is recognised (this was broken: «Quyidagi menyudan tanlang»)
+        assert bot.MENU_TEXT.get(x), x
