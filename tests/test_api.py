@@ -228,3 +228,54 @@ def test_pulse_token_changes_when_reports_change(client):
     t3 = client.get("/api/pulse").json()["token"]
     client.post("/api/reports/delete", json={"ids": [rid], "reason": "t"})
     assert client.get("/api/pulse").json()["token"] != t3                    # a report was deleted
+
+
+def test_register_by_username_in_advance_and_claim_at_the_first_message(client, monkeypatch):
+    from app import bot, people, tg
+    from app.db import connect, tx
+    sent = []
+    monkeypatch.setattr(tg, "send", lambda chat, text, markup=None: (sent.append((str(chat), text)) or (True, "")))
+    f = make_facility(1, fac="Pre")
+    assert client.post("/api/preapproved", json={"username": "bad name", "region_id": 1}).status_code == 400
+    assert client.post("/api/preapproved", json={"username": "@Ali_Test", "region_id": 1}).json()["id"]
+    assert client.post("/api/preapproved", json={"username": "https://t.me/ali_test", "region_id": 1}).json()["id"]      # the same person again: replaced, not doubled
+    assert len(client.get("/api/preapproved").json()["items"]) == 1
+    assert client.post("/api/preapproved", json={"username": "fac_user", "region_id": 1, "facility_id": f, "kind": "primary"}).status_code == 200
+    viewer = mk_staff(client, "vwer2", "viewer", [1])
+    assert viewer.post("/api/preapproved", json={"username": "someone", "region_id": 1}).status_code == 403
+    # the person writes to the bot for the first time: the access is there, no request is needed
+    bot.handle_update({"message": {"chat": {"id": 880001, "type": "private"}, "from": {"id": 880001, "username": "ALI_test", "first_name": "Али"}, "text": "/start"}})
+    c = connect()
+    assert c.execute("SELECT COUNT(*) FROM region_access WHERE tg_id='880001' AND region_id=1 AND active=1").fetchone()[0] == 1
+    assert c.execute("SELECT COUNT(*) FROM access_requests WHERE tg_id='880001'").fetchone()[0] == 0
+    assert c.execute("SELECT used_tg_id FROM preapproved WHERE lower(username)='ali_test'").fetchone()[0] == "880001"
+    c.close()
+    assert any("880001" == ch and ("ruxsat" in tx_.lower() or "доступ" in tx_.lower()) for ch, tx_ in sent)
+    assert client.get("/api/preapproved").json()["items"][0]["username"] == "fac_user"             # only the unclaimed one is left
+    # a facility registration is given as the facility; a person who is already in the bot gets it at once
+    bot.handle_update({"message": {"chat": {"id": 880002, "type": "private"}, "from": {"id": 880002, "username": "Fac_User", "first_name": "Б"}, "text": "/start"}})
+    assert connect().execute("SELECT COUNT(*) FROM assignments WHERE tg_id='880002' AND facility_id=? AND active=1", (f,)).fetchone()[0] == 1
+    assert client.post("/api/preapproved", json={"username": "ali_test", "region_id": 2}).json() == {"claimed": "880001"}
+    pid = client.post("/api/preapproved", json={"username": "later_one", "region_id": 1}).json()["id"]
+    assert client.delete(f"/api/preapproved/{pid}").status_code == 200
+
+
+def test_avatar_is_fetched_once_cached_and_hidden_from_others(client, monkeypatch):
+    from app import people, tg
+    from app.db import tx
+    calls = []
+    monkeypatch.setattr(tg, "configured", lambda: True)
+    monkeypatch.setattr(tg, "profile_photo", lambda tid: (calls.append(tid) or b"\xff\xd8JPEGDATA"))
+    with tx() as c:
+        people.add_tg_user(c, "880010", "Фото Человек")
+    r = client.get("/api/tg-avatar/880010")
+    assert r.status_code == 200 and r.content.startswith(b"\xff\xd8") and r.headers["content-type"] == "image/jpeg"
+    client.get("/api/tg-avatar/880010")
+    assert calls == ["880010"]                                                                       # kept: Telegram is asked once
+    assert client.get("/api/tg-avatar/880011").status_code == 404 and client.get("/api/tg-avatar/abc").status_code == 400
+    monkeypatch.setattr(tg, "profile_photo", lambda tid: None)
+    with tx() as c:
+        people.add_tg_user(c, "880012", "Без Фото")
+    assert client.get("/api/tg-avatar/880012").status_code == 404                                    # no photo: the page shows initials
+    a = mk_staff(client, "reg_av", "admin", [2])
+    assert a.get("/api/tg-avatar/880010").status_code in (403, 404)                                  # not in this administrator's regions

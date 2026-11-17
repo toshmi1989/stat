@@ -323,31 +323,50 @@ async function editReport(r) {
 }
 
 // ---------- people (Telegram users, requests, staff)
+// a person of Telegram: the avatar (fetched by the server; initials until it loads or when there is none), the name, @username, and a button to the profile
+const tgName = u => [u.first_name, u.last_name].filter(Boolean).join(" ") || (u.username ? "@" + u.username : "Без имени");
+const tgAv = u => `<span class="tgav">${esc((tgName(u).replace(/^@/, "")[0] || "?").toUpperCase())}<img src="/api/tg-avatar/${esc(u.tg_id)}" alt="" loading="lazy"></span>`;
+const tgWho = u => `<div class="tgwho">${tgAv(u)}<div><b>${esc(tgName(u))}</b>${u.active === 0 ? ' <span class="pill critical">отключён</span>' : ""}<div class="muted sm">${u.username ? "@" + esc(u.username) + " · " : ""}ID ${esc(u.tg_id)}</div></div></div>`;
+const tgLink = u => u.username ? `<a class="btn sm" href="https://t.me/${esc(u.username)}" target="_blank" rel="noopener noreferrer">✈ Профиль в Telegram</a>`
+  : `<a class="btn sm" href="tg://user?id=${esc(u.tg_id)}" title="У человека нет @username: профиль откроется, только если он уже есть в ваших чатах Telegram">✈ Профиль в Telegram</a>`;
+const dropBrokenAvatars = root => root.querySelectorAll(".tgav img").forEach(im => { const rm = () => im.remove(); im.addEventListener("error", rm, { once: true }); if (im.complete && im.naturalWidth === 0) rm(); });
 async function people() {
-  view.innerHTML = `<div class="card"><div class="row"><h2>Заявки на доступ</h2></div><div id="rq" class="scroll-x"></div></div><div class="card"><div class="row"><h2>Ответственные (Telegram)</h2><button class="btn pri right" id="tg-add">+ Добавить</button></div><div id="tgl" class="scroll-x"></div></div><div id="staffbox"></div>`;
+  view.innerHTML = `<div class="card"><div class="row"><h2>Заявки на доступ</h2></div><div id="rq" class="scroll-x"></div></div><div class="card"><div class="row"><h2>Записаны заранее</h2><span class="muted sm">доступ откроется сам, когда человек впервые напишет боту</span></div><div id="pre" class="scroll-x"></div></div><div class="card"><div class="row"><h2>Ответственные (Telegram)</h2><button class="btn pri right" id="tg-add">+ Добавить</button></div><div id="tgl" class="scroll-x"></div></div><div id="staffbox"></div>`;
   const loadReq = async () => { try { const r = await api("/api/requests?status=pending");
-    $("#rq").innerHTML = r.items.length ? `<table><tr><th>Дата</th><th>Telegram</th><th>Учреждение</th><th></th></tr>${r.items.map(x => `<tr><td>${esc(x.created_at)}</td><td>${esc(x.name || x.tg_id)} <span class="muted">${esc(x.tg_id)}</span></td><td><b>${esc(x.region)}</b>${x.district ? " — " + esc(x.district) : ""}${x.facility ? " — " + esc(x.facility) : ' <span class="pill">весь регион</span>'}</td><td class="row"><button class="btn sm pri" data-ap="${x.id}">Одобрить</button><button class="btn sm bad" data-no="${x.id}">Отклонить</button></td></tr>`).join("")}</table>` : `<p class="muted">Новых заявок нет.</p>`;
+    $("#rq").innerHTML = r.items.length ? `<table><tr><th>Дата</th><th>Кто просит</th><th>Куда</th><th></th></tr>${r.items.map(x => `<tr><td>${esc(x.created_at)}</td><td>${tgWho(x)}<div class="mt">${tgLink(x)}</div></td><td><b>${esc(x.region)}</b>${x.district ? " — " + esc(x.district) : ""}${x.facility ? " — " + esc(x.facility) : ' <span class="pill">весь регион</span>'}</td><td class="row"><button class="btn sm pri" data-ap="${x.id}">Одобрить</button><button class="btn sm bad" data-no="${x.id}">Отклонить</button></td></tr>`).join("")}</table>` : `<p class="muted">Новых заявок нет.</p>`;
+    dropBrokenAvatars($("#rq"));
     document.querySelectorAll("[data-ap]").forEach(b => b.onclick = () => decide(+b.dataset.ap, true)); document.querySelectorAll("[data-no]").forEach(b => b.onclick = () => decide(+b.dataset.no, false)); } catch (e) { fail(e); } };
   const decide = async (id, approve) => { const note = approve ? "" : prompt("Причина отказа (увидит заявитель):") ?? null; if (note === null) return; try { await api(`/api/requests/${id}/decide`, { method: "POST", body: { approve, note } }); loadReq(); loadTg(); } catch (e) { fail(e); } };
+  const loadPre = async () => { try { const r = await api("/api/preapproved");
+    $("#pre").innerHTML = r.items.length ? `<table><tr><th>Telegram</th><th>Куда</th><th>Тип</th><th>Записан</th><th></th></tr>${r.items.map(x => `<tr><td><b>@${esc(x.username)}</b> <a class="btn sm" href="https://t.me/${esc(x.username)}" target="_blank" rel="noopener noreferrer">✈ Профиль</a></td><td><b>${esc(x.region)}</b>${x.facility ? " — " + esc(x.facility) : ' <span class="pill">весь регион</span>'}${x.fio ? `<div class="muted sm">${esc(x.fio)}</div>` : ""}</td><td>${x.kind === "reserve" ? "резерв" : "основной"}</td><td>${esc(x.created_at)}</td><td><button class="btn sm bad" data-pd="${x.id}">Убрать</button></td></tr>`).join("")}</table>${r.bot ? `<p class="muted sm">Попросите этих людей открыть бота: <a href="https://t.me/${esc(r.bot)}" target="_blank" rel="noopener noreferrer">t.me/${esc(r.bot)}</a> и нажать «Start».</p>` : ""}` : `<p class="muted">Никого. Нажмите «+ Добавить» и укажите @username.</p>`;
+    document.querySelectorAll("[data-pd]").forEach(b => b.onclick = async () => { if (!confirm("Убрать запись? Человек не получит доступ автоматически.")) return; try { await api("/api/preapproved/" + b.dataset.pd, { method: "DELETE" }); loadPre(); } catch (x) { fail(x); } }); } catch (e) { fail(e); } };
   const loadTg = async () => { try { const r = await api("/api/tg-users");
-    $("#tgl").innerHTML = `<table><tr><th>Пользователь</th><th>Telegram ID</th><th>Доступ</th><th></th></tr>${r.items.map(u => `<tr><td>${esc([u.first_name, u.last_name].filter(Boolean).join(" ") || "—")} ${u.username ? "@" + esc(u.username) : ""}${u.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(u.tg_id)}</td><td>${u.regions.map(a => `<b>${esc(a.region)}</b> — весь регион${a.kind === "reserve" ? " (резерв)" : ""} <a href="#" data-unr="${a.id}">✕</a>`).join("<br>")}${u.regions.length && u.assignments.length ? "<br>" : ""}${u.assignments.map(a => `${esc(a.facility)} (${a.kind === "reserve" ? "резерв" : "основной"}) <a href="#" data-un="${a.id}">✕</a>`).join("<br>")}</td><td class="row"><button class="btn sm" data-as="${u.tg_id}">Назначить</button><button class="btn sm" data-tog="${u.tg_id}" data-a="${u.active}">${u.active ? "Отключить" : "Включить"}</button></td></tr>`).join("")}</table>`;
+    $("#tgl").innerHTML = `<table><tr><th>Пользователь</th><th>Доступ</th><th></th></tr>${r.items.map(u => `<tr><td>${tgWho(u)}</td><td>${u.regions.map(a => `<b>${esc(a.region)}</b> — весь регион${a.kind === "reserve" ? " (резерв)" : ""} <a href="#" data-unr="${a.id}">✕</a>`).join("<br>")}${u.regions.length && u.assignments.length ? "<br>" : ""}${u.assignments.map(a => `${esc(a.facility)} (${a.kind === "reserve" ? "резерв" : "основной"}) <a href="#" data-un="${a.id}">✕</a>`).join("<br>")}</td><td class="row">${tgLink(u)}<button class="btn sm" data-as="${u.tg_id}">Назначить</button><button class="btn sm" data-tog="${u.tg_id}" data-a="${u.active}">${u.active ? "Отключить" : "Включить"}</button></td></tr>`).join("")}</table>`;
+    dropBrokenAvatars($("#tgl"));
     document.querySelectorAll("[data-un]").forEach(a => a.onclick = async e => { e.preventDefault(); if (!confirm("Снять назначение?")) return; try { await api("/api/assignments/" + a.dataset.un, { method: "DELETE" }); loadTg(); } catch (x) { fail(x); } });
     document.querySelectorAll("[data-unr]").forEach(a => a.onclick = async e => { e.preventDefault(); if (!confirm("Снять доступ к региону?")) return; try { await api("/api/region-access/" + a.dataset.unr, { method: "DELETE" }); loadTg(); } catch (x) { fail(x); } });
     document.querySelectorAll("[data-tog]").forEach(b => b.onclick = async () => { try { await api("/api/tg-users/" + b.dataset.tog, { method: "PATCH", body: { active: b.dataset.a !== "1" } }); loadTg(); } catch (x) { fail(x); } });
-    document.querySelectorAll("[data-as]").forEach(b => b.onclick = () => assignDlg(b.dataset.as, loadTg)); } catch (e) { fail(e); } };
-  $("#tg-add").onclick = () => assignDlg("", loadTg);
-  loadReq(); loadTg();
+    document.querySelectorAll("[data-as]").forEach(b => b.onclick = () => assignDlg(b.dataset.as, () => { loadTg(); loadPre(); })); } catch (e) { fail(e); } };
+  $("#tg-add").onclick = () => assignDlg("", () => { loadTg(); loadPre(); });
+  loadReq(); loadPre(); loadTg();
   if (ME.role === "super_admin") staffBox();
 }
+
 async function assignDlg(tg, done) {
-  modal(`<h2>Назначить ответственного</h2>${tg ? "" : `<label>Telegram ID<input id="a-id" inputmode="numeric"></label><label>Имя<input id="a-n"></label>`}
+  modal(`<h2>${tg ? "Назначить ответственного" : "Добавить ответственного"}</h2>${tg ? "" : `<label>@username или Telegram ID<input id="a-id" placeholder="@username  или  123456789" autocomplete="off"></label><p class="muted sm" style="margin:-4px 0 10px">С @username человеку не нужно отправлять запрос: доступ откроется, как только он впервые напишет боту. Числовой ID нужен, если у человека нет @username.</p><label>Имя (необязательно)<input id="a-n"></label>`}
   <label>Регион<select id="a-r">${opts(META.regions, "", "—")}</select></label><label>Район (необязательно)<select id="a-d" disabled></select></label><label>Учреждение (необязательно; если пусто — доступ ко всему региону)<select id="a-f" disabled></select></label>
   <label>Тип<select id="a-k"><option value="primary">Основной</option><option value="reserve">Резервный</option></select></label><label>ФИО (для отчётов)<input id="a-fio"></label>
   <div class="row mt"><button class="btn pri" id="a-ok">Сохранить</button><button class="btn right" data-close>Отмена</button></div>`);
   $("#a-r").onchange = async e => { const d = await api("/api/districts?region_id=" + e.target.value); $("#a-d").innerHTML = opts(d.items, "", "—"); $("#a-d").disabled = false; $("#a-f").disabled = true; };
   $("#a-d").onchange = async e => { const f = await api("/api/facilities?" + qs({ district_id: e.target.value, size: 200 })); $("#a-f").innerHTML = opts(f.items, "", "—"); $("#a-f").disabled = false; };
-  $("#a-ok").onclick = async () => { if (!+$("#a-r").value) return toast("Выберите регион"); const body = { tg_id: tg || $("#a-id").value.trim(), name: tg ? "" : $("#a-n").value, facility_id: +$("#a-f").value || 0, region_id: +$("#a-r").value || 0, kind: $("#a-k").value, fio: $("#a-fio").value };
-    try { if (tg) await api("/api/assignments", { method: "POST", body }); else await api("/api/tg-users", { method: "POST", body }); closeModal(); toast("Сохранено"); done(); } catch (e) { fail(e); } };
+  $("#a-ok").onclick = async () => { if (!+$("#a-r").value) return toast("Выберите регион");
+    const id = tg || $("#a-id").value.trim(), numeric = /^\d+$/.test(id), common = { facility_id: +$("#a-f").value || 0, region_id: +$("#a-r").value || 0, kind: $("#a-k").value, fio: $("#a-fio").value || (tg ? "" : $("#a-n").value) };
+    if (!id) return toast("Укажите @username или Telegram ID");
+    try {
+      if (tg) await api("/api/assignments", { method: "POST", body: { tg_id: tg, ...common } });
+      else if (numeric) await api("/api/tg-users", { method: "POST", body: { tg_id: id, name: $("#a-n").value, ...common } });
+      else { const r = await api("/api/preapproved", { method: "POST", body: { username: id, ...common } }); toast(r.claimed ? "Человек уже есть в боте: доступ открыт сразу" : "Записан: доступ откроется при первом сообщении боту"); closeModal(); return done(); }
+      closeModal(); toast("Сохранено"); done(); } catch (e) { fail(e); } };
 }
 async function staffBox() {
   const [st] = await Promise.all([api("/api/staff")]);

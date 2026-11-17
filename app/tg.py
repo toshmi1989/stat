@@ -46,6 +46,22 @@ def api(method: str, payload: dict | None = None, timeout: int = 15):
     return data["result"]
 
 
+def profile_photo(tg_id) -> bytes | None:
+    """The person's current profile photo (a small size) or None: no photo, hidden by privacy settings, or no connection. The token stays here."""
+    try:
+        r = api("getUserProfilePhotos", {"user_id": int(tg_id), "limit": 1})
+        if not r.get("total_count") or not r.get("photos"):
+            return None
+        sizes = r["photos"][0]
+        pick = next((x for x in sizes if x.get("width", 0) >= 160), sizes[-1])          # about 160 px: sharp enough for a 40 px avatar, a few kilobytes
+        f = api("getFile", {"file_id": pick["file_id"]})
+        with urllib.request.urlopen(f"{API}/file/bot{token()}/{f['file_path']}", timeout=15) as resp:
+            data = resp.read(1_000_001)
+        return data if 0 < len(data) <= 1_000_000 else None
+    except (TgError, KeyError, ValueError, OSError):
+        return None
+
+
 def send(chat_id, text: str, markup: dict | None = None) -> tuple[bool, str]:
     """(ok, error). A person who blocked the bot is marked inactive for reminders instead of failing every morning."""
     for attempt in (1, 2):

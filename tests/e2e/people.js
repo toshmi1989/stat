@@ -1,0 +1,20 @@
+const { chromium } = require("playwright");
+(async () => { const b = await chromium.launch(); const p = await (await b.newContext({ viewport: { width: 1300, height: 1100 } })).newPage(); const errs = []; let fails = 0;
+  const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++; };
+  p.on("pageerror", e => errs.push(e.message)); p.on("console", m => { if (m.type() === "error" && !/404/.test(m.text())) errs.push(m.text()); });
+  await p.request.post((process.env.BASE || "http://localhost:8770") + "/login", { form: { login: "admin", password: "secret123" }, maxRedirects: 0 }).catch(() => {});
+  await p.goto((process.env.BASE || "http://localhost:8770") + "/#/people"); await p.waitForSelector("#rq .tgwho"); await p.waitForTimeout(700);
+  ok(await p.locator("#rq .tgwho b").first().textContent() !== "5550001", "the request shows the name, not only the ID");
+  ok(/Алишер Каримов/.test(await p.textContent("#rq")) && /@alisher_k/.test(await p.textContent("#rq")), "name and @username are shown");
+  ok(await p.locator('#rq a[href="https://t.me/alisher_k"]').count() === 1, "profile button with the t.me link (username known)");
+  ok(await p.locator('#rq a[href="tg://user?id=5550002"]').count() === 1, "profile button with tg://user?id when there is no @username");
+  ok(await p.locator("#rq .tgav").first().textContent().then(t => /^[А-ЯA-Z]/.test(t.trim())), "initials in the avatar while there is no photo");
+  ok(await p.locator("#rq .tgav img").count() === 0, "a missing photo (404) leaves only the initials");
+  // register in advance
+  await p.click("#tg-add"); await p.fill("#a-id", "@Zafar_New"); await p.selectOption("#a-r", { index: 4 }); await p.fill("#a-fio", "Зафар Тест"); await p.click("#a-ok"); await p.waitForTimeout(900);
+  ok(/@Zafar_New/.test(await p.textContent("#pre")) && /Зафар Тест/.test(await p.textContent("#pre")), "registered by @username: listed under «Записаны заранее»");
+  await p.click("#tg-add"); await p.fill("#a-id", "bad name"); await p.selectOption("#a-r", { index: 4 }); await p.click("#a-ok"); await p.waitForTimeout(500);
+  ok(/Имя в Telegram/.test(await p.textContent("#toast")), "a wrong @username is refused with an explanation");
+  await p.keyboard.press("Escape"); await p.evaluate(() => document.querySelector("#modal").innerHTML = "");
+  await p.screenshot({ path: "/tmp/flumap/shots/people.png", fullPage: true });
+  console.log("errors:", errs); await b.close(); process.exit(fails || errs.length ? 1 : 0); })();

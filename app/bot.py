@@ -156,12 +156,14 @@ def t(lang: str, key: str, **kw) -> str:
 
 
 T["ru"].update({
+    "preapproved": "✅ Вам уже открыт доступ: <b>{where}</b>.\nНажмите «Отправить сводку», запрос не нужен.",
     "m_dl": "📥 Скачать сводку", "dl_pick": "Что скачать?", "dl_region": "📍 Регион: {name}", "dl_fac": "🏥 {name}",
     "dl_date": "📅 <b>За какую дату</b> скачать сводку ({scope})?\nНажмите «Сегодня» или напишите дату, например <b>15.11</b> или <b>14.11.2026</b>.",
     "dl_today": "📅 Сегодня, {d}", "dl_fmt": "<b>{scope}</b>, {date}\nВ каком виде прислать?", "dl_none": "За <b>{date}</b> по «{scope}» сводок ещё нет: нечего скачивать.",
     "dl_caption": "📥 Сводка: <b>{scope}</b>\nДата: {date}\nОтправлено учреждений: {n}", "dl_fail": "⚠️ Не удалось отправить файл: {why}", "dl_wait": "⏳ Готовлю файл…",
 })
 T["uz"].update({
+    "preapproved": "✅ Sizga allaqachon ruxsat berilgan: <b>{where}</b>.\n«Kundalik ma’lumot yuborish» tugmasini bosing, so‘rov yuborish shart emas.",
     "m_dl": "📥 Маълумотни юклаб олиш", "dl_pick": "Нимани юклаб оламиз?", "dl_region": "📍 Вилоят: {name}", "dl_fac": "🏥 {name}",
     "dl_date": "📅 Маълумотни <b>қайси санага</b> юклаб оламиз ({scope})?\n«Бугун» тугмасини босинг ёки санани ёзинг, масалан <b>15.11</b> ёки <b>14.11.2026</b>.",
     "dl_today": "📅 Бугун, {d}", "dl_fmt": "<b>{scope}</b>, {date}\nҚандай кўринишда юборай?", "dl_none": "<b>{date}</b> санаси учун «{scope}» бўйича маълумот ҳали йўқ.",
@@ -212,6 +214,21 @@ def set_state(c, tg_id: str, state: str = "", data: dict | None = None) -> None:
 
 
 # ---------------------------------------------------------------- entry point
+def welcome_preapproved(c, user, chat) -> None:
+    """Access that the administrator wrote down by @username in advance is given at the first message: no request is needed."""
+    given = people.claim_preapproved(c, user)
+    if not given:
+        return
+    lang = user["lang"]
+    names = []
+    for g in given:
+        row = (c.execute("SELECT name_ru, name_uz FROM facilities WHERE id=?", (g["facility_id"],)).fetchone() if g["facility_id"]
+               else c.execute("SELECT name_ru, name_uz FROM regions WHERE id=?", (g["region_id"],)).fetchone())
+        if row:
+            names.append(esc(nm(row, lang)))
+    tg.send(chat, t(lang, "preapproved", where=", ".join(names)), main_kb(lang, True))
+
+
 def handle_update(u: dict) -> None:
     if u.get("callback_query"):
         return handle_callback(u["callback_query"])
@@ -227,6 +244,7 @@ def handle_update(u: dict) -> None:
         if not user["active"]:
             tg.send(chat["id"], t(lang, "stopped"))
             return
+        welcome_preapproved(c, user, chat["id"])
         has = reports.has_access(c, user["tg_id"])
         st = get_state(c, user["tg_id"])
         cmd = text.split()[0].split("@")[0].lower()
@@ -712,6 +730,7 @@ def handle_callback(cq: dict) -> None:
     with tx() as c:
         user = people.touch(c, cq["from"], all_settings(c)["default_lang"])
         lang = user["lang"]
+        welcome_preapproved(c, user, chat)
         has = reports.has_access(c, user["tg_id"])
         tg.answer(cq["id"])
         if not user["active"]:

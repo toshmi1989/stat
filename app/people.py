@@ -122,6 +122,81 @@ def unassign(c, user, assignment_id: int) -> None:
     audit(c, "assignment.remove", "facility", a["facility_id"], {"tg_id": a["tg_id"]})
 
 
+# ---------------------------------------------------------------- registered in advance by @username
+USERNAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{4,31}")
+
+
+def clean_username(raw) -> str:
+    u = re.sub(r"^(https?://)?(t\.me|telegram\.me)/", "", str(raw or "").strip()).lstrip("@").strip().rstrip("/")
+    if not USERNAME_RE.fullmatch(u):
+        raise PeopleError("Имя в Telegram (@username): латиница, цифры и «_», от 5 знаков. Если у человека его нет, используйте числовой Telegram ID.")
+    return u
+
+
+def preapprove(c, user, raw_username, region_id: int, facility_id=None, kind: str = "primary", fio: str = "") -> dict:
+    """Access by @username before the person writes to the bot: it is given at their first message. A person who is already in the bot gets it at once."""
+    name = clean_username(raw_username)
+    if kind not in ("primary", "reserve"):
+        raise PeopleError("Вид назначения: основной или резервный")
+    if facility_id:
+        r = c.execute("SELECT d.region_id FROM facilities f JOIN districts d ON d.id=f.district_id WHERE f.id=?", (facility_id,)).fetchone()
+        if not r:
+            raise PeopleError("Учреждение не найдено", 404)
+        region_id = r["region_id"]
+        if not can_manage_facility(user, c, facility_id):
+            raise PeopleError("Недостаточно прав для этого учреждения", 403)
+    elif not can_manage_region(user, region_id):
+        raise PeopleError("Недостаточно прав для этого региона", 403)
+    if not c.execute("SELECT 1 FROM regions WHERE id=?", (region_id,)).fetchone():
+        raise PeopleError("Регион не найден", 404)
+    known = c.execute("SELECT tg_id FROM tg_users WHERE lower(username)=lower(?)", (name,)).fetchone()
+    if known:                                                           # already wrote to the bot: no need to wait
+        if facility_id:
+            assign(c, user, known["tg_id"], facility_id, kind, fio)
+        else:
+            assign_region(c, user, known["tg_id"], region_id, kind, fio)
+        return {"claimed": known["tg_id"]}
+    c.execute("DELETE FROM preapproved WHERE lower(username)=lower(?) AND region_id=? AND ifnull(facility_id,0)=? AND used_at=''", (name, region_id, facility_id or 0))
+    cur = c.execute("INSERT INTO preapproved(username, region_id, facility_id, kind, fio, created_by, created_at) VALUES (?,?,?,?,?,?,?)", (name, region_id, facility_id or None, kind, fio.strip(), user["id"], now()))
+    audit(c, "preapproved.add", "region", region_id, {"username": name, "facility": facility_id, "kind": kind})
+    return {"id": cur.lastrowid}
+
+
+def list_preapproved(c, user) -> list[dict]:
+    s, a = auth.region_filter_sql(user, "p.region_id")
+    return [dict(r) for r in c.execute(f"""SELECT p.id, p.username, p.kind, p.fio, p.created_at, r.name_ru AS region, f.name_ru AS facility FROM preapproved p JOIN regions r ON r.id=p.region_id
+                                          LEFT JOIN facilities f ON f.id=p.facility_id WHERE p.used_at='' {('AND ' + s) if s else ''} ORDER BY p.id DESC""", a)]
+
+
+def delete_preapproved(c, user, pid: int) -> None:
+    r = c.execute("SELECT * FROM preapproved WHERE id=? AND used_at=''", (pid,)).fetchone()
+    if not r:
+        raise PeopleError("Запись не найдена", 404)
+    if not can_manage_region(user, r["region_id"]):
+        raise PeopleError("Недостаточно прав для этого региона", 403)
+    c.execute("DELETE FROM preapproved WHERE id=?", (pid,))
+    audit(c, "preapproved.remove", "region", r["region_id"], {"username": r["username"]})
+
+
+def claim_preapproved(c, tg_row) -> list[dict]:
+    """The person has written to the bot: what was registered for their @username becomes their access. Returns what was given (for the welcome message)."""
+    if not tg_row["username"]:
+        return []
+    rows = c.execute("SELECT * FROM preapproved WHERE lower(username)=lower(?) AND used_at=''", (tg_row["username"],)).fetchall()
+    given = []
+    for r in rows:
+        who = {"id": r["created_by"], "role": "super_admin", "regions": None}          # it was the administrator's decision when it was written down
+        name = r["fio"] or " ".join(x for x in (tg_row["first_name"], tg_row["last_name"]) if x)
+        if r["facility_id"]:
+            assign(c, who, tg_row["tg_id"], r["facility_id"], r["kind"], name)
+        else:
+            assign_region(c, who, tg_row["tg_id"], r["region_id"], r["kind"], name)
+        c.execute("UPDATE preapproved SET used_at=?, used_tg_id=? WHERE id=?", (now(), tg_row["tg_id"], r["id"]))
+        given.append({"region_id": r["region_id"], "facility_id": r["facility_id"]})
+        audit(c, "preapproved.claimed", "tg_user", tg_row["tg_id"], {"username": r["username"], "region": r["region_id"], "facility": r["facility_id"]}, actor="telegram " + str(tg_row["tg_id"]))
+    return given
+
+
 # ---------------------------------------------------------------- requests for access
 def create_request(c, tg_id: str, region_id: int, district_id: int | None = None) -> int:
     """A request for access to a region. The district, if given, only tells the administrator where the person works."""

@@ -595,6 +595,62 @@ async def api_tg_user_add(request: Request):
     return {"ok": True}
 
 
+AVATAR_FRESH_HOURS, AVATAR_NONE_HOURS = 12, 1
+
+
+@app.get("/api/tg-avatar/{tg_id}")
+def api_tg_avatar(request: Request, tg_id: str):
+    """The Telegram profile photo of a person the viewer may see. Fetched with the bot token (which never leaves the server) and kept for hours."""
+    u = need_users(request)
+    if not re.fullmatch(r"\d{4,15}", tg_id):
+        bad("Неверный Telegram ID")
+    from datetime import datetime, timedelta
+    c = connect()
+    try:
+        if tg_id not in {r["tg_id"] for r in tg_users_scope(c, u)}:
+            bad("Нет данных", 404)
+        row = c.execute("SELECT data, found, fetched_at FROM tg_avatars WHERE tg_id=?", (tg_id,)).fetchone()
+    finally:
+        c.close()
+    limit = timedelta(hours=AVATAR_FRESH_HOURS if row and row["found"] else AVATAR_NONE_HOURS)
+    fresh = row and (datetime.strptime(now(), "%Y-%m-%d %H:%M:%S") - datetime.strptime(row["fetched_at"], "%Y-%m-%d %H:%M:%S")) < limit
+    if not fresh:
+        data = tg.profile_photo(tg_id) if tg.configured() else None          # the network call is made outside any transaction
+        with tx() as c:
+            c.execute("INSERT INTO tg_avatars(tg_id, data, fetched_at, found) VALUES (?,?,?,?) ON CONFLICT(tg_id) DO UPDATE SET data=excluded.data, fetched_at=excluded.fetched_at, found=excluded.found",
+                      (tg_id, data, now(), 1 if data else 0))
+        row = {"data": data, "found": 1 if data else 0}
+    if not row["found"] or not row["data"]:
+        bad("Фото нет", 404)
+    return Response(bytes(row["data"]), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.get("/api/preapproved")
+def api_preapproved(request: Request):
+    u = need_users(request)
+    c = connect()
+    try:
+        return {"items": people.list_preapproved(c, u), "bot": tg.bot_username() if tg.configured() else ""}
+    finally:
+        c.close()
+
+
+@app.post("/api/preapproved")
+async def api_preapproved_add(request: Request):
+    u = need_users(request)
+    b = await jbody(request)
+    with tx() as c:
+        return people.preapprove(c, u, b.get("username"), q_int(b.get("region_id")) or 0, q_int(b.get("facility_id")), b.get("kind") or "primary", str(b.get("fio") or ""))
+
+
+@app.delete("/api/preapproved/{pid}")
+def api_preapproved_delete(request: Request, pid: int):
+    u = need_users(request)
+    with tx() as c:
+        people.delete_preapproved(c, u, pid)
+    return {"ok": True}
+
+
 @app.patch("/api/tg-users/{tg_id}")
 async def api_tg_user_update(request: Request, tg_id: str):
     need_users(request)

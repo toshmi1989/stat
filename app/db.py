@@ -92,6 +92,18 @@ CREATE TABLE IF NOT EXISTS region_access (
     created_by INTEGER, created_at TEXT NOT NULL DEFAULT '',
     UNIQUE (tg_id, region_id)
 );
+-- people the administrator registered by @username before they ever wrote to the bot: the access is given when they do
+CREATE TABLE IF NOT EXISTS preapproved (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL,
+    region_id INTEGER NOT NULL REFERENCES regions(id),
+    facility_id INTEGER REFERENCES facilities(id),
+    kind TEXT NOT NULL DEFAULT 'primary', fio TEXT NOT NULL DEFAULT '',
+    created_by INTEGER, created_at TEXT NOT NULL,
+    used_at TEXT NOT NULL DEFAULT '', used_tg_id TEXT NOT NULL DEFAULT ''
+);
+-- profile photos fetched from Telegram (the bot token never leaves the server): found=0 means the person has none or hides it
+CREATE TABLE IF NOT EXISTS tg_avatars (tg_id TEXT PRIMARY KEY, data BLOB, fetched_at TEXT NOT NULL, found INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS access_requests (
     id INTEGER PRIMARY KEY,
     tg_id TEXT NOT NULL REFERENCES tg_users(tg_id),
@@ -166,6 +178,7 @@ CREATE INDEX IF NOT EXISTS idx_reports_fac ON reports(facility_id, report_date);
 CREATE INDEX IF NOT EXISTS idx_vals_report ON report_values(report_id);
 CREATE INDEX IF NOT EXISTS idx_fac_district ON facilities(district_id);
 CREATE INDEX IF NOT EXISTS idx_dist_region ON districts(region_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_preapp ON preapproved(username, region_id, ifnull(facility_id, 0)) WHERE used_at = '';
 CREATE INDEX IF NOT EXISTS idx_assign_fac ON assignments(facility_id);
 CREATE INDEX IF NOT EXISTS idx_regacc_tg ON region_access(tg_id);
 CREATE INDEX IF NOT EXISTS idx_versions_report ON report_versions(report_id, id);
@@ -376,6 +389,7 @@ def delete_facilities(c, ids: list[int], reason: str = "") -> dict:
             continue
         c.execute("DELETE FROM assignments WHERE facility_id=?", (i,))
         c.execute("UPDATE access_requests SET facility_id=NULL WHERE facility_id=?", (i,))
+        c.execute("DELETE FROM preapproved WHERE facility_id=?", (i,))
         c.execute("DELETE FROM facilities WHERE id=?", (i,))
         audit(c, "facility.delete", "facility", i, {"name": f["name_ru"], "reports_removed": len(rep)})
     return {"reports": nrep, "facilities": len(ids)}
