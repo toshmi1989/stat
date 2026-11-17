@@ -156,6 +156,9 @@ def t(lang: str, key: str, **kw) -> str:
 
 
 T["ru"].update({
+    "st_title": "📊 <b>Статус отчётности</b>", "st_region": "━━━━━━━━━━━━━━\n🌍 <b>{name}</b>  ·  учреждений: {n}", "st_day": "📅 <b>{date}</b>{rel}\n{bar}  <b>{n}/{total}</b> сдали",
+    "st_missing": "❌ <b>Не сдали ({n}):</b>", "st_overdue": "⏰ срок прошёл", "st_returned": "↩️ <b>Возвращены на исправление ({n}):</b>", "st_all_ok": "🎉 Все учреждения сдали",
+    "st_done": "✅ <b>Сдали за {date} ({n})</b> — нажмите, чтобы раскрыть", "st_mine": "━━━━━━━━━━━━━━\n🏥 <b>Мои учреждения</b>", "rel_today": "сегодня", "rel_yday": "вчера",
     "preapproved": "✅ Вам уже открыт доступ: <b>{where}</b>.\nНажмите «Отправить сводку», запрос не нужен.",
     "m_dl": "📥 Скачать сводку", "dl_pick": "Что скачать?", "dl_region": "📍 Регион: {name}", "dl_fac": "🏥 {name}",
     "dl_date": "📅 <b>За какую дату</b> скачать сводку ({scope})?\nНажмите «Сегодня» или напишите дату, например <b>15.11</b> или <b>14.11.2026</b>.",
@@ -163,6 +166,9 @@ T["ru"].update({
     "dl_caption": "📥 Сводка: <b>{scope}</b>\nДата: {date}\nОтправлено учреждений: {n}", "dl_fail": "⚠️ Не удалось отправить файл: {why}", "dl_wait": "⏳ Готовлю файл…",
 })
 T["uz"].update({
+    "st_title": "📊 <b>Hisobot holati</b>", "st_region": "━━━━━━━━━━━━━━\n🌍 <b>{name}</b>  ·  muassasalar: {n}", "st_day": "📅 <b>{date}</b>{rel}\n{bar}  <b>{n}/{total}</b> topshirgan",
+    "st_missing": "❌ <b>Topshirmaganlar ({n}):</b>", "st_overdue": "⏰ muddat o‘tgan", "st_returned": "↩️ <b>Tuzatish uchun qaytarilgan ({n}):</b>", "st_all_ok": "🎉 Barcha muassasalar topshirgan",
+    "st_done": "✅ <b>{date} uchun topshirganlar ({n})</b> — ochish uchun bosing", "st_mine": "━━━━━━━━━━━━━━\n🏥 <b>Mening muassasalarim</b>", "rel_today": "bugun", "rel_yday": "kecha",
     "preapproved": "✅ Sizga allaqachon ruxsat berilgan: <b>{where}</b>.\n«Kundalik ma’lumot yuborish» tugmasini bosing, so‘rov yuborish shart emas.",
     "m_dl": "📥 Маълумотни юклаб олиш", "dl_pick": "Нимани юклаб оламиз?", "dl_region": "📍 Вилоят: {name}", "dl_fac": "🏥 {name}",
     "dl_date": "📅 Маълумотни <b>қайси санага</b> юклаб оламиз ({scope})?\n«Бугун» тугмасини босинг ёки санани ёзинг, масалан <b>15.11</b> ёки <b>14.11.2026</b>.",
@@ -302,33 +308,92 @@ def show_rights(c, user, chat, has) -> None:
     tg.send(chat, text, main_kb(lang, has))
 
 
-def show_status(c, user, chat, has) -> None:
-    lang = user["lang"]
+def _bar(done: int, total: int, width: int = 10) -> str:
+    k = round(width * done / total) if total else 0
+    return "▰" * k + "▱" * (width - k)
+
+
+def _chunks(blocks: list[str], limit: int = 3800) -> list[str]:
+    """Telegram takes up to 4096 characters per message: blocks are packed whole, a block that is longer is cut by lines."""
+    out, cur = [], ""
+    for blk in blocks:
+        parts = [blk]
+        if len(blk) > limit:
+            parts, cur_p = [], ""
+            for line in blk.split("\n"):
+                if len(cur_p) + len(line) + 1 > limit:
+                    parts.append(cur_p); cur_p = ""
+                cur_p += ("\n" if cur_p else "") + line
+            parts.append(cur_p)
+        for part in parts:
+            if cur and len(cur) + len(part) + 2 > limit:
+                out.append(cur); cur = ""
+            cur += ("\n\n" if cur else "") + part
+    if cur:
+        out.append(cur)
+    return out
+
+
+def status_blocks(c, user, lang: str) -> list[str]:
+    """The reporting status as blocks of text: for every region of the person and every day, who has NOT sent (numbered, always shown), who has sent (folded),
+    with a progress bar; for single facilities, the day-by-day status."""
     st = all_settings(c)
     facs = reports.user_facilities(c, user["tg_id"])
     regs = reports.user_regions(c, user["tg_id"])
-    if not facs and not regs:
-        return tg.send(chat, t(lang, "no_access"), main_kb(lang, has))
-    out = [t(lang, "status_head")]
+    dates = reports.allowed_dates(st)
+    ref = dates[0]
+    rel = {0: t(lang, "rel_today"), 1: t(lang, "rel_yday")}
+    blocks = [t(lang, "st_title")]
+    covered = set()
     for rg in regs:
-        total = c.execute("SELECT COUNT(*) FROM facilities f JOIN districts d ON d.id=f.district_id WHERE d.region_id=? AND f.active=1 AND d.active=1", (rg["id"],)).fetchone()[0]
-        for d in reports.allowed_dates(st):
-            miss = c.execute("""SELECT f.name_ru, f.name_uz FROM facilities f JOIN districts d ON d.id=f.district_id WHERE d.region_id=? AND f.active=1 AND d.active=1
-                                AND NOT EXISTS (SELECT 1 FROM reports rep WHERE rep.facility_id=f.id AND rep.report_date=?) ORDER BY f.name_ru""", (rg["id"], d.isoformat())).fetchall()
-            out.append(t(lang, "status_region", name=esc(nm(rg, lang)), date=d.strftime("%d.%m"), n=len(miss), total=total))
-            out += ["• " + esc(nm(m, lang)) for m in miss[:15]]
-            if len(miss) > 15:
-                out.append(t(lang, "and_more", n=len(miss) - 15))
-    for f in facs:
-        out.append(f"\n<b>{esc(nm(f, lang))}</b>")
-        for d in reports.allowed_dates(st):
+        fl = c.execute("""SELECT f.id, f.name_ru, f.name_uz FROM facilities f JOIN districts d ON d.id=f.district_id WHERE d.region_id=? AND f.active=1 AND d.active=1 ORDER BY f.name_ru""", (rg["id"],)).fetchall()
+        covered |= {f["id"] for f in fl}
+        blocks.append(t(lang, "st_region", name=esc(nm(rg, lang)), n=len(fl)))
+        for d in dates:
+            iso = d.isoformat()
+            got = {r["facility_id"]: r for r in c.execute("SELECT rep.facility_id, rep.status, rep.submitted_at, rep.return_reason FROM reports rep JOIN facilities f ON f.id=rep.facility_id JOIN districts dd ON dd.id=f.district_id WHERE dd.region_id=? AND rep.report_date=?", (rg["id"], iso))}
+            missing = [f for f in fl if f["id"] not in got]
+            returned = [f for f in fl if f["id"] in got and got[f["id"]]["status"] == "returned"]
+            done = [f for f in fl if f["id"] in got and got[f["id"]]["status"] != "returned"]
+            head = t(lang, "st_day", date=d.strftime("%d.%m"), rel=(" · " + rel[(ref - d).days]) if (ref - d).days in rel else "", bar=_bar(len(done), len(fl)), n=len(done), total=len(fl))
+            lines = [head]
+            over = now_dt() > reports.deadline(st, d)
+            if missing:
+                lines.append(t(lang, "st_missing", n=len(missing)) + (" " + t(lang, "st_overdue") if over else ""))
+                lines += [f"{k}. {esc(nm(f, lang))}" for k, f in enumerate(missing, 1)]
+            if returned:
+                lines.append(t(lang, "st_returned", n=len(returned)))
+                lines += [f"• {esc(nm(f, lang))}" for f in returned]
+            if not missing and not returned:
+                lines.append(t(lang, "st_all_ok"))
+            elif not done:
+                pass
+            blocks.append("\n".join(lines))
+            if done:
+                blocks.append(t(lang, "st_done", n=len(done), date=d.strftime("%d.%m")) + "\n<blockquote expandable>" + "\n".join(f"• {esc(nm(f, lang))} · {got[f['id']]['submitted_at'][11:16]}" for f in done) + "</blockquote>")
+    own = [f for f in facs if f["id"] not in covered]
+    if own:
+        blocks.append(t(lang, "st_mine"))
+    for f in own:
+        lines = [f"🏥 <b>{esc(nm(f, lang))}</b>"]
+        for d in dates:
             rep = reports.find(c, f["id"], d.isoformat())
             if rep:
-                s = t(lang, "st_ret", why=esc(rep["return_reason"])) if rep["status"] == "returned" else t(lang, "st_sent", t=rep["submitted_at"][11:16])
+                s_ = t(lang, "st_ret", why=esc(rep["return_reason"])) if rep["status"] == "returned" else t(lang, "st_sent", t=rep["submitted_at"][11:16])
             else:
-                s = t(lang, "st_over") if now_dt() > reports.deadline(st, d) else t(lang, "st_none")
-            out.append(f"{d.strftime('%d.%m')}: {s}")
-    tg.send(chat, "\n".join(out), main_kb(lang, has))
+                s_ = t(lang, "st_over") if now_dt() > reports.deadline(st, d) else t(lang, "st_none")
+            lines.append(f"{d.strftime('%d.%m')}{(' · ' + rel[(ref - d).days]) if (ref - d).days in rel else ''} — {s_}")
+        blocks.append("\n".join(lines))
+    return blocks
+
+
+def show_status(c, user, chat, has) -> None:
+    lang = user["lang"]
+    if not reports.user_facilities(c, user["tg_id"]) and not reports.user_regions(c, user["tg_id"]):
+        return tg.send(chat, t(lang, "no_access"), main_kb(lang, has))
+    msgs = _chunks(status_blocks(c, user, lang))
+    for i, m in enumerate(msgs):
+        tg.send(chat, m, main_kb(lang, has) if i == len(msgs) - 1 else None)
 
 
 def show_history(c, user, chat, has) -> None:

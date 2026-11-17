@@ -414,3 +414,38 @@ def test_menu_has_no_help_and_my_facilities_buttons(bot):
             assert not any(k in x for x in texts for k in ("Yordam", "Помощь", "Mening muassasalarim", "Мои учреждения", "hisobotlar tarixi", "История")), texts
             assert len(texts) >= 3
     assert bot.MENU_TEXT.get("❓ Yordam") == "help"            # an old keyboard that is still on someone's phone keeps working
+
+
+def test_status_lists_facilities_who_have_not_sent_and_fits_telegram(bot):
+    from app import people
+    from app.db import tx
+    fs = [make_facility(1, "Район А", f"Больница {i:03d}") for i in range(120)]
+    with tx() as c:
+        people.add_tg_user(c, "991001", "Ответственный")
+        people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, "991001", 1)
+    for f in fs[:100]:                                                                             # 100 of 120 have sent for today, 20 have not
+        put_report(f, "2026-02-10")
+    SENT.clear()
+    msg(bot, 991001, "/status")
+    texts = [t for c, t, m in SENT if c == "991001"]
+    assert all(len(x) <= 4096 for x in texts), [len(x) for x in texts]                              # Telegram's limit
+    allt = "\n".join(texts)
+    assert "Не сдали (20)" in allt and "100/120" in allt and "▰" in allt                            # who has not sent, the count and a progress bar
+    for i in range(100, 120):
+        assert f"Больница {i:03d}" in allt                                                          # every facility that has not sent is named
+    assert "1. Больница 100" in allt and "<blockquote expandable>" in allt                          # numbered; those who have sent are folded
+    assert SENT[-1][2] is not None and "keyboard" in SENT[-1][2]                                    # the menu comes back with the last message
+
+
+def test_status_is_in_uzbek_for_an_uzbek_user(bot):
+    from app import people
+    from app.db import tx
+    f = make_facility(1, "Район А", "Касса")
+    with tx() as c:
+        people.add_tg_user(c, "991002", "Ли")
+        people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, "991002", 1)
+        c.execute("UPDATE tg_users SET lang='uz' WHERE tg_id='991002'")
+    SENT.clear()
+    msg(bot, 991002, "/status")
+    allt = "\n".join(t for c, t, m in SENT if c == "991002")
+    assert "Hisobot holati" in allt and "Topshirmaganlar (1)" in allt and "1. Касса" in allt and "bugun" in allt
