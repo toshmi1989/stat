@@ -11,7 +11,7 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
   ok(/Неверный/.test(await p.textContent(".err")), "wrong password shows an error");
   await p.fill("[name=password]", process.env.PW || "secret123"); await p.click("button.pri"); await p.waitForSelector(".kpi");
   await p.waitForTimeout(1500);
-  ok(await p.locator(".kpi").count() === 5, "5 KPI cards in one row");
+  ok(await p.locator(".kpi").count() === 6, "6 KPI cards in one row");
   ok(await p.locator("#rt tr[data-id]").count() === 14, "14 regions in the table");
   ok(!/^\s*0\/3\s*$/.test(await p.locator("#rt tr[data-id] td").nth(1).textContent()), "table shows the same day as the cards (not empty)");
   ok(await p.locator(".uzmap .rg").count() === 14, "map of Uzbekistan: 14 regions drawn");
@@ -28,7 +28,7 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
   await p.click('#rt th[data-s="name"]'); await p.waitForTimeout(300);
   await p.fill("#rt-q", "Андиж"); await p.waitForTimeout(300);
   ok(await p.locator("#rt tr[data-id]").count() === 1, "search narrows the table");
-  await p.selectOption("#f-r", { index: 2 }); await p.waitForTimeout(1500); ok(await p.locator(".kpi").count() === 5, "region filter keeps the dashboard");
+  await p.selectOption("#f-r", { index: 2 }); await p.waitForTimeout(1500); ok(await p.locator(".kpi").count() === 6, "region filter keeps the dashboard");
   for (const [n, sel] of [["forecast", "#fc h2"], ["control", "#ct table"], ["reports", "#rl table"], ["people", "#rq"], ["export", "[data-f]"], ["territories", "#tt table"], ["indicators", ".card h2"], ["settings", "#s-save"], ["audit", "table"]]) {
     await p.goto(BASE + "/#/" + n); await p.waitForSelector(sel); await p.waitForTimeout(900); await p.screenshot({ path: `${OUT}/2-${n}.png`, fullPage: true }); ok(true, "page " + n);
   }

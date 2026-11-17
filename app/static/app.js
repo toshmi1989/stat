@@ -2,7 +2,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const view = $("#view");
 let ME = null, META = null, DEB = null;
-const NAMES = { visits: "Обращения", severe: "Тяжёлые", extreme: "Крайне тяжёлые", hosp: "Госпитализации", disch: "Выписки", beds_occupied: "Занято коек", occupancy: "Загрузка, %", beds_free: "Свободно коек", beds_flu: "Коек для гриппа" };
+const NAMES = { beds_total: "Всего коек", occ_pregnant: "Занято: беременные", occ_children: "Занято: дети", extreme_pregnant: "Крайне тяжёлые: беременные", extreme_children: "Крайне тяжёлые: дети", visits: "Обращения", severe: "Тяжёлые", extreme: "Крайне тяжёлые", hosp: "Госпитализации", disch: "Выписки", beds_occupied: "Занято коек", occupancy: "Загрузка, %", beds_free: "Свободно коек", beds_flu: "Коек для гриппа" };
 const STATE = { sent: "Отправлен", corrected: "Исправлен", returned: "Возвращён", not_sent: "Не отправлен", overdue: "Просрочен", normal: "Норма", elevated: "Повышенная", critical: "Критическая", none: "—" };
 
 async function api(path, opt = {}) {
@@ -75,7 +75,10 @@ async function filterBar(onChange, opt = {}) {
 // ---------- dashboard
 // only what no other card shows: the beds are in the gauge, admitted/discharged in the flow card, who has not reported follows from "сдали отчёт"
 const KPI = [["reported", "Сдали отчёт", "✅", "ok"], ["visits", "Обращения", "🚶", "pri"], ["severe", "Тяжёлые", "🩺", "warn"], ["extreme", "Крайне тяжёлые", "🚨", "bad"],
-  ["sp", "Тяжёлые: беременные / дети", "🤰", "pur"]];
+  ["occ_pc", "Занято коек: беременные / дети", "🤰", "pur"], ["ext_pc", "Крайне тяжёлые: беременные / дети", "👶", "pur"]];
+// the exact wording of the questions (Uzbek) behind a card: shown on hover
+const KPI_CODES = { visits: ["visits"], severe: ["severe"], extreme: ["extreme"], occ_pc: ["occ_pregnant", "occ_children"], ext_pc: ["extreme_pregnant", "extreme_children"] };
+const askedAs = key => (KPI_CODES[key] || []).map(code => { const i = (META.indicators || []).find(x => x.code === code); return i ? `${META.indicators.filter(x => x.active).findIndex(x => x.code === code) + 1}. ${i.name_uz || i.name_ru}` : ""; }).filter(Boolean).join(" · ");
 const SORT = { key: "visits", asc: false }, DRILL = [];
 const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
 const longDate = d => { const [y, m, dd] = d.split("-"); return `${+dd} ${MONTHS[+m - 1]} ${y}`; };
@@ -83,7 +86,8 @@ function kpiValue(key, k) {
   const t = k.totals;
   if (key === "reported") return `<span data-count="${k.reported}">${k.reported}</span><small class="muted"> из ${k.facilities}</small>`;
   if (key === "not_reported") return `<span data-count="${k.not_reported}">${k.not_reported}</span>`;
-  if (key === "sp") return `${num(t.severe_pregnant)} / ${num(t.severe_children)}`;
+  if (key === "occ_pc") return `${num(t.occ_pregnant)} / ${num(t.occ_children)}`;
+  if (key === "ext_pc") return `${num(t.extreme_pregnant)} / ${num(t.extreme_children)}`;
   if (key === "occupancy") return t.occupancy == null ? "—" : `<span data-count="${t.occupancy}" data-dec="1" data-suf="%">${t.occupancy}%</span>`;
   return t[key] == null ? "—" : `<span data-count="${t[key]}">${num(t[key])}</span>`;
 }
@@ -101,9 +105,9 @@ async function dashboard() {
   $("#dash").innerHTML = `<div class="hero"><div><h1>${F.preset === "day" ? "Сводка за " + longDate(dash.used_date) : "Сводка за период " + d1 + " — " + d2}</h1><div class="sub">${ME.org ? esc(ME.org) + " · " : ""}по ${k.reported} из ${k.facilities} учреждений${dash.fallback ? " · данных за выбранный день нет, показан последний день с данными" : ""}</div></div>
     <div class="acts"><a class="btn" href="#/export">⬇ Выгрузка</a></div></div>
     ${canWrite && isToday && owe > 0 ? `<div class="cta"><span style="font-size:22px">⏰</span><div><b>${owe} учреждений ещё не сдали сводку за сегодня</b><div class="sub muted">Бот напомнит ответственным одним сообщением с кнопкой отправки</div></div><div class="acts"><button class="btn warn" id="remind">🔔 Отправить уведомление не сдавшим</button></div></div>` : ""}
-    <div class="kpis">${KPI.map(([key, label, ic, tone], i) => `<div class="kpi tilt" data-t="${tone}" style="--i:${i}"><div class="ic">${ic}</div><div class="v">${kpiValue(key, k)}</div><div class="l">${label}</div></div>`).join("")}</div>
+    <div class="kpis">${KPI.map(([key, label, ic, tone], i) => `<div class="kpi tilt" data-t="${tone}" style="--i:${i}" title="${esc(askedAs(key))}"><div class="ic">${ic}</div><div class="v">${kpiValue(key, k)}</div><div class="l">${label}</div></div>`).join("")}</div>
     <div class="topgrid">${mapCard()}<div class="sidecol">
-      <div class="card vcard"><h3>Загрузка коек</h3>${gaugeChart(t.occupancy, th)}<div class="cap">Занято <b>${num(t.beds_occupied)}</b> из <b>${num(t.beds_flu)}</b> · свободно <b>${num(t.beds_free)}</b></div></div>
+      <div class="card vcard"><h3>Загрузка коек</h3>${gaugeChart(t.occupancy, th)}<div class="cap">Занято <b>${num(t.beds_occupied)}</b> из <b>${num(t.beds_flu)}</b> выделенных · свободно <b>${num(t.beds_free)}</b><br>Всего коек в учреждениях: <b>${num(t.beds_total)}</b></div></div>
       <div class="card vcard"><h3>Поступили и выписаны</h3>${flowCard(t.hosp, t.disch)}</div></div></div>
     <div id="alerts"></div>
     <div class="grid2"><div class="card"><h2>Нагрузка по регионам</h2><div id="tiles">…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>норма до ${th.elevated}%</span><span><i style="background:var(--warn)"></i>повышенная до ${th.critical}%</span><span><i style="background:var(--bad)"></i>критическая от ${th.critical}%</span></div></div>
@@ -146,7 +150,7 @@ function loadDyn() {
   const mEl = $("#dyn-m"), rEl = $("#dyn-r"); if (!mEl || !rEl) return;
   const short = n => n.replace("Республика ", "").replace(" область", "").replace("город ", "г. ");
   const drawChips = () => {
-    mEl.innerHTML = ["visits", "severe", "extreme", "hosp", "disch"].map(m => `<button class="chip ${METRICS.includes(m) ? "on" : ""}" data-m="${m}">${NAMES[m]}</button>`).join("");
+    mEl.innerHTML = ["visits", "hosp", "disch", "beds_occupied", "occ_pregnant", "occ_children", "severe", "extreme"].map(m => `<button class="chip ${METRICS.includes(m) ? "on" : ""}" data-m="${m}">${NAMES[m]}</button>`).join("");
     rEl.innerHTML = `<button class="chip ${REGSEL.length ? "" : "on"}" data-r="">Вся территория</button>` + META.regions.map(r => `<button class="chip ${REGSEL.includes(String(r.id)) ? "on" : ""}" data-r="${r.id}">${esc(short(r.name_ru))}</button>`).join("");
     mEl.querySelectorAll("[data-m]").forEach(b => b.onclick = () => {
       const m = b.dataset.m;
@@ -189,13 +193,13 @@ async function loadTable(d1, d2) {
   const pid = DRILL.length ? DRILL[DRILL.length - 1].id : "";
   let r; try { r = await api("/api/regions-table?" + qs({ d1, d2, level, parent_id: pid })); } catch (e) { return fail(e); }
   if (!$("#rt-q")) return;   // the person has already left the dashboard
-  const cols = [["name", "Название"], ["reported", "Отчётов"], ["visits", "Обращения"], ["severe", "Тяжёлые"], ["extreme", "Крайне тяж."], ["hosp", "Госп."], ["disch", "Выписки"], ["beds_flu", "Коек"], ["beds_occupied", "Занято"], ["beds_free", "Своб."], ["occupancy", "Загрузка"]];
+  const cols = [["name", "Название"], ["reported", "Отчётов"], ["visits", "Обращения"], ["hosp", "Госп."], ["disch", "Выписки"], ["beds_total", "Коек всего"], ["beds_flu", "Для гриппа"], ["beds_occupied", "Занято"], ["occ_pregnant", "Берем."], ["occ_children", "Дети"], ["beds_free", "Своб."], ["occupancy", "Загрузка"], ["severe", "Тяжёлые"], ["extreme", "Крайне тяж."], ["extreme_pregnant", "Кр.тяж. берем."], ["extreme_children", "Кр.тяж. дети"]];
   const draw = () => {
     const q = ($("#rt-q").value || "").toLowerCase();
     const val = (x, k) => k === "name" ? x.name : k === "reported" ? x.reported : x.values[k];
     const rows = r.rows.filter(x => x.name.toLowerCase().includes(q)).sort((a, b) => { const A = val(a, SORT.key), B = val(b, SORT.key); const c = typeof A === "string" ? A.localeCompare(B, "ru") : (A ?? -1) - (B ?? -1); return SORT.asc ? c : -c; });
     const crumbs = `<p class="sm"><a href="#" id="up0">Республика</a>${DRILL.map((d, i) => ` › <a href="#" data-up="${i}">${esc(d.name)}</a>`).join("")}</p>`;
-    $("#rt").innerHTML = crumbs + `<table><tr>${cols.map(([k, l]) => `<th data-s="${k}" class="${k !== "name" ? "n " : ""}${SORT.key === k ? "on" + (SORT.asc ? " asc" : "") : ""}">${l}</th>`).join("")}</tr>${rows.map(x => `<tr class="${level !== "facility" ? "link" : ""}" data-id="${x.id}" data-name="${esc(x.name)}"><td>${esc(x.name)}</td><td class="n">${x.reported}/${x.facilities}</td>${cols.slice(2, 10).map(([k]) => `<td class="n">${num(x.values[k])}</td>`).join("")}<td class="n">${x.values.occupancy == null ? "—" : `<span class="pill ${x.level_state === "none" ? "" : x.level_state}">${num(x.values.occupancy)}%</span>`}</td></tr>`).join("")}</table>`;
+    $("#rt").innerHTML = crumbs + `<table><tr>${cols.map(([k, l]) => `<th data-s="${k}" class="${k !== "name" ? "n " : ""}${SORT.key === k ? "on" + (SORT.asc ? " asc" : "") : ""}">${l}</th>`).join("")}</tr>${rows.map(x => `<tr class="${level !== "facility" ? "link" : ""}" data-id="${x.id}" data-name="${esc(x.name)}"><td>${esc(x.name)}</td><td class="n">${x.reported}/${x.facilities}</td>${cols.slice(2).map(([k]) => k === "occupancy" ? `<td class="n">${x.values.occupancy == null ? "—" : `<span class="pill ${x.level_state === "none" ? "" : x.level_state}">${num(x.values.occupancy)}%</span>`}</td>` : `<td class="n">${num(x.values[k])}</td>`).join("")}</tr>`).join("")}</table>`;
     document.querySelectorAll("#rt th[data-s]").forEach(th => th.onclick = () => { SORT.asc = SORT.key === th.dataset.s ? !SORT.asc : false; SORT.key = th.dataset.s; draw(); });
     document.querySelectorAll("#rt tr.link").forEach(tr => tr.onclick = () => { DRILL.push({ id: tr.dataset.id, name: tr.dataset.name }); loadTable(d1, d2); });
     $("#up0").onclick = e => { e.preventDefault(); DRILL.length = 0; loadTable(d1, d2); };

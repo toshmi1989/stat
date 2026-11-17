@@ -15,9 +15,9 @@ from .db import TZ, all_settings
 FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 PERIOD_NAMES = {"daily": "Ежедневный сводный отчёт", "weekly": "Недельный сводный отчёт", "monthly": "Месячный сводный отчёт", "custom": "Сводный отчёт за период"}
 # column definitions of the detail table: (title, code or special key)
-BASE_COLS = [("Всего коек", "beds_total"), ("Выделено для гриппа", "beds_flu"), ("Занято коек", "beds_occupied"), ("Обращения", "visits"), ("Тяжёлые", "severe"),
-             ("в т.ч. беременные", "severe_pregnant"), ("в т.ч. дети", "severe_children"), ("Крайне тяжёлые", "extreme"), ("в т.ч. беременные ", "extreme_pregnant"),
-             ("в т.ч. дети ", "extreme_children"), ("Госпитализации", "hosp"), ("Выписки", "disch"), ("Свободные койки", "beds_free")]
+BASE_COLS = [("Всего коек", "beds_total"), ("Выделено для гриппа", "beds_flu"), ("Обращения", "visits"), ("Госпитализации", "hosp"), ("Выписки", "disch"), ("Занято коек", "beds_occupied"),
+             ("в т.ч. беременные", "occ_pregnant"), ("в т.ч. дети", "occ_children"), ("Тяжёлые", "severe"), ("Крайне тяжёлые", "extreme"), ("из них беременные", "extreme_pregnant"),
+             ("из них дети", "extreme_children"), ("Свободные койки", "beds_free")]
 
 
 def _names(c):

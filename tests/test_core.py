@@ -6,7 +6,7 @@ def test_rules_block_and_warn(env):
     from app import rules
     from app.db import connect
     c = connect()
-    ok = dict(beds_total=100, beds_flu=40, beds_occupied=20, visits=50, severe=5, severe_pregnant=1, severe_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6)
+    ok = dict(beds_total=100, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6)
     assert rules.validate(c, ok, "ru", None, None)["errors"] == []
     bad = dict(ok, beds_occupied=41)
     assert rules.validate(c, bad, "ru", None, None)["errors"]
@@ -51,7 +51,7 @@ def test_admin_edit_needs_reason(env):
     put_report(fid, "2026-02-10")
     with pytest.raises(reports.ReportError):
         with tx() as c:
-            reports.admin_save(c, fid, "2026-02-10", {"visits": 5, "beds_total": 100, "beds_flu": 40, "beds_occupied": 20, "severe": 1, "severe_pregnant": 0, "severe_children": 0, "extreme": 0, "extreme_pregnant": 0, "extreme_children": 0, "hosp": 1, "disch": 1}, "", {"kind": "staff", "id": 1, "name": "a"})
+            reports.admin_save(c, fid, "2026-02-10", {"visits": 5, "beds_total": 100, "beds_flu": 40, "beds_occupied": 20, "severe": 1, "occ_pregnant": 0, "occ_children": 0, "extreme": 0, "extreme_pregnant": 0, "extreme_children": 0, "hosp": 1, "disch": 1}, "", {"kind": "staff", "id": 1, "name": "a"})
 
 
 def test_control_states(env):

@@ -56,3 +56,9 @@ docker compose up -d --build
 ## Автообновление
 
 Открытая страница раз в 5 секунд спрашивает у `/api/pulse` лёгкий признак изменения данных (последняя версия отчёта, число отчётов и учреждений). Если пришла сводка из бота, отчёт исправили или удалили, панель, контроль, прогноз и список отчётов перерисовываются сами, а внизу появляется сообщение. Не обновляется, пока открыто окно, идёт ввод текста или в списке отчётов что-то отмечено; вкладка в фоне не опрашивает. Признак считается по базе, потому что сервис работает в двух процессах.
+
+## Вопросник (12 вопросов, узбекский)
+
+Порядок вопросов в боте: 1 Jami o‘rinlar soni; 2 Shundan gripp bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni; 3 Jami murojaatlar soni; 4 Hisobot kuni davomida shifoxonaga yotqizilgan bemorlar soni; 5 Hisobot kuni davomida shifoxonadan chiqarilgan bemorlar soni; 6 Hisobot kuni yakunida gripp bilan kasallangan bemorlar band qilgan o‘rinlar soni; 7 Shundan homilador ayollar; 8 Shundan bolalar; 9 Og‘ir ahvoldagi bemorlar soni; 10 O‘ta og‘ir ahvoldagi bemorlar soni; 11 Shundan o‘ta og‘ir ahvoldagi homilador ayollar; 12 Shundan o‘ta og‘ir ahvoldagi bolalar.
+Вопросы 7 и 8 считаются «из занятых коек» (вопрос 6), 11 и 12 «из крайне тяжёлых» (вопрос 10). Прежние «тяжёлые: беременные/дети» не задаются, их значения в старых отчётах сохранены (показатели скрыты). При запуске на существующей базе вопросник обновляется один раз (`db.questionnaire_v2`).
+Узбекский язык бота пишется латиницей: тексты переводятся из кириллицы автоматически (`app/translit.py`), названия вопросов заданы латиницей. Бот объясняет каждый вопрос (раздел, пояснение, «напишите число цифрами»), сразу говорит, если число больше ответа на связанный вопрос (2 ≤ 1, 6 ≤ 2, 7 и 8 ≤ 6, 9 и 10 ≤ 3, 11 и 12 ≤ 10), и нумерует строки при проверке отчёта.

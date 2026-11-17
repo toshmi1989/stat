@@ -5,6 +5,7 @@ import json
 import re
 from datetime import date, timedelta
 
+from .translit import lat
 from . import people, reports, rules, tg
 from .db import all_settings, connect, now, now_dt, today, tx
 
@@ -128,21 +129,29 @@ T["uz"].update({
 T["ru"].update({
     "pick_date": "📅 <b>За какую дату</b> отправляете сводку?\nНажмите кнопку «Сегодня» или напишите дату, например <b>15.11</b> или <b>14.11.2026</b>.",
     "today_btn": "📅 Сегодня, {d}", "today_btn_sent": "✏️ Сегодня, {d} (уже отправлена)", "ask_date": "Напишите дату: <b>15.11</b> или <b>14.11.2026</b>.",
-    "form_head": "📝 <b>{fac}</b> · {date}\n\n<b>Вопрос {i} из {n}</b>  {bar}\n{name}", "form_hint": "Введите число (0 или больше).{old}",
+    "form_head": "📝 <b>{fac}</b> · {date}\n\n{section}<b>Вопрос {i} из {n}</b>  {bar}\n\n<b>{name}</b>", "form_hint": "Введите число (0 или больше).{old}",
+    "q_howto": "✏️ Напишите число цифрами, например <b>25</b>. Если таких нет, напишите <b>0</b>.", "q_limit": "ℹ️ Не больше, чем в вопросе {n}: <b>{v}</b>.", "q_old": "Текущее значение: <b>{old}</b>",
+    "q_over": "⚠️ Число не может быть больше <b>{v}</b>: столько вы указали в вопросе {n}. Введите число не больше {v}.",
+    "sec_beds": "🛏 <b>Коечный фонд</b>\n", "sec_flow": "📥 <b>Обращения и госпитализация</b>\n", "sec_occ": "😷 <b>Занятые койки</b>\n", "sec_sev": "🚨 <b>Тяжёлые пациенты</b>\n",
     "exists_edit": "✏️ Сводка за <b>{date}</b> уже отправлена (версия {ver}). Введите новые значения — кнопка «↩️ Оставить» сохраняет прежнее. Перед сохранением покажу, что изменилось, и попрошу подтвердить.",
-    "bad_number": "⚠️ Нужно целое число, 0 или больше. Попробуйте ещё раз.",
+    "bad_number": "⚠️ Нужно целое число цифрами, 0 или больше. Попробуйте ещё раз.",
 })
 T["uz"].update({
     "pick_date": "📅 Маълумотни <b>қайси санага</b> юборасиз?\n«Бугун» тугмасини босинг ёки санани ёзинг, масалан <b>15.11</b> ёки <b>14.11.2026</b>.",
     "today_btn": "📅 Бугун, {d}", "today_btn_sent": "✏️ Бугун, {d} (юборилган)", "ask_date": "Санани ёзинг: <b>15.11</b> ёки <b>14.11.2026</b>.",
-    "form_head": "📝 <b>{fac}</b> · {date}\n\n<b>Савол {i} / {n}</b>  {bar}\n{name}", "form_hint": "Сон киритинг (0 ёки катта).{old}",
+    "form_head": "📝 <b>{fac}</b> · {date}\n\n{section}<b>{i}-savol / {n}</b>  {bar}\n\n<b>{name}</b>", "form_hint": "Son kiriting (0 yoki undan ko‘p).{old}",
+    "q_howto": "✏️ Sonni raqamlar bilan yozing, masalan <b>25</b>. Agar bunday bemor bo‘lmasa, <b>0</b> yozing.", "q_limit": "ℹ️ {n}-savoldagi sondan oshmasligi kerak: <b>{v}</b>.", "q_old": "Hozirgi qiymat: <b>{old}</b>",
+    "q_over": "⚠️ Son <b>{v}</b> dan oshmasligi kerak: {n}-savolda shuncha ko‘rsatdingiz. {v} dan oshmaydigan son kiriting.",
+    "sec_beds": "🛏 <b>O‘rinlar fondi</b>\n", "sec_flow": "📥 <b>Murojaatlar va yotqizish</b>\n", "sec_occ": "😷 <b>Band o‘rinlar</b>\n", "sec_sev": "🚨 <b>Og‘ir ahvoldagi bemorlar</b>\n",
     "exists_edit": "✏️ <b>{date}</b> санаси учун маълумот юборилган (версия {ver}). Янги қийматларни киритинг — «↩️ Қолдириш» олдингисини сақлайди. Сақлашдан олдин ўзгаришларни кўрсатаман.",
-    "bad_number": "⚠️ Бутун сон керак, 0 ёки катта. Яна уриниб кўринг.",
+    "bad_number": "⚠️ Raqamlar bilan butun son kerak, 0 yoki undan ko‘p. Yana urinib ko‘ring.",
 })
 
 
 def t(lang: str, key: str, **kw) -> str:
     s = T.get(lang, T["ru"]).get(key) or T["ru"][key]
+    if lang == "uz":
+        s = lat(s)           # Uzbek is written in Latin (the script of the questionnaire); the template is converted, the names inserted into it stay as they are
     return s.format(**kw) if kw else s
 
 
@@ -170,7 +179,7 @@ def esc(s) -> str:
 def nm(row, lang: str, base: str = "name") -> str:
     """The name of a row in the person's language (Uzbek when it exists)."""
     if lang == "uz" and row[f"{base}_uz"]:
-        return row[f"{base}_uz"]
+        return lat(row[f"{base}_uz"])
     return row[f"{base}_ru"]
 
 
@@ -597,6 +606,22 @@ def pick_date(c, user, chat, fid: int, d: str) -> None:
     ask(c, user, chat, get_state(c, user["tg_id"])["data"])
 
 
+# the questions that fall into the same part of the questionnaire, and the answer that limits another one (the rules of the system refuse a larger number anyway;
+# here the person is told at once, at the question)
+SECTION = {"beds_total": "beds", "beds_flu": "beds", "visits": "flow", "hosp": "flow", "disch": "flow", "beds_occupied": "occ", "occ_pregnant": "occ", "occ_children": "occ",
+           "severe": "sev", "extreme": "sev", "extreme_pregnant": "sev", "extreme_children": "sev"}
+BOUND = {"beds_flu": "beds_total", "beds_occupied": "beds_flu", "occ_pregnant": "beds_occupied", "occ_children": "beds_occupied", "severe": "visits", "extreme": "visits",
+         "extreme_pregnant": "extreme", "extreme_children": "extreme"}
+
+
+def bound_of(data: dict, code: str):
+    """(the limit, the number of the question it was given at) when the answer to the limiting question is already known."""
+    b = BOUND.get(code)
+    if b and b in data["codes"] and data["values"].get(b) is not None:
+        return data["values"][b], data["codes"].index(b) + 1
+    return None
+
+
 def ask(c, user, chat, data: dict) -> None:
     lang = user["lang"]
     inds = {i["code"]: i for i in indicator_list(c)}
@@ -607,7 +632,16 @@ def ask(c, user, chat, data: dict) -> None:
     hint = (ind["hint_uz"] if lang == "uz" and ind["hint_uz"] else ind["hint_ru"])
     n = len(data["codes"])
     bar = "▰" * (i + 1) + "▱" * (n - i - 1)
-    text = t(lang, "form_head", fac=esc(nm(f, lang)), date=data["date"], i=i + 1, n=n, bar=bar, name=esc(nm(ind, lang))) + "\n\n" + t(lang, "form_hint", old=(f"\nТекущее значение: <b>{old}</b>" if old is not None else "")) + (f"\n<i>{esc(hint)}</i>" if hint else "")
+    sec = SECTION.get(ind["code"])
+    text = t(lang, "form_head", fac=esc(nm(f, lang)), date=data["date"], i=i + 1, n=n, bar=bar, name=esc(nm(ind, lang)), section=(t(lang, "sec_" + sec) if sec else ""))
+    if hint:
+        text += f"\n\n<i>{esc(lat(hint) if lang == 'uz' else hint)}</i>"
+    text += "\n\n" + t(lang, "q_howto")
+    bd = bound_of(data, ind["code"])
+    if bd:
+        text += "\n" + t(lang, "q_limit", n=bd[1], v=bd[0])
+    if old is not None:
+        text += "\n" + t(lang, "q_old", old=old)
     rows = ([[{"text": f"{t(lang, 'keep')}: {old}"}]] if old is not None else []) + [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]]
     tg.send(chat, text, {"keyboard": rows, "resize_keyboard": True})
 
@@ -628,6 +662,10 @@ def form_input(c, user, chat, st: dict, text: str, has: bool) -> None:
         s = str(data["values"][code])
     if not s.isdigit():
         return tg.send(chat, t(lang, "bad_number"))
+    bd = bound_of(data, code)
+    if bd and int(s) > bd[0]:
+        tg.send(chat, t(lang, "q_over", v=bd[0], n=bd[1]))
+        return ask(c, user, chat, data) if st["state"] == "form" else tg.send(chat, t(lang, "q_limit", n=bd[1], v=bd[0]))
     data["values"][code] = int(s)
     if st["state"] == "form":
         data["idx"] += 1
@@ -645,13 +683,13 @@ def preview(c, user, chat, data: dict, message_id=None) -> None:
     orig = data.get("orig")
     changed = 0
     out = []
-    for i in inds:
+    for k, i in enumerate(inds, 1):
         new, old = data["values"].get(i["code"]), (orig or {}).get(i["code"])
         if orig is not None and new != old:
             changed += 1
-            out.append(f"✏️ {esc(nm(i, lang))}: {old if old is not None else '—'} → <b>{new if new is not None else '—'}</b>")
+            out.append(f"✏️ {k}. {esc(nm(i, lang))}: {old if old is not None else '—'} → <b>{new if new is not None else '—'}</b>")
         else:
-            out.append(f"{esc(nm(i, lang))}: <b>{new if new is not None else '—'}</b>")
+            out.append(f"{k}. {esc(nm(i, lang))}: <b>{new if new is not None else '—'}</b>")
     res = rules.validate(c, data["values"], lang, data["fid"], data["date"])
     path = f"{esc(nm(f, lang, 'region'))} / {esc(nm(f, lang, 'district'))} / <b>{esc(nm(f, lang))}</b>"
     text = t(lang, "preview_fix" if orig is not None else "preview", path=path, date=data["date"], lines="\n".join(out))
@@ -723,13 +761,14 @@ def handle_callback(cq: dict) -> None:
         if k == "ch":
             inds = indicator_list(c)
             set_state(c, user["tg_id"], "edit_pick", d)
-            return tg.send(chat, t(lang, "pick_field"), ik([[btn(f"{nm(i, lang)[:48]}: {d['values'].get(i['code'], '—')}", f"ef:{i['code']}")] for i in inds]))
+            return tg.send(chat, t(lang, "pick_field"), ik([[btn(f"{k}. {nm(i, lang)[:44]}: {d['values'].get(i['code'], '—')}", f"ef:{i['code']}")] for k, i in enumerate(inds, 1)]))
         if k == "ef":
             d["edit_code"] = p[1]
             set_state(c, user["tg_id"], "edit_field", d)
             ind = c.execute("SELECT name_ru, name_uz FROM indicators WHERE code=?", (p[1],)).fetchone()
             kb = {"keyboard": [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]], "resize_keyboard": True}
-            return tg.send(chat, f"<b>{esc(nm(ind, lang))}</b>\n" + t(lang, "form_hint", old=f"\nТекущее значение: <b>{d['values'].get(p[1], '—')}</b>"), kb)
+            bd = bound_of(d, p[1])
+            return tg.send(chat, f"<b>{esc(nm(ind, lang))}</b>\n\n" + t(lang, "q_howto") + (("\n" + t(lang, "q_limit", n=bd[1], v=bd[0])) if bd else "") + "\n" + t(lang, "q_old", old=d["values"].get(p[1], "—")), kb)
         if k == "ok":
             return confirm(c, user, chat, d, has)
 

@@ -79,7 +79,7 @@ def test_region_user_reports_for_any_facility_of_region(bot):
     assert f"sf:{other}" not in flat
     cb(bot, 200200, f"sf:{f2}")
     cb(bot, 200200, f"sd:{f2}:2026-02-10")
-    for a in ["100", "40", "20", "50", "5", "1", "1", "1", "0", "0", "10", "6"]:
+    for a in ["100", "40", "50", "10", "6", "20", "1", "1", "5", "1", "0", "0"]:
         msg(bot, 200200, a)
     cb(bot, 200200, "ok")
     assert connect().execute("SELECT COUNT(*) FROM reports WHERE facility_id=?", (f2,)).fetchone()[0] == 1
@@ -123,7 +123,7 @@ def test_form_validation_blocks_and_saves(bot):
     assign(100103, fid)
     cb(bot, 100103, f"sf:{fid}")
     cb(bot, 100103, f"sd:{fid}:2026-02-10")
-    answers = ["100", "40", "20", "50", "5", "1", "1", "1", "0", "0", "10", "6"]
+    answers = ["100", "40", "50", "10", "6", "20", "1", "1", "5", "1", "0", "0"]
     for a in answers:
         msg(bot, 100103, a)
     assert connect().execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 0   # still waiting for confirmation
@@ -257,7 +257,7 @@ def test_typed_word_yesterday(bot):
     assert "2026-02-09" in last(700705)
 
 
-ANS = ["100", "40", "20", "50", "5", "1", "1", "1", "0", "0", "10", "6"]
+ANS = ["100", "40", "50", "10", "6", "20", "1", "1", "5", "1", "0", "0"]
 
 
 def send_report(uid, f, d, answers):
@@ -283,7 +283,7 @@ def test_repeat_submission_is_compared_and_needs_confirmation(bot):
     cb(bot, 700703, f"sd:{f}:2026-02-10")
     assert "уже отправлена" in " ".join(t for c, t, m in SENT)
     for i, a in enumerate(ANS):
-        msg(bot, 700703, "70" if i == 3 else f"↩️ Оставить: {a}")
+        msg(bot, 700703, "70" if i == 2 else f"↩️ Оставить: {a}")
     prev = last(700703)
     assert "50 → <b>70</b>" in prev and prev.count("→ <b>") == 1
     assert "ok" in kb_of(700703)
@@ -357,3 +357,28 @@ def test_download_for_person_with_facility_only(bot):
     wb = openpyxl.load_workbook(io.BytesIO(DOCS[-1][1]))
     text = " ".join(str(c.value) for ws in wb for row in ws.iter_rows() for c in row if c.value is not None)
     assert "Моя" in text and "Чужая" not in text
+
+
+def test_questionnaire_in_uzbek_latin_with_clear_questions_and_limits(bot):
+    from app.db import connect, tx
+    f = make_facility()
+    assign(700790, f)
+    with tx() as c:
+        c.execute("UPDATE tg_users SET lang='uz' WHERE tg_id=700790")
+    cb(bot, 700790, f"sd:{f}:2026-02-10")
+    q1 = last(700790)
+    assert "1-savol / 12" in q1 and "Jami o‘rinlar soni" in q1 and "O‘rinlar fondi" in q1 and "raqamlar bilan" in q1
+    assert not any("а" <= ch.lower() <= "я" for ch in q1.replace("Больница", ""))                # no Cyrillic in the questions of the Uzbek bot
+    msg(bot, 700790, "40")
+    q2 = last(700790)
+    assert "2-savol / 12" in q2 and "Shundan gripp bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni" in q2 and "1-savoldagi sondan oshmasligi kerak: <b>40</b>" in q2
+    SENT.clear()
+    msg(bot, 700790, "50")                                                                           # more than the answer to question 1
+    both = " ".join(t for c, t, m in SENT)
+    assert "<b>40</b> dan oshmasligi kerak" in both and "2-savol / 12" in last(700790)                      # told at once, and the same question again
+    msg(bot, 700790, "30"); msg(bot, 700790, "5")                                                    # 2: 30, 3: 5 visits
+    assert "3-savol" in " ".join(t for c, t, m in SENT[-3:]) and "Murojaatlar va yotqizish" in " ".join(t for c, t, m in SENT[-4:])
+    for a in ["2", "1", "9", "1", "1", "4", "1", "0", "0"]:                                           # questions 4..12 (occupied 9 <= 30; 7 and 8 <= 9; severe 4 <= visits 5)
+        msg(bot, 700790, a)
+    prev = last(700790)
+    assert "6. Hisobot kuni yakunida gripp bilan kasallangan bemorlar band qilgan o‘rinlar soni: <b>9</b>" in prev and "12. " in prev
