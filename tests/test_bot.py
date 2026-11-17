@@ -403,3 +403,14 @@ def test_new_users_get_uzbek_by_default_and_the_menu_buttons_work_in_latin(bot):
     assert "🌐 Til / Язык" in buttons                                                                     # except the language button: it can always be found
     for x in buttons:                                                                                  # every drawn button is recognised (this was broken: «Quyidagi menyudan tanlang»)
         assert bot.MENU_TEXT.get(x), x
+
+
+def test_menu_has_no_help_and_my_facilities_buttons(bot):
+    from app import people
+    from app.db import tx
+    for lang in ("uz", "ru"):
+        for has in (True, False):
+            texts = [x["text"] for row in bot.main_kb(lang, has)["keyboard"] for x in row]
+            assert not any(k in x for x in texts for k in ("Yordam", "Помощь", "Mening muassasalarim", "Мои учреждения")), texts
+            assert len(texts) >= 3
+    assert bot.MENU_TEXT.get("❓ Yordam") == "help"            # an old keyboard that is still on someone's phone keeps working
