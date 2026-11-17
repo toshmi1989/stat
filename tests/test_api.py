@@ -182,3 +182,32 @@ def test_region_access_api_and_scope(client):
     assert a.get("/api/tg-users").json()["items"][0]["regions"][0]["region_id"] == 1
     assert a.delete(f"/api/region-access/{r.json()['id']}").status_code == 200
     assert client.get("/api/tg-users").json()["items"][0]["regions"] == []
+
+
+def test_delete_reports_and_territories(client):
+    from app.db import connect
+    f1, f2 = seed()
+    rid = [r["id"] for r in client.get("/api/reports?d1=2026-02-01&d2=2026-02-10&size=200").json()["items"] if r["facility"] == "A"][:2]
+    admin_viewer = mk_staff(client, "vwer", "viewer", [1])
+    assert admin_viewer.post("/api/reports/delete", json={"ids": rid, "reason": "x"}).status_code == 403
+    assert client.post("/api/reports/delete", json={"ids": rid}).status_code == 400                       # a reason is required
+    assert client.post("/api/reports/delete", json={"ids": rid, "reason": "тестовые"}).json() == {"deleted": 2}
+    c = connect()
+    assert c.execute("SELECT COUNT(*) FROM reports WHERE id IN (?,?)", rid).fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM report_versions WHERE report_id IN (?,?)", rid).fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM audit WHERE action='report.delete'").fetchone()[0] == 2        # a snapshot stays in the log
+    assert c.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name='versions_no_delete'").fetchone()[0] == 1   # the guard is back
+    c.close()
+    # a facility with reports: refused without confirmation, removed with it
+    assert client.delete(f"/api/facilities/{f1}").status_code == 409
+    assert client.get("/api/facilities?region_id=1").json()["items"][0]["reports"] == 8
+    assert client.delete(f"/api/facilities/{f1}?force=1").json()["reports"] == 8
+    assert client.delete(f"/api/facilities/{f1}?force=1").status_code == 404
+    # a district/region with facilities is not removed; an empty one is
+    did2 = client.get("/api/facilities?region_id=2").json()["items"][0]["district_id"]
+    assert client.delete(f"/api/districts/{did2}").status_code == 409
+    assert client.delete("/api/regions/2").status_code == 409
+    assert client.delete(f"/api/facilities/{f2}?force=1").status_code == 200
+    assert client.delete(f"/api/districts/{did2}").status_code == 200
+    assert client.delete("/api/regions/2").status_code == 200
+    assert admin_viewer.delete("/api/regions/1").status_code == 403

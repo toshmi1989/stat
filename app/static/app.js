@@ -21,6 +21,16 @@ function qs(o) { return Object.entries(o).filter(([, v]) => v !== "" && v != nul
 const num = v => v == null ? "—" : (+v).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
 function modal(html, wide) { $("#modal").innerHTML = `<div class="modal${wide ? " wide" : ""}">${html}</div>`; $("#modal").onclick = ev => { if (ev.target.id === "modal") closeModal(); }; }
 document.addEventListener("click", e => { if (e.target.closest("[data-close]")) closeModal(); });
+// a confirmation with an optional required reason; onOk(reason) runs on "ok"
+function confirmDlg(title, html, okLabel, onOk, needReason) {
+  modal(`<h2>${title}</h2>${html}${needReason ? `<label>Причина (попадёт в журнал)<textarea id="cf-reason" rows="2"></textarea></label>` : ""}<div id="cf-err" class="err"></div><div class="row mt"><button class="btn bad" id="cf-ok">${okLabel}</button><button class="btn right" data-close>Отмена</button></div>`);
+  $("#cf-ok").onclick = async () => {
+    const reason = needReason ? $("#cf-reason").value.trim() : "";
+    if (needReason && !reason) { $("#cf-err").textContent = "Укажите причину"; return; }
+    $("#cf-ok").disabled = true;
+    try { await onOk(reason); } catch (e) { $("#cf-err").textContent = e.message; $("#cf-ok").disabled = false; }
+  };
+}
 function closeModal() { $("#modal").innerHTML = ""; }
 function pill(state) { return `<span class="pill ${state}">${STATE[state] || state}</span>`; }
 function opts(items, val, all) { return (all ? `<option value="">${all}</option>` : "") + items.map(i => `<option value="${i.id}" ${String(i.id) === String(val) ? "selected" : ""}>${esc(i.name_ru || i.name)}</option>`).join(""); }
@@ -253,17 +263,29 @@ async function control() {
 async function reportsView() {
   if (F.preset === "day" && !F.d1) F.preset = "week";   // a single empty day is a useless first view of the list
   const fb = await filterBar(reportsView);
-  view.innerHTML = fb.html + `<div class="card"><div class="row"><h2>Отчёты</h2><select id="r-st"><option value="">Все</option><option value="sent">Отправленные</option><option value="returned">Возвращённые</option><option value="corrected">Исправленные</option><option value="late">С опозданием</option></select><input id="r-q" placeholder="Поиск по учреждению"><button class="btn pri right" id="r-new">+ Внести отчёт</button></div><div id="rl" class="scroll-x"></div></div>`; fb.bind();
+  view.innerHTML = fb.html + `<div class="card"><div class="row"><h2>Отчёты</h2><select id="r-st"><option value="">Все</option><option value="sent">Отправленные</option><option value="returned">Возвращённые</option><option value="corrected">Исправленные</option><option value="late">С опозданием</option></select><input id="r-q" placeholder="Поиск по учреждению">${ME.role === "super_admin" ? '<button class="btn bad right" id="r-del" hidden>🗑 Удалить выбранные</button>' : ""}<button class="btn pri ${ME.role === "super_admin" ? "" : "right"}" id="r-new">+ Внести отчёт</button></div><div id="rl" class="scroll-x"></div></div>`; fb.bind();
   $("#r-new").onclick = () => editReport(null);
   if (!ME.can_edit_reports) $("#r-new").hidden = true;
+  const SU = ME.role === "super_admin";
   const load = async () => {
     try {
       const r = await api("/api/reports?" + scopeQ() + "&" + qs({ status: $("#r-st").value, q: $("#r-q").value, size: 200 }));
-      $("#rl").innerHTML = `<p class="muted sm">Найдено: ${r.total}</p><table><tr><th>Дата</th><th>Регион</th><th>Район</th><th>Учреждение</th><th>Статус</th><th>Версия</th><th>Кто</th></tr>${r.items.map(x => `<tr class="link" data-id="${x.id}"><td>${x.report_date}</td><td>${esc(x.region)}</td><td>${esc(x.district)}</td><td>${esc(x.facility)}</td><td>${pill(x.status === "returned" ? "returned" : x.corrected ? "corrected" : "sent")}${x.late ? ' <span class="pill warning">поздно</span>' : ""}${x.locked ? " 🔒" : ""}</td><td>${x.version}</td><td>${esc(x.submitted_by)}</td></tr>`).join("")}</table>`;
-      document.querySelectorAll("#rl tr[data-id]").forEach(tr => tr.onclick = () => openReport(+tr.dataset.id));
+      $("#rl").innerHTML = `<p class="muted sm">Найдено: ${r.total}</p><table><tr>${SU ? '<th><input type="checkbox" id="r-all" title="Выбрать все"></th>' : ""}<th>Дата</th><th>Регион</th><th>Район</th><th>Учреждение</th><th>Статус</th><th>Версия</th><th>Кто</th></tr>${r.items.map(x => `<tr class="link" data-id="${x.id}">${SU ? `<td><input type="checkbox" class="r-one" data-rid="${x.id}"></td>` : ""}<td>${x.report_date}</td><td>${esc(x.region)}</td><td>${esc(x.district)}</td><td>${esc(x.facility)}</td><td>${pill(x.status === "returned" ? "returned" : x.corrected ? "corrected" : "sent")}${x.late ? ' <span class="pill warning">поздно</span>' : ""}${x.locked ? " 🔒" : ""}</td><td>${x.version}</td><td>${esc(x.submitted_by)}</td></tr>`).join("")}</table>`;
+      document.querySelectorAll("#rl tr[data-id]").forEach(tr => tr.onclick = ev => { if (ev.target.type === "checkbox") return; openReport(+tr.dataset.id); });
+      const chosen = () => [...document.querySelectorAll(".r-one:checked")].map(x => +x.dataset.rid);
+      const sync = () => { const b = $("#r-del"); if (b) { const n = chosen().length; b.hidden = !n; b.textContent = "🗑 Удалить выбранные (" + n + ")"; } };
+      document.querySelectorAll(".r-one").forEach(x => x.onchange = sync);
+      const all = $("#r-all"); if (all) all.onchange = () => { document.querySelectorAll(".r-one").forEach(x => x.checked = all.checked); sync(); };
+      const del = $("#r-del"); if (del) del.onclick = () => deleteReportsDlg(chosen(), load);
+      sync();
     } catch (e) { fail(e); }
   };
   $("#r-st").onchange = load; $("#r-q").oninput = () => { clearTimeout(DEB); DEB = setTimeout(load, 300); }; load();
+}
+function deleteReportsDlg(ids, done) {
+  confirmDlg("🗑 Удалить отчёты", `<p>Будет удалено отчётов: <b>${ids.length}</b> вместе с историей версий. Это нельзя отменить. В журнале действий останется запись о каждом удалённом отчёте (учреждение, дата, цифры, причина).</p><p class="muted sm">Учреждение снова будет считаться не сдавшим за эту дату, отчёт можно внести заново.</p>`, "Удалить безвозвратно", async reason => {
+    const r = await api("/api/reports/delete", { method: "POST", body: { ids, reason } }); closeModal(); toast("Удалено отчётов: " + r.deleted); done();
+  }, true);
 }
 async function openReport(id) {
   let r; try { r = await api("/api/reports/" + id); } catch (e) { return fail(e); }
@@ -271,9 +293,10 @@ async function openReport(id) {
   modal(`<h2>${esc(r.facility)}</h2><p class="muted">${esc(r.region)}, ${esc(r.district)} · за ${r.report_date} · версия ${r.version} · ${pill(r.status === "returned" ? "returned" : r.corrected ? "corrected" : "sent")}${r.late ? " поздно" : ""}${r.locked_now ? " 🔒 закрыт" : ""}</p>
   ${r.return_reason ? `<div class="note">Возвращён: ${esc(r.return_reason)}</div>` : ""}
   <table>${ind.map(i => `<tr><td>${esc(i.name_ru)}</td><td class="n"><b>${num(r.values[i.code])}</b></td></tr>`).join("")}</table>
-  <div class="row mt">${ME.can_edit_reports ? '<button class="btn pri" id="m-ed">Исправить</button><button class="btn" id="m-ret">Вернуть на исправление</button>' : ""}<button class="btn" id="m-lock">${r.locked ? "Открыть" : "Закрыть"} для правок</button><button class="btn right" data-close>Закрыть окно</button></div>
+  <div class="row mt">${ME.can_edit_reports ? '<button class="btn pri" id="m-ed">Исправить</button><button class="btn" id="m-ret">Вернуть на исправление</button>' : ""}<button class="btn" id="m-lock">${r.locked ? "Открыть" : "Закрыть"} для правок</button>${ME.role === "super_admin" ? '<button class="btn bad" id="m-del">🗑 Удалить отчёт</button>' : ""}<button class="btn right" data-close>Закрыть окно</button></div>
   <h3 class="mt">История версий</h3><div class="scroll-x"><table><tr><th>Версия</th><th>Когда</th><th>Кто</th><th>Действие</th><th>Причина</th><th>Что изменено</th><th></th></tr>${r.versions.map(v => `<tr><td>${v.version}</td><td>${esc(v.at || v.created_at || "")}</td><td>${esc(v.by_name || v.by || "")}</td><td>${esc(v.action)}</td><td>${esc(v.reason || "")}</td><td class="sm">${Object.entries(v.changes || {}).map(([k, c]) => `${esc(k)}: ${c[0] ?? "—"} → ${c[1] ?? "—"}`).join("<br>")}</td><td>${ME.can_edit_reports && v.version !== r.version ? `<button class="btn sm" data-restore="${v.version}">Вернуть</button>` : ""}</td></tr>`).join("")}</table></div>`, true);
   const ed = $("#m-ed"); if (ed) ed.onclick = () => editReport(r);
+  const dl = $("#m-del"); if (dl) dl.onclick = () => deleteReportsDlg([id], route);
   const rt = $("#m-ret"); if (rt) rt.onclick = async () => { const reason = prompt("Причина возврата:"); if (!reason) return; try { await api(`/api/reports/${id}/return`, { method: "POST", body: { reason } }); toast("Отчёт возвращён"); closeModal(); route(); } catch (e) { fail(e); } };
   $("#m-lock").onclick = async () => { try { await api(`/api/reports/${id}/lock`, { method: "POST", body: { locked: !r.locked } }); toast("Готово"); openReport(id); } catch (e) { fail(e); } };
   document.querySelectorAll("[data-restore]").forEach(b => b.onclick = async () => { const reason = prompt("Причина восстановления версии " + b.dataset.restore + ":"); if (!reason) return; try { await api(`/api/reports/${id}/restore`, { method: "POST", body: { version: +b.dataset.restore, reason } }); toast("Версия восстановлена (создана новая)"); openReport(id); } catch (e) { fail(e); } });
@@ -342,30 +365,42 @@ async function staffBox() {
 
 // ---------- territories
 async function territories() {
-  view.innerHTML = `<div class="card"><div class="row"><h2>Территории</h2><button class="btn right" id="t-rep">Загрузить данные из Excel (учреждения и показатели за 2 дня)</button><button class="btn" id="t-imp">Импорт территорий</button><button class="btn pri" id="t-add">+ Регион</button></div><div id="tt"></div></div>`;
+  view.innerHTML = `<div class="card"><div class="row"><h2>Территории</h2><button class="btn right" id="t-rep">Загрузить данные из Excel (учреждения и показатели за 2 дня)</button><button class="btn" id="t-imp">Импорт территорий</button><button class="btn pri" id="t-add">+ Регион</button></div><p class="muted sm">Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять.</p><div id="tt"></div></div>`;
+  let cur = null;
   const load = async () => {
     META = await api("/api/meta");
-    $("#tt").innerHTML = `<table><tr><th>Регион</th><th>Название (узб.)</th><th></th></tr>${META.regions.map(r => `<tr class="link" data-id="${r.id}"><td>${esc(r.name_ru)}${r.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(r.name_uz)}</td><td><button class="btn sm" data-er="${r.id}">Изменить</button></td></tr>`).join("")}</table><div id="tsub"></div>`;
-    document.querySelectorAll("#tt tr[data-id]").forEach(tr => tr.onclick = ev => { if (ev.target.dataset.er) return; subList(+tr.dataset.id); });
+    $("#tt").innerHTML = `<table><tr><th>Регион</th><th>Название (узб.)</th><th></th></tr>${META.regions.map(r => `<tr class="link${cur === r.id ? " sel" : ""}" data-id="${r.id}"><td>${esc(r.name_ru)}${r.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(r.name_uz)}</td><td><button class="btn sm" data-er="${r.id}">Изменить</button> <button class="btn sm bad" data-dr="${r.id}">Удалить</button></td></tr>`).join("")}</table><div id="tsub"></div>`;
+    document.querySelectorAll("#tt tr[data-id]").forEach(tr => tr.onclick = ev => { if (ev.target.dataset.er || ev.target.dataset.dr) return; cur = +tr.dataset.id; load().then(() => regionView(cur)); });
     document.querySelectorAll("[data-er]").forEach(b => b.onclick = () => nameDlg("regions", META.regions.find(r => r.id === +b.dataset.er), load));
+    document.querySelectorAll("[data-dr]").forEach(b => b.onclick = () => { const r = META.regions.find(x => x.id === +b.dataset.dr); confirmDlg("Удалить регион", `<p>Регион <b>${esc(r.name_ru)}</b> будет удалён вместе с пустыми районами. Если в нём есть учреждения или доступы, система откажет: сначала удалите их.</p>`, "Удалить регион", async () => { await api("/api/regions/" + r.id, { method: "DELETE" }); closeModal(); if (cur === r.id) cur = null; toast("Регион удалён"); load(); }); });
   };
-  const subList = async rid => {
-    const d = await api("/api/districts?region_id=" + rid);
-    $("#tsub").innerHTML = `<h3 class="mt">Районы <button class="btn sm" id="d-add">+ Район</button></h3><table><tr><th>Район</th><th></th></tr>${d.items.map(x => `<tr><td>${esc(x.name_ru)}${x.active ? "" : " (отключён)"}</td><td><button class="btn sm" data-ed="${x.id}">Изменить</button> <button class="btn sm" data-fl="${x.id}">Учреждения</button></td></tr>`).join("")}</table><div id="tfac"></div>`;
-    $("#d-add").onclick = () => nameDlg("districts", { region_id: rid }, () => subList(rid), true);
-    document.querySelectorAll("[data-ed]").forEach(b => b.onclick = () => nameDlg("districts", d.items.find(x => x.id === +b.dataset.ed), () => subList(rid)));
-    document.querySelectorAll("[data-fl]").forEach(b => b.onclick = () => facList(+b.dataset.fl));
-  };
-  const facList = async did => {
-    const f = await api("/api/facilities?" + qs({ district_id: did, size: 200 }));
-    $("#tfac").innerHTML = `<h3 class="mt">Учреждения <button class="btn sm" id="f-add">+ Учреждение</button></h3><table><tr><th>Учреждение</th><th>Ответственные</th><th></th></tr>${f.items.map(x => `<tr><td>${esc(x.name_ru)}${x.active ? "" : " (отключено)"}</td><td>${x.assignments.map(a => esc(a.fio || a.first_name || a.tg_id) + (a.kind === "reserve" ? " (резерв)" : "")).join(", ") || '<span class="muted">нет</span>'}</td><td><button class="btn sm" data-ef="${x.id}">Изменить</button></td></tr>`).join("")}</table>`;
-    $("#f-add").onclick = () => nameDlg("facilities", { district_id: did }, () => facList(did), true);
-    document.querySelectorAll("[data-ef]").forEach(b => b.onclick = () => nameDlg("facilities", f.items.find(x => x.id === +b.dataset.ef), () => facList(did)));
+  // the region opened: its districts and all its facilities in one place
+  const regionView = async (rid, q = "", did = "") => {
+    const [d, f] = await Promise.all([api("/api/districts?region_id=" + rid), api("/api/facilities?" + qs({ region_id: rid, district_id: did, q, size: 200 }))]);
+    if (!$("#tsub")) return;
+    $("#tsub").innerHTML = `<h3 class="mt">Районы <button class="btn sm" id="d-add">+ Район</button></h3>
+      <table><tr><th>Район</th><th></th></tr>${d.items.map(x => `<tr><td>${esc(x.name_ru)}${x.active ? "" : " (отключён)"}</td><td><button class="btn sm" data-ed="${x.id}">Изменить</button> <button class="btn sm bad" data-dd="${x.id}">Удалить</button></td></tr>`).join("") || '<tr><td colspan="2" class="muted">Районов нет</td></tr>'}</table>
+      <div class="row mt"><h3 style="margin:0">Учреждения региона <span class="muted sm">(${f.total})</span></h3><select id="f-d"><option value="">Все районы</option>${d.items.map(x => `<option value="${x.id}" ${String(x.id) === String(did) ? "selected" : ""}>${esc(x.name_ru)}</option>`).join("")}</select><input id="f-q" placeholder="Поиск" value="${esc(q)}"><button class="btn pri right" id="f-add">+ Учреждение</button></div>
+      <div class="scroll-x"><table><tr><th>Учреждение</th><th>Район</th><th>Ответственные</th><th>Отчётов</th><th></th></tr>${f.items.map(x => `<tr><td>${esc(x.name_ru)}${x.active ? "" : " (отключено)"}</td><td>${esc(x.district)}</td><td>${x.assignments.map(a => esc(a.fio || a.first_name || a.tg_id) + (a.kind === "reserve" ? " (резерв)" : "")).join(", ") || '<span class="muted">нет</span>'}</td><td class="n">${x.reports}</td><td><button class="btn sm" data-ef="${x.id}">Изменить</button> <button class="btn sm bad" data-df="${x.id}">Удалить</button></td></tr>`).join("") || '<tr><td colspan="5" class="muted">Учреждений нет</td></tr>'}</table></div>${f.total > f.items.length ? `<p class="muted sm">Показаны первые ${f.items.length} из ${f.total}: уточните поиском или районом.</p>` : ""}`;
+    const again = () => regionView(rid, $("#f-q") ? $("#f-q").value : q, $("#f-d") ? $("#f-d").value : did);
+    $("#d-add").onclick = () => nameDlg("districts", { region_id: rid }, again, true);
+    document.querySelectorAll("[data-ed]").forEach(b => b.onclick = () => nameDlg("districts", d.items.find(x => x.id === +b.dataset.ed), again));
+    document.querySelectorAll("[data-dd]").forEach(b => b.onclick = () => { const x = d.items.find(y => y.id === +b.dataset.dd); confirmDlg("Удалить район", `<p>Район <b>${esc(x.name_ru)}</b> будет удалён. Если в нём есть учреждения, система откажет: сначала удалите их.</p>`, "Удалить район", async () => { await api("/api/districts/" + x.id, { method: "DELETE" }); closeModal(); toast("Район удалён"); again(); }); });
+    $("#f-d").onchange = again; $("#f-q").oninput = () => { clearTimeout(DEB); DEB = setTimeout(async () => { const pos = $("#f-q").value; await again(); const el = $("#f-q"); if (el) { el.focus(); el.setSelectionRange(pos.length, pos.length); } }, 300); };
+    $("#f-add").onclick = () => facAddDlg(d.items.filter(x => x.active), did, again);
+    document.querySelectorAll("[data-ef]").forEach(b => b.onclick = () => nameDlg("facilities", f.items.find(x => x.id === +b.dataset.ef), again));
+    document.querySelectorAll("[data-df]").forEach(b => b.onclick = () => { const x = f.items.find(y => y.id === +b.dataset.df);
+      confirmDlg("Удалить учреждение", `<p>Учреждение <b>${esc(x.name_ru)}</b> (${esc(x.district)}) будет удалено.</p><ul class="sm"><li>Отчётов, которые удалятся вместе с ним: <b>${x.reports}</b></li><li>Ответственных, у которых пропадёт привязка: <b>${x.assignments.length}</b> (в боте они останутся)</li></ul><p class="muted sm">Если нужно только скрыть учреждение из отчётности, используйте «Изменить» и снимите «Активно»: данные сохранятся.</p>`, "Удалить безвозвратно", async () => { await api("/api/facilities/" + x.id + "?force=1", { method: "DELETE" }); closeModal(); toast("Учреждение удалено"); again(); }); });
   };
   $("#t-add").onclick = () => nameDlg("regions", {}, load, true);
   $("#t-imp").onclick = () => importDlg(load);
   $("#t-rep").onclick = () => reportImportDlg(load);
   load();
+}
+function facAddDlg(districts, did, done) {
+  if (!districts.length) { toast("Сначала добавьте район"); return; }
+  modal(`<h2>Добавить учреждение</h2><label>Район<select id="fa-d">${districts.map(x => `<option value="${x.id}" ${String(x.id) === String(did) ? "selected" : ""}>${esc(x.name_ru)}</option>`).join("")}</select></label><label>Название (рус.)<input id="fa-ru"></label><label>Название (узб.)<input id="fa-uz"></label><div id="fa-err" class="err"></div><div class="row mt"><button class="btn pri" id="fa-ok">Добавить</button><button class="btn right" data-close>Отмена</button></div>`);
+  $("#fa-ok").onclick = async () => { try { await api("/api/facilities", { method: "POST", body: { district_id: +$("#fa-d").value, name_ru: $("#fa-ru").value, name_uz: $("#fa-uz").value } }); closeModal(); toast("Учреждение добавлено"); done(); } catch (e) { $("#fa-err").textContent = e.message; } };
 }
 function nameDlg(kind, o, done, isNew) {
   modal(`<h2>${isNew ? "Добавить" : "Изменить"}</h2><label>Название (рус.)<input id="n-ru" value="${esc(o.name_ru || "")}"></label><label>Название (узб.)<input id="n-uz" value="${esc(o.name_uz || "")}"></label>

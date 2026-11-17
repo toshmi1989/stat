@@ -3,6 +3,7 @@ indicators and validation rules, reports with immutable versions, settings, audi
 
 What the database itself enforces, because the technical requirements ask for it: report versions and the audit
 log are append-only (§11), one report per facility and date (§4.5, §13.3)."""
+import contextlib
 import json
 import os
 import sqlite3
@@ -284,3 +285,49 @@ def audit(c, action: str, entity: str = "", entity_id="", details: dict | None =
     c.execute("INSERT INTO audit(staff_id, actor, action, entity, entity_id, details, ip, at) VALUES (?,?,?,?,?,?,?,?)",
               (u["id"] if u else None, actor or (u["name"] or u["login"] if u else "система"), action, entity, str(entity_id),
                json.dumps(details or {}, ensure_ascii=False), auth.CURRENT_IP.get(), now()))
+
+
+@contextlib.contextmanager
+def history_unlocked(c):
+    """Deleting a report has to remove its immutable version history: the guard triggers are dropped and put back inside the same transaction (DDL is transactional in SQLite)."""
+    sqls = [r["sql"] for r in c.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name IN ('versions_no_delete','versions_no_update')")]
+    c.execute("DROP TRIGGER IF EXISTS versions_no_delete")
+    c.execute("DROP TRIGGER IF EXISTS versions_no_update")
+    try:
+        yield
+    finally:
+        for q in sqls:
+            c.execute(q)
+
+
+def delete_reports(c, ids: list[int], reason: str = "") -> int:
+    """Removes reports with values and versions; the audit log keeps a snapshot of each (who, where, which date, the figures)."""
+    n = 0
+    with history_unlocked(c):
+        for rid in ids:
+            r = c.execute("""SELECT rep.id, rep.report_date, rep.version, f.name_ru AS facility, d.name_ru AS district, rg.name_ru AS region FROM reports rep JOIN facilities f ON f.id=rep.facility_id
+                             JOIN districts d ON d.id=f.district_id JOIN regions rg ON rg.id=d.region_id WHERE rep.id=?""", (rid,)).fetchone()
+            if not r:
+                continue
+            vals = {v["code"]: v["value"] for v in c.execute("SELECT code, value FROM report_values WHERE report_id=?", (rid,))}
+            audit(c, "report.delete", "report", rid, {"facility": r["facility"], "district": r["district"], "region": r["region"], "date": r["report_date"], "version": r["version"], "values": vals, "reason": reason})
+            c.execute("DELETE FROM report_versions WHERE report_id=?", (rid,))
+            c.execute("DELETE FROM report_values WHERE report_id=?", (rid,))
+            c.execute("DELETE FROM reports WHERE id=?", (rid,))
+            n += 1
+    return n
+
+
+def delete_facilities(c, ids: list[int], reason: str = "") -> dict:
+    """Removes facilities with their reports and the links of responsible people (the people themselves stay in the bot)."""
+    rep = [r["id"] for i in ids for r in c.execute("SELECT id FROM reports WHERE facility_id=?", (i,))]
+    nrep = delete_reports(c, rep, reason or "удаление учреждения")
+    for i in ids:
+        f = c.execute("SELECT name_ru FROM facilities WHERE id=?", (i,)).fetchone()
+        if not f:
+            continue
+        c.execute("DELETE FROM assignments WHERE facility_id=?", (i,))
+        c.execute("UPDATE access_requests SET facility_id=NULL WHERE facility_id=?", (i,))
+        c.execute("DELETE FROM facilities WHERE id=?", (i,))
+        audit(c, "facility.delete", "facility", i, {"name": f["name_ru"], "reports_removed": len(rep)})
+    return {"reports": nrep, "facilities": len(ids)}

@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, backup, bot, exports, forecast, notify, people, reports, rules, stats, tg, xlsx_import
-from .db import all_settings, audit, connect, init_db, now, now_dt, today, tx
+from .db import all_settings, audit, connect, delete_facilities, delete_reports, init_db, now, now_dt, today, tx
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(BASE, "static")
@@ -270,7 +270,8 @@ def api_facilities(request: Request, district_id: int | None = None, q: str = ""
             w.append("(f.name_ru LIKE ? OR f.name_uz LIKE ?)"); a += [f"%{q.strip()}%"] * 2
         size = max(1, min(size, 200))
         total = c.execute(f"SELECT COUNT(*) FROM facilities f JOIN districts d ON d.id=f.district_id WHERE {' AND '.join(w)}", a).fetchone()[0]
-        rows = c.execute(f"""SELECT f.id, f.name_ru, f.name_uz, f.active, f.contact, f.district_id, d.name_ru AS district, d.region_id, r.name_ru AS region
+        rows = c.execute(f"""SELECT f.id, f.name_ru, f.name_uz, f.active, f.contact, f.district_id, d.name_ru AS district, d.region_id, r.name_ru AS region,
+                                    (SELECT COUNT(*) FROM reports x WHERE x.facility_id=f.id) AS reports
                              FROM facilities f JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id WHERE {' AND '.join(w)}
                              ORDER BY r.sort, d.name_ru, f.name_ru LIMIT ? OFFSET ?""", a + [size, (max(page, 1) - 1) * size]).fetchall()
         resp = {}
@@ -465,6 +466,22 @@ async def api_report_save(request: Request):
         check_region(u, fi["region_id"])
         out = reports.admin_save(c, fid, str(b.get("date") or ""), {k: v for k, v in vals.items()}, str(b.get("reason") or ""), reports.by_staff(u))
     return out
+
+
+@app.post("/api/reports/delete")
+async def api_reports_delete(request: Request):
+    """Deleting reports (e.g. test ones) is the super administrator's; each one is kept in the audit log as a snapshot."""
+    need_super(request)
+    b = await jbody(request)
+    ids = b.get("ids")
+    if not isinstance(ids, list) or not ids or len(ids) > 1000 or not all(isinstance(i, int) for i in ids):
+        bad("ids: список номеров отчётов (до 1000)")
+    reason = str(b.get("reason") or "").strip()
+    if not reason:
+        bad("Укажите причину удаления")
+    with tx() as c:
+        n = delete_reports(c, ids, reason)
+    return {"deleted": n}
 
 
 @app.post("/api/reports/{report_id}/return")
@@ -707,6 +724,51 @@ async def api_facility_update(request: Request, fid: int):
         c.execute("UPDATE facilities SET name_ru=?, name_uz=?, contact=?, active=?, district_id=? WHERE id=?",
                   (str(b.get("name_ru", r["name_ru"])).strip() or r["name_ru"], str(b.get("name_uz", r["name_uz"])).strip(), str(b.get("contact", r["contact"])).strip(), int(bool(b.get("active", r["active"]))), did, fid))
         audit(c, "facility.update", "facility", fid, b)
+    return {"ok": True}
+
+
+@app.delete("/api/facilities/{fid}")
+def api_facility_delete(request: Request, fid: int, force: int = 0):
+    need_super(request)
+    with tx() as c:
+        if not c.execute("SELECT 1 FROM facilities WHERE id=?", (fid,)).fetchone():
+            bad("Учреждение не найдено", 404)
+        n = c.execute("SELECT COUNT(*) FROM reports WHERE facility_id=?", (fid,)).fetchone()[0]
+        if n and not force:
+            bad(f"У учреждения есть отчёты: {n}. Подтвердите удаление вместе с ними", 409)
+        return delete_facilities(c, [fid], "удаление учреждения")
+
+
+@app.delete("/api/districts/{did}")
+def api_district_delete(request: Request, did: int):
+    need_super(request)
+    with tx() as c:
+        if not c.execute("SELECT 1 FROM districts WHERE id=?", (did,)).fetchone():
+            bad("Район не найден", 404)
+        n = c.execute("SELECT COUNT(*) FROM facilities WHERE district_id=?", (did,)).fetchone()[0]
+        if n:
+            bad(f"В районе учреждений: {n}. Сначала удалите их", 409)
+        c.execute("DELETE FROM districts WHERE id=?", (did,))
+        audit(c, "district.delete", "district", did, {})
+    return {"ok": True}
+
+
+@app.delete("/api/regions/{rid}")
+def api_region_delete(request: Request, rid: int):
+    need_super(request)
+    with tx() as c:
+        r = c.execute("SELECT name_ru FROM regions WHERE id=?", (rid,)).fetchone()
+        if not r:
+            bad("Регион не найден", 404)
+        n = c.execute("SELECT COUNT(*) FROM facilities f JOIN districts d ON d.id=f.district_id WHERE d.region_id=?", (rid,)).fetchone()[0]
+        if n:
+            bad(f"В регионе учреждений: {n}. Сначала удалите их", 409)
+        ra = c.execute("SELECT (SELECT COUNT(*) FROM region_access WHERE region_id=?) + (SELECT COUNT(*) FROM staff_scope WHERE region_id=?)", (rid, rid)).fetchone()[0]
+        if ra:
+            bad(f"К региону привязаны доступы ({ra}). Сначала снимите их", 409)
+        c.execute("DELETE FROM districts WHERE region_id=?", (rid,))
+        c.execute("DELETE FROM regions WHERE id=?", (rid,))
+        audit(c, "region.delete", "region", rid, {"name": r["name_ru"]})
     return {"ok": True}
 
 

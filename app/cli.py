@@ -95,20 +95,16 @@ def clear_data(keep_facilities: bool = False, yes: bool = False) -> int:
         return 0
     print("Резервная копия:", backup.make_now())
     with tx() as c:
-        trig = [r["sql"] for r in c.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name IN ('versions_no_delete','versions_no_update')")]
-        c.execute("DROP TRIGGER IF EXISTS versions_no_delete")
-        c.execute("DROP TRIGGER IF EXISTS versions_no_update")
-        c.execute("DELETE FROM report_versions")
-        c.execute("DELETE FROM report_values")
-        c.execute("DELETE FROM reports")
+        with db.history_unlocked(c):
+            c.execute("DELETE FROM report_versions")
+            c.execute("DELETE FROM report_values")
+            c.execute("DELETE FROM reports")
         c.execute("DELETE FROM notify_log")
         c.execute("DELETE FROM bot_state")   # half-filled dialogues refer to the removed facilities
         if not keep_facilities:
             c.execute("DELETE FROM assignments")
             c.execute("UPDATE access_requests SET facility_id=NULL WHERE facility_id IS NOT NULL")
             c.execute("DELETE FROM facilities")
-        for sql in trig:
-            c.execute(sql)
         db.audit(c, "clear_data", "all", "", {"facilities": not keep_facilities}, actor="cli")
     print("Готово.")
     return 0
