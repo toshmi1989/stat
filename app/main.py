@@ -306,6 +306,19 @@ def api_dashboard(request: Request, fallback: int = 1):
         c.close()
 
 
+@app.get("/api/pulse")
+def api_pulse(request: Request):
+    """A cheap token of the reports data: the page polls it and reloads itself when it changes (a summary arrived from the bot, a report was edited or deleted).
+    Built from the database, not from memory: the service runs in several processes."""
+    me(request)
+    c = connect()
+    try:
+        r = c.execute("SELECT (SELECT COALESCE(MAX(id),0) FROM report_versions) AS v, (SELECT COUNT(*) FROM reports) AS n, (SELECT COUNT(*) FROM facilities) AS f").fetchone()
+        return {"token": f"{r['v']}.{r['n']}.{r['f']}"}
+    finally:
+        c.close()
+
+
 @app.get("/api/regions-table")
 def api_regions_table(request: Request, level: str = "region", parent_id: int | None = None):
     u = me(request)

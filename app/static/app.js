@@ -494,4 +494,34 @@ $("#pwbtn").onclick = () => { modal(`<h2>Смена пароля</h2><label>Те
   $("#who").textContent = `${ME.name && ME.name !== ME.role_label ? ME.name : ME.login} · ${ME.role_label}`;
   $("#tabs").innerHTML = TABS.filter(allowed).map(t => `<a href="#/${t[0]}" data-t="${t[0]}">${t[1]}</a>`).join("");
   window.addEventListener("hashchange", route); route();
+  livePulse();
 })();
+// the data refreshes itself: when a report arrives (from the bot or another person) the open page reloads in place
+const LIVE = ["dashboard", "control", "forecast", "reports"];
+function livePulse() {
+  let last = null, busy = false;
+  const idle = () => {   // do not disturb the person: an open dialog, typing, a selection in the list
+    const a = document.activeElement;
+    if ($("#modal").innerHTML.trim()) return false;
+    if (a && (a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && !["checkbox", "radio", "button"].includes(a.type)))) return false;
+    if (document.querySelector(".r-one:checked") || ($("#r-q") && $("#r-q").value) || ($("#rt-q") && $("#rt-q").value)) return false;
+    return true;
+  };
+  const tick = async () => {
+    if (busy || document.hidden) return; busy = true;
+    try {
+      const t = (await api("/api/pulse")).token;
+      if (last !== null && t !== last) {
+        const name = (location.hash.slice(2) || "dashboard").split("?")[0];
+        if (LIVE.includes(name) && idle()) {
+          view.style.minHeight = view.offsetHeight + "px";   // keep the scroll position while the page is redrawn
+          route(); toast("Данные обновлены: получена новая сводка"); setTimeout(() => view.style.minHeight = "", 2500);
+          last = t;
+        }   // otherwise try again at the next beat: `last` stays old
+      } else last = t;
+    } catch (e) { /* offline or logged out: the next beat tries again */ }
+    busy = false;
+  };
+  setInterval(tick, 5000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+}

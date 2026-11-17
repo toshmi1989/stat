@@ -211,3 +211,20 @@ def test_delete_reports_and_territories(client):
     assert client.delete(f"/api/districts/{did2}").status_code == 200
     assert client.delete("/api/regions/2").status_code == 200
     assert admin_viewer.delete("/api/regions/1").status_code == 403
+
+
+def test_pulse_token_changes_when_reports_change(client):
+    t0 = client.get("/api/pulse").json()["token"]
+    assert client.get("/api/pulse").json()["token"] == t0                   # nothing happened: the same token
+    f = make_facility(1, fac="P")
+    t1 = client.get("/api/pulse").json()["token"]
+    assert t1 != t0                                                          # a facility was added
+    put_report(f, "2026-02-10", visits=5)
+    t2 = client.get("/api/pulse").json()["token"]
+    assert t2 != t1                                                          # a report arrived
+    put_report(f, "2026-02-10", visits=6)
+    assert client.get("/api/pulse").json()["token"] != t2                    # a report was corrected (a new version)
+    rid = client.get("/api/reports?d1=2026-02-10&d2=2026-02-10").json()["items"][0]["id"]
+    t3 = client.get("/api/pulse").json()["token"]
+    client.post("/api/reports/delete", json={"ids": [rid], "reason": "t"})
+    assert client.get("/api/pulse").json()["token"] != t3                    # a report was deleted
