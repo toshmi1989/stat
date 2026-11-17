@@ -73,9 +73,9 @@ async function filterBar(onChange, opt = {}) {
 }
 
 // ---------- dashboard
-const KPI = [["reported", "Сдали отчёт", "✅", "ok"], ["not_reported", "Не сдали", "⏳", "warn"], ["visits", "Обращения", "🚶", "pri"], ["severe", "Тяжёлые", "🩺", "warn"], ["extreme", "Крайне тяжёлые", "🚨", "bad"],
-  ["sp", "Тяжёлые: беременные / дети", "🤰", "pur"], ["hosp", "Госпитализации", "🏥", "pri"], ["disch", "Выписки", "🏠", "ok"], ["beds_flu", "Коек для гриппа", "🛏", "pri"], ["beds_occupied", "Занято коек", "🧍", "warn"],
-  ["beds_free", "Свободно коек", "🟢", "ok"], ["occupancy", "Загрузка коек", "📊", "pur"]];
+// only what no other card shows: the beds are in the gauge, admitted/discharged in the flow card, who has not reported follows from "сдали отчёт"
+const KPI = [["reported", "Сдали отчёт", "✅", "ok"], ["visits", "Обращения", "🚶", "pri"], ["severe", "Тяжёлые", "🩺", "warn"], ["extreme", "Крайне тяжёлые", "🚨", "bad"],
+  ["sp", "Тяжёлые: беременные / дети", "🤰", "pur"]];
 const SORT = { key: "visits", asc: false }, DRILL = [];
 const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
 const longDate = d => { const [y, m, dd] = d.split("-"); return `${+dd} ${MONTHS[+m - 1]} ${y}`; };
@@ -101,13 +101,11 @@ async function dashboard() {
   $("#dash").innerHTML = `<div class="hero"><div><h1>${F.preset === "day" ? "Сводка за " + longDate(dash.used_date) : "Сводка за период " + d1 + " — " + d2}</h1><div class="sub">${ME.org ? esc(ME.org) + " · " : ""}по ${k.reported} из ${k.facilities} учреждений${dash.fallback ? " · данных за выбранный день нет, показан последний день с данными" : ""}</div></div>
     <div class="acts"><a class="btn" href="#/export">⬇ Выгрузка</a></div></div>
     ${canWrite && isToday && owe > 0 ? `<div class="cta"><span style="font-size:22px">⏰</span><div><b>${owe} учреждений ещё не сдали сводку за сегодня</b><div class="sub muted">Бот напомнит ответственным одним сообщением с кнопкой отправки</div></div><div class="acts"><button class="btn warn" id="remind">🔔 Отправить уведомление не сдавшим</button></div></div>` : ""}
-    <div class="kpis">${KPI.map(([key, label, ic, tone], i) => `<div class="kpi tilt ${key === "occupancy" ? occState : ""}" data-t="${tone}" style="--i:${i}"><div class="ic">${ic}</div><div class="v">${kpiValue(key, k)}</div><div class="l">${label}</div></div>`).join("")}</div>
-    <div class="viz">
-      <div class="card vcard"><h3>Сдача отчётов</h3>${ringChart(k.reported, k.facilities, "Сдали отчёт")}<div class="cap"><b>${k.reported}</b> сдали · <b>${k.not_reported}</b> не сдали</div></div>
+    <div class="kpis">${KPI.map(([key, label, ic, tone], i) => `<div class="kpi tilt" data-t="${tone}" style="--i:${i}"><div class="ic">${ic}</div><div class="v">${kpiValue(key, k)}</div><div class="l">${label}</div></div>`).join("")}</div>
+    <div class="topgrid">${mapCard()}<div class="sidecol">
       <div class="card vcard"><h3>Загрузка коек</h3>${gaugeChart(t.occupancy, th)}<div class="cap">Занято <b>${num(t.beds_occupied)}</b> из <b>${num(t.beds_flu)}</b> · свободно <b>${num(t.beds_free)}</b></div></div>
-      <div class="card vcard"><h3>Поступили и выписаны</h3>${flowCard(t.hosp, t.disch)}</div></div>
+      <div class="card vcard"><h3>Поступили и выписаны</h3>${flowCard(t.hosp, t.disch)}</div></div></div>
     <div id="alerts"></div>
-    ${mapCard()}
     <div class="grid2"><div class="card"><h2>Нагрузка по регионам</h2><div id="tiles">…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>норма до ${th.elevated}%</span><span><i style="background:var(--warn)"></i>повышенная до ${th.critical}%</span><span><i style="background:var(--bad)"></i>критическая от ${th.critical}%</span></div></div>
       <div class="card"><div class="row"><h2>Лидеры по обращениям</h2></div><div id="rank">…</div></div></div>
     <div class="card"><div class="row"><h2>Регионы</h2><input id="rt-q" placeholder="Поиск" class="right"></div><div class="scroll-x" id="rt"></div></div>

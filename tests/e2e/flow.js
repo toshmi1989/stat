@@ -11,7 +11,7 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
   ok(/Неверный/.test(await p.textContent(".err")), "wrong password shows an error");
   await p.fill("[name=password]", process.env.PW || "secret123"); await p.click("button.pri"); await p.waitForSelector(".kpi");
   await p.waitForTimeout(1500);
-  ok(await p.locator(".kpi").count() === 12, "12 KPI cards");
+  ok(await p.locator(".kpi").count() === 5, "5 KPI cards in one row");
   ok(await p.locator("#rt tr[data-id]").count() === 14, "14 regions in the table");
   ok(!/^\s*0\/3\s*$/.test(await p.locator("#rt tr[data-id] td").nth(1).textContent()), "table shows the same day as the cards (not empty)");
   ok(await p.locator(".uzmap .rg").count() === 14, "map of Uzbekistan: 14 regions drawn");

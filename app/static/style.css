@@ -129,3 +129,10 @@ a{color:var(--pri)}#tabs a,.brand,.btn{color:inherit}.btn.pri,.btn.warn{color:#f
 @media(max-width:820px){.mapwrap{grid-template-columns:minmax(0,1fr)}.rg .lb,.rg .lead{display:none}.rg .dot{r:7px}.maptip{width:190px}}
 @media (prefers-reduced-motion:reduce){.rg .gl,.rg .ring,.mrow i,.uzmap{animation:none!important}.rg .gl{opacity:.3}.rg .ring{display:none}}
 tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
+
+/* dashboard top: the map on the left, the bed gauge and the flow card stacked on the right; the KPI row has five cards */
+.kpis{grid-template-columns:repeat(5,minmax(0,1fr))}
+.topgrid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;align-items:start;margin-bottom:14px}.topgrid>.card{margin-bottom:0}.sidecol{display:flex;flex-direction:column;gap:14px;min-width:0}.sidecol .vcard{margin:0;width:100%}
+@media(max-width:1100px){.topgrid{grid-template-columns:minmax(0,1fr)}.sidecol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.sidecol{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
