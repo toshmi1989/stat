@@ -399,7 +399,7 @@ def test_new_users_get_uzbek_by_default_and_the_menu_buttons_work_in_latin(bot):
     SENT.clear()
     msg(bot, 990001, "/start")
     buttons = [x["text"] for row in SENT[-1][2]["keyboard"] for x in row]
-    assert len(buttons) >= 6 and all(not any("а" <= ch.lower() <= "я" for ch in x) for x in buttons if "Язык" not in x), buttons      # the menu is in Latin
+    assert len(buttons) == 5 and all(not any("а" <= ch.lower() <= "я" for ch in x) for x in buttons if "Язык" not in x), buttons      # the menu is in Latin
     assert "🌐 Til / Язык" in buttons                                                                     # except the language button: it can always be found
     for x in buttons:                                                                                  # every drawn button is recognised (this was broken: «Quyidagi menyudan tanlang»)
         assert bot.MENU_TEXT.get(x), x
