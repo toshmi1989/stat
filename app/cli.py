@@ -1,4 +1,4 @@
-"""Command line: python -m app.cli init | password LOGIN | backup | verify | notify [--force] [--dry]"""
+"""Command line: python -m app.cli init | password LOGIN | backup | verify | notify [--force] [--dry] | clear-data [--keep-facilities] [--yes]"""
 import sys
 
 from . import auth, backup, notify
@@ -32,6 +32,8 @@ def main(argv: list[str]) -> int:
         return 0
     if cmd == "demo":
         return demo()
+    if cmd == "clear-data":
+        return clear_data(keep_facilities="--keep-facilities" in argv, yes="--yes" in argv)
     print(__doc__)
     return 2
 
@@ -68,6 +70,47 @@ def demo() -> int:
                 reports.admin_save(c, fid, d, {"beds_total": beds * 3, "beds_flu": beds, "beds_occupied": occ, "visits": visits, "severe": visits // 8, "severe_pregnant": 1, "severe_children": visits // 20,
                                                "extreme": visits // 25, "extreme_pregnant": 0, "extreme_children": 0, "hosp": hosp, "disch": disch}, "демо", by)
     print("Добавлено учреждений:", len(fids))
+    return 0
+
+
+
+
+def clear_data(keep_facilities: bool = False, yes: bool = False) -> int:
+    """Removes test data: all reports (with their version history) and, unless --keep-facilities, all facilities with their responsible-person links.
+    Regions, districts, Telegram users and their region access, staff, settings and the audit log stay. Without --yes it only shows what would go.
+    The immutability triggers of the history are lifted inside one transaction and put back; a backup is made first."""
+    from . import db
+    c = connect()
+    try:
+        cnt = lambda q: c.execute(q).fetchone()[0]
+        plan = [("отчётов", cnt("SELECT COUNT(*) FROM reports")), ("записей истории версий", cnt("SELECT COUNT(*) FROM report_versions"))]
+        if not keep_facilities:
+            plan += [("учреждений", cnt("SELECT COUNT(*) FROM facilities")), ("привязок ответственных к учреждениям", cnt("SELECT COUNT(*) FROM assignments"))]
+    finally:
+        c.close()
+    for what, n in plan:
+        print(f"{'Будет удалено' if not yes else 'Удаляю'} {what}: {n}")
+    if not yes:
+        print("Ничего не изменено. Для удаления добавьте --yes (перед этим автоматически создаётся резервная копия).")
+        return 0
+    print("Резервная копия:", backup.make_now())
+    with tx() as c:
+        trig = [r["sql"] for r in c.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name IN ('versions_no_delete','versions_no_update')")]
+        c.execute("DROP TRIGGER IF EXISTS versions_no_delete")
+        c.execute("DROP TRIGGER IF EXISTS versions_no_update")
+        c.execute("DELETE FROM report_versions")
+        c.execute("DELETE FROM report_values")
+        c.execute("DELETE FROM reports")
+        c.execute("DELETE FROM notify_log")
+        c.execute("DELETE FROM bot_state")   # half-filled dialogues refer to the removed facilities
+        if not keep_facilities:
+            c.execute("DELETE FROM assignments")
+            c.execute("UPDATE access_requests SET facility_id=NULL WHERE facility_id IS NOT NULL")
+            c.execute("DELETE FROM facilities")
+        for sql in trig:
+            c.execute(sql)
+        db.audit(c, "clear_data", "all", "", {"facilities": not keep_facilities}, actor="cli")
+    print("Готово.")
     return 0
 
 

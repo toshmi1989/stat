@@ -93,3 +93,22 @@ def test_forecast_reliability(env):
     o = forecast.overview(c, u, "2026-02-03")
     assert o["metrics"]["visits"]["reliability"] == "low" and o["metrics"]["visits"]["ok"]
     assert o["metrics"]["visits"]["days"][0]["value"] > 30
+
+
+def test_clear_data_removes_test_reports_and_facilities(env):
+    from app import cli, db
+    cli.demo()
+    c = db.connect()
+    assert c.execute("SELECT COUNT(*) FROM reports").fetchone()[0] > 0
+    c.close()
+    assert cli.clear_data(keep_facilities=True, yes=False) == 0          # a dry run changes nothing
+    c = db.connect(); assert c.execute("SELECT COUNT(*) FROM reports").fetchone()[0] > 0; c.close()
+    assert cli.clear_data(keep_facilities=True, yes=True) == 0
+    c = db.connect()
+    assert c.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 0 and c.execute("SELECT COUNT(*) FROM report_versions").fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM facilities").fetchone()[0] > 0
+    assert cli.clear_data(yes=True) == 0
+    c.close(); c = db.connect()
+    assert c.execute("SELECT COUNT(*) FROM facilities").fetchone()[0] == 0 and c.execute("SELECT COUNT(*) FROM regions").fetchone()[0] == 14
+    assert c.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name LIKE 'versions_no_%'").fetchone()[0] == 2   # the protection is back
+    c.close()
