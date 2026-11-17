@@ -97,6 +97,7 @@ async function dashboard() {
       <div class="card vcard"><h3>Загрузка коек</h3>${gaugeChart(t.occupancy, th)}<div class="cap">Занято <b>${num(t.beds_occupied)}</b> из <b>${num(t.beds_flu)}</b> · свободно <b>${num(t.beds_free)}</b></div></div>
       <div class="card vcard"><h3>Поступили и выписаны</h3>${flowCard(t.hosp, t.disch)}</div></div>
     <div id="alerts"></div>
+    ${mapCard()}
     <div class="grid2"><div class="card"><h2>Нагрузка по регионам</h2><div id="tiles">…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>норма до ${th.elevated}%</span><span><i style="background:var(--warn)"></i>повышенная до ${th.critical}%</span><span><i style="background:var(--bad)"></i>критическая от ${th.critical}%</span></div></div>
       <div class="card"><div class="row"><h2>Лидеры по обращениям</h2></div><div id="rank">…</div></div></div>
     <div class="card"><div class="row"><h2>Регионы</h2><input id="rt-q" placeholder="Поиск" class="right"></div><div class="scroll-x" id="rt"></div></div>
@@ -115,7 +116,9 @@ async function loadViz(d1, d2) {
     if (!$("#tiles")) return;
     $("#tiles").innerHTML = heatTiles(r.rows.slice().sort((a, b) => (b.values.occupancy ?? -1) - (a.values.occupancy ?? -1)), th);
     $("#rank").innerHTML = rankBars(r.rows, "visits");
-    document.querySelectorAll("#tiles .tile, #rank .rk").forEach(el => el.onclick = () => { F.region_id = el.dataset.rid; F.district_id = F.facility_id = ""; dashboard(); });
+    const pick = rid => { F.region_id = rid; F.district_id = F.facility_id = ""; dashboard(); };
+    document.querySelectorAll("#tiles .tile, #rank .rk").forEach(el => el.onclick = () => pick(el.dataset.rid));
+    bindMap(r.rows, th, pick);
   } catch (e) { fail(e); }
 }
 // the button "remind those who have not reported": first shows who will get a message

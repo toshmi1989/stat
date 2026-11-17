@@ -14,6 +14,10 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
   ok(await p.locator(".kpi").count() === 12, "12 KPI cards");
   ok(await p.locator("#rt tr[data-id]").count() === 14, "14 regions in the table");
   ok(!/^\s*0\/3\s*$/.test(await p.locator("#rt tr[data-id] td").nth(1).textContent()), "table shows the same day as the cards (not empty)");
+  ok(await p.locator(".uzmap .rg").count() === 14, "map of Uzbekistan: 14 regions drawn");
+  ok(await p.locator(".uzmap .rg.st-critical .gl").count() > 0 && await p.locator(".uzmap .rg.st-critical .ring").count() > 0, "critical regions pulse (glow + ripple)");
+  await p.click('#map-m [data-m="severe"]'); await p.waitForTimeout(300);
+  ok(await p.locator("#map-m .chip.on").textContent() === "Тяжёлые" && await p.locator("#map-side .mrow").count() > 0, "map metric switch redraws the map and the attention list");
   await p.screenshot({ path: OUT + "/1-dashboard.png", fullPage: true });
   await p.click("#rt tr[data-id]"); await p.waitForTimeout(700);
   ok((await p.textContent("#rt")).includes("Центральный район"), "drill-down to districts");
