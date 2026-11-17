@@ -21,9 +21,7 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
   ok(await p.locator("#map-m .chip.on").textContent() === "Тяжёлые" && await p.locator("#map-side .mrow").count() > 0, "map metric switch redraws the map and the attention list");
   await p.screenshot({ path: OUT + "/1-dashboard.png", fullPage: true });
   await p.click("#rt tr[data-id]"); await p.waitForTimeout(700);
-  ok((await p.textContent("#rt")).includes("Центральный район"), "drill-down to districts");
-  await p.click("#rt tr[data-id]"); await p.waitForTimeout(700);
-  ok((await p.textContent("#rt")).includes("Больница"), "drill-down to facilities");
+  ok(await p.locator("#rt tr[data-id]").count() === 3 && /больниц/i.test(await p.textContent("#rt")) && await p.locator("#rt tr.link").count() === 0, "a region opens straight into its facilities (no district step, rows are not links)");
   await p.click("#up0"); await p.waitForTimeout(500);
   await p.click('#rt th[data-s="name"]'); await p.waitForTimeout(300);
   await p.fill("#rt-q", "Андиж"); await p.waitForTimeout(300);

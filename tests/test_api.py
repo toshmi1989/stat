@@ -279,3 +279,15 @@ def test_avatar_is_fetched_once_cached_and_hidden_from_others(client, monkeypatc
     assert client.get("/api/tg-avatar/880012").status_code == 404                                    # no photo: the page shows initials
     a = mk_staff(client, "reg_av", "admin", [2])
     assert a.get("/api/tg-avatar/880010").status_code in (403, 404)                                  # not in this administrator's regions
+
+
+def test_a_region_opens_into_its_facilities_directly(client):
+    f1, f2, f3 = make_facility(1, "Район А", "A1"), make_facility(1, "Район Б", "B1"), make_facility(2, "Район В", "C1")
+    put_report(f1, "2026-02-10", visits=7)
+    r = client.get("/api/regions-table?d1=2026-02-10&d2=2026-02-10&level=rfac&parent_id=1").json()
+    names = {x["name"]: x for x in r["rows"]}
+    assert set(names) == {"A1", "B1"}                                                                 # the facilities of region 1 from every district, not of region 2
+    assert names["A1"]["values"]["visits"] == 7 and names["A1"]["reported"] == 1 and names["B1"]["reported"] == 0
+    assert names["A1"]["district"] == "Район А" and names["B1"]["district"] == "Район Б"
+    a = mk_staff(client, "reg_rf", "admin", [2])
+    assert a.get("/api/regions-table?d1=2026-02-10&d2=2026-02-10&level=rfac&parent_id=1").json()["rows"] == []   # another region is closed

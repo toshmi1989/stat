@@ -325,7 +325,7 @@ def api_regions_table(request: Request, level: str = "region", parent_id: int | 
     d1, d2 = period(request)
     c = connect()
     try:
-        return stats.regions_table(c, u, d1, d2, level if level in ("region", "district", "facility") else "region", parent_id)
+        return stats.regions_table(c, u, d1, d2, level if level in ("region", "district", "facility", "rfac") else "region", parent_id)
     finally:
         c.close()
 

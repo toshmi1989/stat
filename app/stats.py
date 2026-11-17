@@ -115,6 +115,13 @@ def regions_table(c, user, d1: str, d2: str, level: str = "region", parent_id: i
         agg = aggregate(c, user, d1, d2, "district", region_id=parent_id)
         counts = {r["did"]: r["n"] for r in c.execute("SELECT f.district_id AS did, COUNT(*) n FROM facilities f WHERE f.active=1 GROUP BY f.district_id")}
         ids = list(names) if user["regions"] is None or parent_id in user["regions"] else []
+    elif level == "rfac":       # all the facilities of a region at once (the district level is skipped: most regions have a single district)
+        names, district = {}, {}
+        for r in c.execute("SELECT f.id, f.name_ru, d.name_ru AS district FROM facilities f JOIN districts d ON d.id=f.district_id WHERE f.active=1 AND d.active=1 AND d.region_id=? ORDER BY f.name_ru", (parent_id,)):
+            names[r["id"]], district[r["id"]] = r["name_ru"], r["district"]
+        agg = aggregate(c, user, d1, d2, "facility", region_id=parent_id)
+        counts = {i: 1 for i in names}
+        ids = list(names) if user["regions"] is None or parent_id in user["regions"] else []
     else:
         names = {r["id"]: r["name_ru"] for r in c.execute("SELECT id, name_ru FROM facilities WHERE active=1 AND district_id=?", (parent_id,))}
         agg = aggregate(c, user, d1, d2, "facility", district_id=parent_id)
@@ -127,7 +134,7 @@ def regions_table(c, user, d1: str, d2: str, level: str = "region", parent_id: i
     for i in ids:
         t = agg.get(i) or derive({})
         occ = t.get("occupancy")
-        rows.append({"id": i, "name": names[i], "facilities": counts.get(i, 0), "reported": t.get("reported", 0), "values": t, "level_state": occupancy_state(occ, st)})
+        rows.append({"id": i, "name": names[i], "district": (district.get(i) if level == "rfac" else None), "facilities": counts.get(i, 0), "reported": t.get("reported", 0), "values": t, "level_state": occupancy_state(occ, st)})
     return {"level": level, "parent_id": parent_id, "rows": rows, "d1": d1, "d2": d2}
 
 
