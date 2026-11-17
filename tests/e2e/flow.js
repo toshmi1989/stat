@@ -15,6 +15,7 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
   ok(await p.locator("#rt tr[data-id]").count() === 14, "14 regions in the table");
   ok(!/^\s*0\/3\s*$/.test(await p.locator("#rt tr[data-id] td").nth(1).textContent()), "table shows the same day as the cards (not empty)");
   ok(await p.locator(".uzmap .rg").count() === 14, "map of Uzbekistan: 14 regions drawn");
+  ok(await p.locator(".topgrid .sidecol .vcard").count() === 2 && await p.locator(".viz").count() === 0, "bed gauge and flow card stand to the right of the map, the ring card is gone");
   ok(await p.locator(".uzmap .rg.st-critical .gl").count() > 0 && await p.locator(".uzmap .rg.st-critical .ring").count() > 0, "critical regions pulse (glow + ripple)");
   await p.click('#map-m [data-m="severe"]'); await p.waitForTimeout(300);
   ok(await p.locator("#map-m .chip.on").textContent() === "Тяжёлые" && await p.locator("#map-side .mrow").count() > 0, "map metric switch redraws the map and the attention list");
@@ -27,7 +28,7 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
   await p.click('#rt th[data-s="name"]'); await p.waitForTimeout(300);
   await p.fill("#rt-q", "Андиж"); await p.waitForTimeout(300);
   ok(await p.locator("#rt tr[data-id]").count() === 1, "search narrows the table");
-  await p.selectOption("#f-r", { index: 2 }); await p.waitForTimeout(1500); ok(await p.locator(".kpi").count() === 12, "region filter keeps the dashboard");
+  await p.selectOption("#f-r", { index: 2 }); await p.waitForTimeout(1500); ok(await p.locator(".kpi").count() === 5, "region filter keeps the dashboard");
   for (const [n, sel] of [["forecast", "#fc h2"], ["control", "#ct table"], ["reports", "#rl table"], ["people", "#rq"], ["export", "[data-f]"], ["territories", "#tt table"], ["indicators", ".card h2"], ["settings", "#s-save"], ["audit", "table"]]) {
     await p.goto(BASE + "/#/" + n); await p.waitForSelector(sel); await p.waitForTimeout(900); await p.screenshot({ path: `${OUT}/2-${n}.png`, fullPage: true }); ok(true, "page " + n);
   }
