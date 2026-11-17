@@ -186,8 +186,8 @@ def nm(row, lang: str, base: str = "name") -> str:
 
 
 def main_kb(lang: str, has_access: bool) -> dict:
-    """The menu. «Yordam» (help) and «Mening muassasalarim» (my facilities) are not drawn any more; the commands /help and the old buttons still work."""
-    rows = [[{"text": t(lang, "m_submit")}], [{"text": t(lang, "m_status")}], [{"text": t(lang, "m_hist")}, {"text": t(lang, "m_dl")}], [{"text": t(lang, "m_req")}, {"text": t(lang, "m_lang")}]]
+    """The menu. «Yordam» (help), «Mening muassasalarim» (my facilities) and «Yuborilgan hisobotlar tarixi» (history) are not drawn any more; the commands and the old buttons still work."""
+    rows = [[{"text": t(lang, "m_submit")}], [{"text": t(lang, "m_status")}, {"text": t(lang, "m_dl")}], [{"text": t(lang, "m_req")}, {"text": t(lang, "m_lang")}]]
     if not has_access:
         rows = [[{"text": t(lang, "m_req")}], [{"text": t(lang, "m_rights")}, {"text": t(lang, "m_lang")}]]
     return {"keyboard": rows, "resize_keyboard": True, "is_persistent": True}
