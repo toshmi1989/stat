@@ -11,7 +11,7 @@ from .db import all_settings, connect, now, now_dt, today, tx
 
 T = {
     "ru": {
-        "hello": "Здравствуйте, <b>{name}</b>!\nЭто бот ежедневной отчётности по гриппу.", "pick": "Выберите действие в меню ниже.",
+        "hello": "Здравствуйте, <b>{name}</b>!\nЭто бот ежедневной отчётности по гриппу и ОРВИ.", "pick": "Выберите действие в меню ниже.",
         "no_access": "У вас отсутствуют права доступа для отправки отчётности. Вы можете отправить запрос администратору на предоставление доступа.",
         "m_submit": "📝 Отправить ежедневную сводку", "m_fac": "🏥 Мои учреждения", "m_status": "📊 Статус отчётности", "m_hist": "🗂 История отправленных отчётов",
         "m_req": "🔑 Запросить доступ", "m_help": "❓ Помощь", "m_lang": "🌐 Til / Язык", "m_rights": "📋 Мои права доступа",
@@ -31,12 +31,12 @@ T = {
         "fail": "❌ {msg}", "status_head": "<b>Статус отчётности</b>", "st_sent": "✅ отправлен в {t}", "st_none": "❌ не отправлен", "st_ret": "↩️ возвращён: {why}", "st_over": "⚠️ просрочен",
         "hist_head": "<b>Ваши последние отчёты</b>", "hist_none": "Отправленных отчётов пока нет.", "hist_item": "{date} · {fac} · v{ver} · {st}", "rep": "<b>{fac}</b>\n{date}, версия {ver}\n\n{lines}",
         "lang_set": "Язык: русский 🇷🇺", "region": "Регион", "district": "Район", "facility": "Учреждение", "next": "Далее ▶️", "prev": "◀️ Назад",
-        "remind": "🔔 <b>Напоминание!</b>\n\nНеобходимо предоставить ежедневную сводку по гриппу за <b>{date}</b>.\n\n{items}\n\nСтатус: отчёт не отправлен.\nПожалуйста, заполните отчёт через бота.",
+        "remind": "🔔 <b>Напоминание!</b>\n\nНеобходимо предоставить ежедневную сводку по гриппу и ОРВИ за <b>{date}</b>.\n\n{items}\n\nСтатус: отчёт не отправлен.\nПожалуйста, заполните отчёт через бота.",
         "remind_late": "🔔 <b>Повторное напоминание.</b> Отчёт за <b>{date}</b> всё ещё не отправлен:\n\n{items}", "go": "📝 Отправить сводку",
         "stopped": "Вы остановлены администратором. Обратитесь к руководителю.",
     },
     "uz": {
-        "hello": "Ассалому алайкум, <b>{name}</b>!\nБу грипп бўйича кундалик ҳисобот боти.", "pick": "Қуйидаги менюдан танланг.",
+        "hello": "Ассалому алайкум, <b>{name}</b>!\nБу грипп ва ОРВИ бўйича кундалик ҳисобот боти.", "pick": "Қуйидаги менюдан танланг.",
         "no_access": "Сизда ҳисобот юбориш учун рухсат йўқ. Администраторга рухсат бериш сўровини юборишингиз мумкин.",
         "m_submit": "📝 Кундалик маълумот юбориш", "m_fac": "🏥 Менинг муассасаларим", "m_status": "📊 Ҳисобот ҳолати", "m_hist": "🗂 Юборилган ҳисоботлар тарихи",
         "m_req": "🔑 Рухсат сўраш", "m_help": "❓ Ёрдам", "m_lang": "🌐 Til / Язык", "m_rights": "📋 Менинг рухсатларим",
@@ -56,7 +56,7 @@ T = {
         "fail": "❌ {msg}", "status_head": "<b>Ҳисобот ҳолати</b>", "st_sent": "✅ {t} да юборилган", "st_none": "❌ юборилмаган", "st_ret": "↩️ қайтарилган: {why}", "st_over": "⚠️ муддати ўтган",
         "hist_head": "<b>Сўнгги ҳисоботларингиз</b>", "hist_none": "Юборилган ҳисоботлар ҳали йўқ.", "hist_item": "{date} · {fac} · v{ver} · {st}", "rep": "<b>{fac}</b>\n{date}, версия {ver}\n\n{lines}",
         "lang_set": "Тил: ўзбекча 🇺🇿", "region": "Вилоят", "district": "Туман", "facility": "Муассаса", "next": "Кейинги ▶️", "prev": "◀️ Орқага",
-        "remind": "🔔 <b>Эслатма!</b>\n\n<b>{date}</b> санаси учун грипп бўйича кундалик маълумотни тақдим этиш керак.\n\n{items}\n\nҲолат: ҳисобот юборилмаган.\nИлтимос, ботда ҳисоботни тўлдиринг.",
+        "remind": "🔔 <b>Эслатма!</b>\n\n<b>{date}</b> санаси учун грипп ва ОРВИ бўйича кундалик маълумотни тақдим этиш керак.\n\n{items}\n\nҲолат: ҳисобот юборилмаган.\nИлтимос, ботда ҳисоботни тўлдиринг.",
         "remind_late": "🔔 <b>Такрорий эслатма.</b> <b>{date}</b> санаси учун ҳисобот ҳали юборилмаган:\n\n{items}", "go": "📝 Маълумот юбориш",
         "stopped": "Сиз администратор томонидан тўхтатилгансиз. Раҳбарга мурожаат қилинг.",
     },
@@ -156,6 +156,9 @@ def t(lang: str, key: str, **kw) -> str:
 
 
 T["ru"].update({
+    "note_q": "📝 <b>{fac}</b> · {date}\n\n<b>Вопрос {i} из {n}</b>  {bar}\n\n💬 <b>Сообщение для Министерства здравоохранения</b> (необязательно)\nЕсли хотите, напишите проблему, просьбу или замечание.\n\n🔒 Сообщение конфиденциально: его увидит только Министерство здравоохранения.",
+    "note_skip": "⏭ Без сообщения, продолжить", "note_ph": "Ваше сообщение (до 1000 знаков)", "note_now": "Сейчас записано: «{text}»", "note_long": "⚠️ Сообщение слишком длинное: {now} знаков, допускается до {n}. Сократите его.",
+    "pv_note": "\n🔒 💬 Сообщение для Министерства: «{text}»", "pv_nonote": "\n💬 Сообщение для Министерства: нет", "note_btn": "💬 Сообщение для Министерства", "note_sent": "🔒 Ваше сообщение передано в Министерство здравоохранения конфиденциально.",
     "st_title": "📊 <b>Статус отчётности</b>", "st_region": "━━━━━━━━━━━━━━\n🌍 <b>{name}</b>  ·  учреждений: {n}", "st_day": "📅 <b>{date}</b>{rel}\n{bar}  <b>{n}/{total}</b> сдали",
     "st_missing": "❌ <b>Не сдали ({n}):</b>", "st_overdue": "⏰ срок прошёл", "st_returned": "↩️ <b>Возвращены на исправление ({n}):</b>", "st_all_ok": "🎉 Все учреждения сдали",
     "st_done": "✅ <b>Сдали за {date} ({n})</b> — нажмите, чтобы раскрыть", "st_mine": "━━━━━━━━━━━━━━\n🏥 <b>Мои учреждения</b>", "rel_today": "сегодня", "rel_yday": "вчера",
@@ -166,6 +169,9 @@ T["ru"].update({
     "dl_caption": "📥 Сводка: <b>{scope}</b>\nДата: {date}\nОтправлено учреждений: {n}", "dl_fail": "⚠️ Не удалось отправить файл: {why}", "dl_wait": "⏳ Готовлю файл…",
 })
 T["uz"].update({
+    "note_q": "📝 <b>{fac}</b> · {date}\n\n<b>{i}-savol / {n}</b>  {bar}\n\n💬 <b>Sog‘liqni saqlash vazirligiga xabar</b> (ixtiyoriy)\nXohlasangiz, muammo, iltimos yoki izohingizni yozing.\n\n🔒 Xabar maxfiy: uni faqat Sog‘liqni saqlash vazirligi ko‘radi.",
+    "note_skip": "⏭ Xabarsiz davom etish", "note_ph": "Xabaringiz (1000 belgigacha)", "note_now": "Hozir yozilgan: «{text}»", "note_long": "⚠️ Xabar juda uzun: {now} belgi, ruxsat etilgani {n} gacha. Qisqartiring.",
+    "pv_note": "\n🔒 💬 Vazirlikka xabar: «{text}»", "pv_nonote": "\n💬 Vazirlikka xabar: yo‘q", "note_btn": "💬 Vazirlikka xabar", "note_sent": "🔒 Xabaringiz Sog‘liqni saqlash vazirligiga maxfiy tarzda yuborildi.",
     "st_title": "📊 <b>Hisobot holati</b>", "st_region": "━━━━━━━━━━━━━━\n🌍 <b>{name}</b>  ·  muassasalar: {n}", "st_day": "📅 <b>{date}</b>{rel}\n{bar}  <b>{n}/{total}</b> topshirgan",
     "st_missing": "❌ <b>Topshirmaganlar ({n}):</b>", "st_overdue": "⏰ muddat o‘tgan", "st_returned": "↩️ <b>Tuzatish uchun qaytarilgan ({n}):</b>", "st_all_ok": "🎉 Barcha muassasalar topshirgan",
     "st_done": "✅ <b>{date} uchun topshirganlar ({n})</b> — ochish uchun bosing", "st_mine": "━━━━━━━━━━━━━━\n🏥 <b>Mening muassasalarim</b>", "rel_today": "bugun", "rel_yday": "kecha",
@@ -261,7 +267,7 @@ def handle_update(u: dict) -> None:
         if action:
             set_state(c, user["tg_id"])
             return do_action(c, user, chat["id"], action, has)
-        if st["state"] in ("form", "edit_field"):
+        if st["state"] in ("form", "edit_field", "note"):
             return form_input(c, user, chat["id"], st, text, has)
         if st["state"] in ("pick_district", "pick_facility", "pick_date_text", "pick_region_fac", "add_facility", "dl_date"):
             return pick_text(c, user, chat["id"], st, text, has)
@@ -713,7 +719,7 @@ def ask(c, user, chat, data: dict) -> None:
     ind = inds[data["codes"][i]]
     f = reports.facility_info(c, data["fid"])
     old = data["values"].get(ind["code"])
-    n = len(data["codes"])
+    n = len(data["codes"]) + 1                                   # the numbers plus the last, optional message for the Ministry
     bar = "▰" * (i + 1) + "▱" * (n - i - 1)
     text = t(lang, "form_head", fac=esc(nm(f, lang)), date=data["date"], i=i + 1, n=n, bar=bar, name=esc(nm(ind, lang)))
     bd = bound_of(data, ind["code"])
@@ -727,6 +733,8 @@ def ask(c, user, chat, data: dict) -> None:
 
 def form_input(c, user, chat, st: dict, text: str, has: bool) -> None:
     lang, tid, data = user["lang"], user["tg_id"], st["data"]
+    if st["state"] == "note" or (st["state"] == "edit_field" and data.get("edit_code") == "__note"):
+        return note_input(c, user, chat, st, text)
     if text == t(lang, "back") and st["state"] == "form":
         if data["idx"] > 0:
             data["idx"] -= 1
@@ -751,6 +759,41 @@ def form_input(c, user, chat, st: dict, text: str, has: bool) -> None:
         if data["idx"] < len(data["codes"]):
             set_state(c, tid, "form", data)
             return ask(c, user, chat, data)
+        set_state(c, tid, "note", data)                         # the last question: an optional confidential message for the Ministry
+        return ask_note(c, user, chat, data)
+    set_state(c, tid, "preview", data)
+    preview(c, user, chat, data)
+
+
+NOTE_MAX = 1000
+
+
+def ask_note(c, user, chat, data: dict) -> None:
+    lang = user["lang"]
+    n = len(data["codes"]) + 1
+    f = reports.facility_info(c, data["fid"])
+    text = t(lang, "note_q", fac=esc(nm(f, lang)), date=data["date"], i=n, n=n, bar="▰" * n)
+    if data.get("note"):
+        text += "\n\n" + t(lang, "note_now", text=esc(data["note"][:300]))
+    rows = [[{"text": t(lang, "note_skip")}], [{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]]
+    tg.send(chat, text, {"keyboard": rows, "resize_keyboard": True, "input_field_placeholder": t(lang, "note_ph")})
+
+
+def note_input(c, user, chat, st: dict, text: str) -> None:
+    """The message for the Ministry: free text (up to 1000 characters) or «skip». In the change flow the same text replaces the old one."""
+    lang, tid, data = user["lang"], user["tg_id"], st["data"]
+    if text == t(lang, "back"):
+        if st["state"] == "edit_field":
+            return preview(c, user, chat, data)
+        data["idx"] = len(data["codes"]) - 1
+        set_state(c, tid, "form", data)
+        return ask(c, user, chat, data)
+    if text == t(lang, "note_skip"):
+        data["note"] = ""
+    else:
+        if len(text) > NOTE_MAX:
+            return tg.send(chat, t(lang, "note_long", n=NOTE_MAX, now=len(text)))
+        data["note"] = text
     set_state(c, tid, "preview", data)
     preview(c, user, chat, data)
 
@@ -769,6 +812,7 @@ def preview(c, user, chat, data: dict, message_id=None) -> None:
             out.append(f"✏️ {k}. {esc(nm(i, lang))}: {old if old is not None else '—'} → <b>{new if new is not None else '—'}</b>")
         else:
             out.append(f"{k}. {esc(nm(i, lang))}: <b>{new if new is not None else '—'}</b>")
+    out.append(t(lang, "pv_note", text=esc(data["note"][:200] + ("…" if len(data["note"]) > 200 else ""))) if data.get("note") else t(lang, "pv_nonote"))
     res = rules.validate(c, data["values"], lang, data["fid"], data["date"])
     path = f"{esc(nm(f, lang, 'region'))} / {esc(nm(f, lang, 'district'))} / <b>{esc(nm(f, lang))}</b>"
     text = t(lang, "preview_fix" if orig is not None else "preview", path=path, date=data["date"], lines="\n".join(out))
@@ -841,7 +885,11 @@ def handle_callback(cq: dict) -> None:
         if k == "ch":
             inds = indicator_list(c)
             set_state(c, user["tg_id"], "edit_pick", d)
-            return tg.send(chat, t(lang, "pick_field"), ik([[btn(f"{k}. {nm(i, lang)[:44]}: {d['values'].get(i['code'], '—')}", f"ef:{i['code']}")] for k, i in enumerate(inds, 1)]))
+            return tg.send(chat, t(lang, "pick_field"), ik([[btn(f"{k}. {nm(i, lang)[:44]}: {d['values'].get(i['code'], '—')}", f"ef:{i['code']}")] for k, i in enumerate(inds, 1)] + [[btn(t(lang, "note_btn"), "ef:__note")]]))
+        if k == "ef" and p[1] == "__note":
+            d["edit_code"] = "__note"
+            set_state(c, user["tg_id"], "edit_field", d)
+            return ask_note(c, user, chat, d)
         if k == "ef":
             d["edit_code"] = p[1]
             set_state(c, user["tg_id"], "edit_field", d)
@@ -918,6 +966,10 @@ def confirm(c, user, chat, d: dict, has: bool) -> None:
     text = t(lang, "saved" if out.get("created") else "saved_fix", fac=esc(nm(f, lang)), date=d["date"], ver=out["version"])
     if out.get("late") and out.get("created"):
         text += t(lang, "saved_late")
+    if (d.get("note") or "").strip():                           # the confidential message goes to the Ministry only (a table of its own, read by the super administrator)
+        c.execute("INSERT INTO ministry_messages(facility_id, report_date, tg_id, sender, text, created_at) VALUES (?,?,?,?,?,?)",
+                  (d["fid"], d["date"], user["tg_id"], reports.by_tg(user)["name"], d["note"].strip()[:NOTE_MAX], now()))
+        text += "\n\n" + t(lang, "note_sent")
     tg.send(chat, text, main_kb(lang, True))
 
 

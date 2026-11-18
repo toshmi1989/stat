@@ -15,7 +15,7 @@ from .db import TZ, all_settings
 FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 PERIOD_NAMES = {"daily": "Ежедневный сводный отчёт", "weekly": "Недельный сводный отчёт", "monthly": "Месячный сводный отчёт", "custom": "Сводный отчёт за период"}
 # column definitions of the detail table: (title, code or special key)
-BASE_COLS = [("Всего коек", "beds_total"), ("Выделено для гриппа", "beds_flu"), ("Обращения", "visits"), ("Госпитализации", "hosp"), ("Выписки", "disch"), ("Занято коек", "beds_occupied"),
+BASE_COLS = [("Всего коек", "beds_total"), ("Выделено для гриппа и ОРВИ", "beds_flu"), ("Обращения", "visits"), ("Госпитализации", "hosp"), ("Выписки", "disch"), ("Занято коек", "beds_occupied"),
              ("в т.ч. беременные", "occ_pregnant"), ("в т.ч. дети", "occ_children"), ("Тяжёлые", "severe"), ("Крайне тяжёлые", "extreme"), ("из них беременные", "extreme_pregnant"),
              ("из них дети", "extreme_children"), ("Свободные койки", "beds_free")]
 
@@ -152,7 +152,7 @@ def xlsx(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, ki
     b = build(c, user, d1, d2, region_id, district_id, facility_id)
     org, cols = b["settings"]["org_title"], b["cols"]
     period = d1 if d1 == d2 else f"{d1} — {d2}"
-    title = PERIOD_NAMES.get(kind, PERIOD_NAMES["custom"]) + " по гриппу"
+    title = PERIOD_NAMES.get(kind, PERIOD_NAMES["custom"]) + " по гриппу и ОРВИ"
     wb = Workbook()
     # ---- sheet 1: the summary
     ws = wb.active
@@ -162,7 +162,7 @@ def xlsx(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, ki
     ws.cell(row=r0, column=1, value="Основные показатели").font = Font(bold=True)
     head = [("Учреждений в системе", b["facilities_total"]), ("Предоставили отчёт", b["reported"] or 0), ("Не предоставили", max(b["facilities_total"] - (b["reported"] or 0), 0)),
             ("Обращения", t.get("visits", 0)), ("Госпитализации", t.get("hosp", 0)), ("Выписки", t.get("disch", 0)), ("Тяжёлые пациенты", t.get("severe", 0)),
-            ("Крайне тяжёлые пациенты", t.get("extreme", 0)), ("Выделено коек для гриппа", t.get("beds_flu", 0)), ("Занято коек", t.get("beds_occupied", 0)),
+            ("Крайне тяжёлые пациенты", t.get("extreme", 0)), ("Выделено коек для гриппа и ОРВИ", t.get("beds_flu", 0)), ("Занято коек", t.get("beds_occupied", 0)),
             ("Свободные койки", t.get("beds_free", 0)), ("Занятость коечного фонда, %", t.get("occupancy"))]
     r = r0 + 1
     for k, v in head:
@@ -248,7 +248,7 @@ def pdf(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, kin
     st_c = ParagraphStyle("c", fontName="DejaVu", fontSize=6.5, leading=8)
     st_hc = ParagraphStyle("hc", fontName="DejaVu-Bold", fontSize=6.3, leading=7.5, alignment=1)
     period = d1 if d1 == d2 else f"{d1} — {d2}"
-    story = [Paragraph(b["settings"]["org_title"], st_p), Paragraph(PERIOD_NAMES.get(kind, PERIOD_NAMES["custom"]) + " по гриппу", st_h),
+    story = [Paragraph(b["settings"]["org_title"], st_p), Paragraph(PERIOD_NAMES.get(kind, PERIOD_NAMES["custom"]) + " по гриппу и ОРВИ", st_h),
              Paragraph(f"Отчётный период: {period}. {b['filters']}. Сформирован: {datetime.now(TZ).strftime('%d.%m.%Y %H:%M')}", st_p), Spacer(1, 6)]
     head = [Paragraph(x, st_hc) for x in ["№", "Регион", "Район", "Учреждение"] + [x for x, _ in cols]]
     data = [head]
@@ -273,5 +273,5 @@ def pdf(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, kin
         canvas.setFont("DejaVu", 7)
         canvas.drawCentredString(landscape(A4)[0] / 2, 12, f"Страница {doc.page}")
 
-    SimpleDocTemplate(out, pagesize=landscape(A4), leftMargin=15, rightMargin=15, topMargin=18, bottomMargin=24, title="Сводный отчёт по гриппу").build(story, onFirstPage=footer, onLaterPages=footer)
+    SimpleDocTemplate(out, pagesize=landscape(A4), leftMargin=15, rightMargin=15, topMargin=18, bottomMargin=24, title="Сводный отчёт по гриппу и ОРВИ").build(story, onFirstPage=footer, onLaterPages=footer)
     return out.getvalue()

@@ -102,6 +102,7 @@ def clear_data(keep_facilities: bool = False, yes: bool = False) -> int:
         c.execute("DELETE FROM notify_log")
         c.execute("DELETE FROM bot_state")   # half-filled dialogues refer to the removed facilities
         if not keep_facilities:
+            c.execute("DELETE FROM ministry_messages")
             c.execute("DELETE FROM assignments")
             c.execute("UPDATE access_requests SET facility_id=NULL WHERE facility_id IS NOT NULL")
             c.execute("DELETE FROM facilities")

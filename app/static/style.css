@@ -146,3 +146,6 @@ tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
 .rgsum{margin:0 0 8px}.rgchips .chip.dim{opacity:.5}.rgchips .chip b{margin-left:4px}
 .rgrp{border:1px solid var(--line);border-radius:12px;margin:0 0 8px;padding:0 12px;background:var(--card)}.rgrp>summary{cursor:pointer;display:flex;gap:10px;align-items:center;padding:10px 0;list-style:none}.rgrp>summary::-webkit-details-marker{display:none}
 .rgrp>summary::before{content:"▸";color:var(--mut);transition:transform .15s}.rgrp[open]>summary::before{transform:rotate(90deg)}.rgrp[open]{padding-bottom:8px}
+
+/* confidential messages */
+.msgcard{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;background:var(--card)}.msgcard.unread{border-color:var(--pri);box-shadow:0 0 0 3px color-mix(in srgb,var(--pri) 14%,transparent)}.msgtext{white-space:pre-wrap;margin:8px 0;font-size:15px}

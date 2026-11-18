@@ -291,3 +291,53 @@ def test_a_region_opens_into_its_facilities_directly(client):
     assert names["A1"]["district"] == "Район А" and names["B1"]["district"] == "Район Б"
     a = mk_staff(client, "reg_rf", "admin", [2])
     assert a.get("/api/regions-table?d1=2026-02-10&d2=2026-02-10&level=rfac&parent_id=1").json()["rows"] == []   # another region is closed
+
+
+def test_confidential_message_for_the_ministry_from_the_last_bot_question(client, monkeypatch):
+    import json
+    from app import bot, people, tg
+    from app.db import connect, tx
+    sent = []
+    monkeypatch.setattr(tg, "send", lambda chat, text, markup=None: (sent.append((str(chat), text)) or (True, "")))
+    monkeypatch.setattr(tg, "answer", lambda *a, **k: None)
+    f = make_facility(1, fac="Msg")
+    with tx() as c:
+        people.add_tg_user(c, "660001", "Сообщающий")
+        people.assign(c, {"id": 1, "role": "super_admin", "regions": None}, "660001", f)
+    def say(text):
+        bot.handle_update({"message": {"chat": {"id": 660001, "type": "private"}, "from": {"id": 660001, "first_name": "Сообщающий"}, "text": text}})
+    def press(data):
+        bot.handle_update({"callback_query": {"id": "1", "data": data, "from": {"id": 660001, "first_name": "Сообщающий"}, "message": {"message_id": 1, "chat": {"id": 660001, "type": "private"}}}})
+    press(f"sd:{f}:2026-02-10")
+    for a in ["100", "40", "50", "10", "6", "20", "1", "1", "5", "1", "0", "0"]:
+        say(a)
+    assert "13 из 13" in sent[-1][1] and "конфиденциально" in sent[-1][1]                         # the last question says that the message is confidential
+    say("x" * 1001)
+    assert "слишком длинное" in sent[-1][1]
+    say("В больнице нет тест-систем. Прошу помочь с поставкой.")
+    assert "Сообщение для Министерства: «В больнице" in sent[-1][1]
+    press("ok")
+    c = connect()
+    row = c.execute("SELECT * FROM ministry_messages").fetchone()
+    assert row["facility_id"] == f and row["report_date"] == "2026-02-10" and "нет тест-систем" in row["text"] and row["tg_id"] == "660001"
+    assert "конфиденциально" in sent[-1][1]
+    # it is not part of the report, the audit log or the exports
+    assert "тест-систем" not in json.dumps([dict(r) for r in c.execute("SELECT * FROM audit")], ensure_ascii=False)
+    assert "тест-систем" not in json.dumps([dict(r) for r in c.execute("SELECT * FROM report_values")]) and "тест-систем" not in json.dumps([dict(r) for r in c.execute("SELECT * FROM report_versions")], ensure_ascii=False)
+    c.close()
+    assert "тест-систем" not in client.get("/api/reports?d1=2026-02-10&d2=2026-02-10&size=50").text               # not in the list of reports either
+    # only the super administrator reads it
+    m = client.get("/api/messages").json()
+    assert m["unread"] == 1 and m["items"][0]["facility"] == "Msg" and "нет тест-систем" in m["items"][0]["text"] and client.get("/api/me").json()["messages_unread"] == 1
+    assert mk_staff(client, "reg_msg", "admin", [1]).get("/api/messages").status_code == 403           # a regional administrator of that very region
+    assert mk_staff(client, "vw_msg", "viewer", [1]).get("/api/messages").status_code == 403
+    assert client.post(f"/api/messages/{m['items'][0]['id']}/read", json={"read": True}).status_code == 200
+    assert client.get("/api/messages?unread=1").json()["items"] == []
+    # a second submission without a message adds nothing; skipping the question is allowed
+    press(f"sd:{f}:2026-02-09")
+    for a in ["100", "40", "50", "10", "6", "20", "1", "1", "5", "1", "0", "0"]:
+        say(a)
+    say("⏭ Без сообщения, продолжить")
+    assert "Сообщение для Министерства: нет" in sent[-1][1]
+    press("ok")
+    assert len(client.get("/api/messages").json()["items"]) == 1

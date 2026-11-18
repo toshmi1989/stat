@@ -2,7 +2,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const view = $("#view");
 let ME = null, META = null, DEB = null;
-const NAMES = { beds_total: "Всего коек", occ_pregnant: "Занято: беременные", occ_children: "Занято: дети", extreme_pregnant: "Крайне тяжёлые: беременные", extreme_children: "Крайне тяжёлые: дети", visits: "Обращения", severe: "Тяжёлые", extreme: "Крайне тяжёлые", hosp: "Госпитализации", disch: "Выписки", beds_occupied: "Занято коек", occupancy: "Загрузка, %", beds_free: "Свободно коек", beds_flu: "Коек для гриппа" };
+const NAMES = { beds_total: "Всего коек", occ_pregnant: "Занято: беременные", occ_children: "Занято: дети", extreme_pregnant: "Крайне тяжёлые: беременные", extreme_children: "Крайне тяжёлые: дети", visits: "Обращения", severe: "Тяжёлые", extreme: "Крайне тяжёлые", hosp: "Госпитализации", disch: "Выписки", beds_occupied: "Занято коек", occupancy: "Загрузка, %", beds_free: "Свободно коек", beds_flu: "Коек для гриппа и ОРВИ" };
 const STATE = { sent: "Отправлен", corrected: "Исправлен", returned: "Возвращён", not_sent: "Не отправлен", overdue: "Просрочен", normal: "Норма", elevated: "Повышенная", critical: "Критическая", none: "—" };
 
 async function api(path, opt = {}) {
@@ -226,7 +226,7 @@ async function loadTable(d1, d2, silent) {
   const pid = DRILL.length ? DRILL[DRILL.length - 1].id : "";
   let r; try { r = await api("/api/regions-table?" + qs({ d1, d2, level, parent_id: pid })); } catch (e) { return fail(e); }
   if (!$("#rt-q")) return;   // the person has already left the dashboard
-  const cols = [["name", "Название"], ["reported", "Отчётов"], ["visits", "Обращения"], ["hosp", "Госп."], ["disch", "Выписки"], ["beds_total", "Коек всего"], ["beds_flu", "Для гриппа"], ["beds_occupied", "Занято"], ["occ_pregnant", "Берем."], ["occ_children", "Дети"], ["beds_free", "Своб."], ["occupancy", "Загрузка"], ["severe", "Тяжёлые"], ["extreme", "Крайне тяж."], ["extreme_pregnant", "Кр.тяж. берем."], ["extreme_children", "Кр.тяж. дети"]];
+  const cols = [["name", "Название"], ["reported", "Отчётов"], ["visits", "Обращения"], ["hosp", "Госп."], ["disch", "Выписки"], ["beds_total", "Коек всего"], ["beds_flu", "Для гриппа и ОРВИ"], ["beds_occupied", "Занято"], ["occ_pregnant", "Берем."], ["occ_children", "Дети"], ["beds_free", "Своб."], ["occupancy", "Загрузка"], ["severe", "Тяжёлые"], ["extreme", "Крайне тяж."], ["extreme_pregnant", "Кр.тяж. берем."], ["extreme_children", "Кр.тяж. дети"]];
   const draw = sl => {
     const q = ($("#rt-q").value || "").toLowerCase();
     const val = (x, k) => k === "name" ? x.name : k === "reported" ? x.reported : x.values[k];
@@ -245,7 +245,7 @@ async function loadBeds(d1, d2, silent) {
   try {
     const r = await api("/api/beds?" + qs({ d1, d2 })); const th = r.thresholds;
     if (!$("#beds")) return;
-    H($("#beds"), silent).innerHTML = `<p class="muted sm">Пороги: повышенная нагрузка ≥ ${th.elevated}%, критическая ≥ ${th.critical}%, учреждение ≥ ${th.facility}%.</p><table><tr><th>Регион</th><th class="n">Коек для гриппа</th><th class="n">Занято</th><th class="n">Свободно</th><th class="n">Загрузка</th><th>Состояние</th></tr>${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${num(x.beds_flu)}</td><td class="n">${num(x.occupied)}</td><td class="n">${num(x.free)}</td><td class="n">${x.occupancy == null ? "—" : num(x.occupancy) + "%"}</td><td>${pill(x.state)}</td></tr>`).join("")}</table>` +
+    H($("#beds"), silent).innerHTML = `<p class="muted sm">Пороги: повышенная нагрузка ≥ ${th.elevated}%, критическая ≥ ${th.critical}%, учреждение ≥ ${th.facility}%.</p><table><tr><th>Регион</th><th class="n">Коек для гриппа и ОРВИ</th><th class="n">Занято</th><th class="n">Свободно</th><th class="n">Загрузка</th><th>Состояние</th></tr>${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${num(x.beds_flu)}</td><td class="n">${num(x.occupied)}</td><td class="n">${num(x.free)}</td><td class="n">${x.occupancy == null ? "—" : num(x.occupancy) + "%"}</td><td>${pill(x.state)}</td></tr>`).join("")}</table>` +
       (r.hot.length ? `<h3 class="mt">Учреждения с высокой загрузкой</h3><table><tr><th>Учреждение</th><th>Регион</th><th class="n">Загрузка</th><th class="n">Свободно</th></tr>${r.hot.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.region)}${x.district === "Без района" ? "" : ", " + esc(x.district)}</td><td class="n"><span class="pill critical">${num(x.occupancy)}%</span></td><td class="n">${num(x.free)}</td></tr>`).join("")}</table>` : "");
   } catch (e) { fail(e); }
 }
@@ -266,7 +266,7 @@ async function forecastView() {
     if (fc.beds) {
       const b = fc.beds;
       h += `<h3>Прогноз загрузки коек</h3><p>Сейчас занято ${num(b.occupied)} из ${num(b.beds_flu)} (${b.current_date}). Надёжность: <span class="pill ${rel[b.reliability]}">${esc(b.reliability_text)}</span></p><p class="muted sm">${esc(b.method)}</p>` +
-        lineChart(b.days.map(d => d.date), [{ name: "Занято коек", points: b.days.map(d => d.occupied), dashed: true }, { name: "Коек для гриппа", points: b.days.map(() => b.beds_flu), color: "#d64545" }]) +
+        lineChart(b.days.map(d => d.date), [{ name: "Занято коек", points: b.days.map(d => d.occupied), dashed: true }, { name: "Коек для гриппа и ОРВИ", points: b.days.map(() => b.beds_flu), color: "#d64545" }]) +
         `<table><tr><th>Дата</th><th class="n">Занято</th><th class="n">Свободно</th><th class="n">Загрузка</th><th class="n">Дефицит</th></tr>${b.days.map(d => `<tr><td>${d.date}</td><td class="n">${num(d.occupied)}</td><td class="n">${num(d.free)}</td><td class="n">${num(d.occupancy)}%</td><td class="n">${d.deficit ? `<span class="pill critical">${num(d.deficit)}</span>` : "—"}</td></tr>`).join("")}</table>`;
     } else h += `<p class="muted">Прогноз коек недоступен: нужны данные о госпитализациях, выписках и коечном фонде.</p>`;
     $("#fc").innerHTML = h;
@@ -553,9 +553,26 @@ async function exportView() {
   document.querySelectorAll("[data-f]").forEach(a => a.onclick = e => { e.preventDefault(); location.href = "/api/export?" + scopeQ() + "&" + qs({ fmt: a.dataset.f, kind: $("#x-k").value }); });
 }
 
+// ---------- confidential messages of the facilities for the Ministry (the super administrator only)
+async function messagesView() {
+  let only = false;
+  const draw = async () => {
+    let r; try { r = await api("/api/messages" + (only ? "?unread=1" : "")); } catch (e) { return fail(e); }
+    ME.messages_unread = r.unread; badgeMessages();
+    view.innerHTML = `<div class="card"><div class="row"><h2>Сообщения для Министерства</h2><span class="muted sm">🔒 конфиденциально: видны только главному администратору; областные администраторы и просмотр их не видят, в выгрузки они не попадают</span>
+      <div class="seg right"><button class="${only ? "" : "on"}" data-f="all">Все</button><button class="${only ? "on" : ""}" data-f="unread">Непрочитанные${r.unread ? ` (${r.unread})` : ""}</button></div></div>
+      ${r.items.length ? r.items.map(m => `<div class="msgcard${m.read_at ? "" : " unread"}"><div class="row"><b>${esc(m.region)} — ${esc(m.facility)}</b><span class="muted sm">отчёт за ${esc(m.report_date)} · ${esc(m.created_at)}</span><button class="btn sm right" data-r="${m.id}" data-v="${m.read_at ? 0 : 1}">${m.read_at ? "Вернуть в непрочитанные" : "Отметить прочитанным"}</button></div>
+        <p class="msgtext">${esc(m.text)}</p><div class="muted sm">От: ${esc(m.sender || "—")} · Telegram ID ${esc(m.tg_id)}</div></div>`).join("") : `<p class="muted">${only ? "Непрочитанных нет." : "Сообщений пока нет. Люди могут оставить его последним вопросом бота."}</p>`}</div>`;
+    view.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { only = b.dataset.f === "unread"; draw(); });
+    view.querySelectorAll("[data-r]").forEach(b => b.onclick = async () => { try { await api(`/api/messages/${b.dataset.r}/read`, { method: "POST", body: { read: b.dataset.v === "1" } }); draw(); } catch (e) { fail(e); } });
+  };
+  await draw();
+}
+function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = "Сообщения" + (ME.messages_unread ? ` <span class="pill critical">${ME.messages_unread}</span>` : ""); }
+
 // ---------- shell
 const TABS = [["dashboard", "Панель", dashboard, null], ["forecast", "Прогноз", forecastView, null], ["control", "Контроль", control, "w"], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
-  ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "s"], ["indicators", "Показатели", indicators, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
+  ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "s"], ["indicators", "Показатели", indicators, "s"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
 function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users); }
 function route() {
   const name = (location.hash.slice(2) || "dashboard").split("?")[0];
@@ -569,7 +586,7 @@ $("#pwbtn").onclick = () => { modal(`<h2>Смена пароля</h2><label>Те
   try { ME = await api("/api/me"); META = await api("/api/meta"); } catch (e) { return; }
   $("#who").textContent = `${ME.name && ME.name !== ME.role_label ? ME.name : ME.login} · ${ME.role_label}`;
   $("#tabs").innerHTML = TABS.filter(allowed).map(t => `<a href="#/${t[0]}" data-t="${t[0]}">${t[1]}</a>`).join("");
-  window.addEventListener("hashchange", route); route();
+  window.addEventListener("hashchange", route); route(); badgeMessages();
   livePulse();
 })();
 // the data refreshes itself: when a report arrives (from the bot or another person) the open page reloads in place

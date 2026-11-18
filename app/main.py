@@ -226,7 +226,8 @@ def api_me(request: Request):
         return {"id": u["id"], "login": u["login"], "name": u["name"], "role": u["role"], "role_label": auth.ROLES[u["role"]], "regions": u["regions"],
                 "can_manage_users": bool(u["can_manage_users"]) or auth.is_super(u), "can_edit_reports": bool(u["can_edit_reports"]) and auth.can_write(u),
                 "today": today().isoformat(), "bot": tg.bot_username() if tg.configured() else "", "bot_configured": tg.configured(),
-                "thresholds": {"elevated": float(st["occ_elevated"]), "critical": float(st["occ_critical"])}, "org": st["org_title"]}
+                "thresholds": {"elevated": float(st["occ_elevated"]), "critical": float(st["occ_critical"])}, "org": st["org_title"],
+                "messages_unread": c.execute("SELECT COUNT(*) FROM ministry_messages WHERE read_at=''").fetchone()[0] if auth.is_super(u) else 0}
     finally:
         c.close()
 
@@ -596,6 +597,32 @@ async def api_tg_user_add(request: Request):
 
 
 AVATAR_FRESH_HOURS, AVATAR_NONE_HOURS = 12, 1
+
+
+@app.get("/api/messages")
+def api_messages(request: Request, unread: int = 0):
+    """The confidential messages of the facilities for the Ministry. Only the super administrator sees them: not regional administrators, not viewers."""
+    need_super(request)
+    c = connect()
+    try:
+        rows = c.execute("""SELECT m.id, m.report_date, m.sender, m.tg_id, m.text, m.created_at, m.read_at, f.name_ru AS facility, d.name_ru AS district, r.name_ru AS region
+                            FROM ministry_messages m JOIN facilities f ON f.id=m.facility_id JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id
+                            ORDER BY m.id DESC LIMIT 500""").fetchall()
+        items = [dict(x) for x in rows if not (unread and x["read_at"])]
+        return {"items": items, "unread": sum(1 for x in rows if not x["read_at"])}
+    finally:
+        c.close()
+
+
+@app.post("/api/messages/{mid}/read")
+async def api_message_read(request: Request, mid: int):
+    u = need_super(request)
+    b = await jbody(request)
+    with tx() as c:
+        if not c.execute("SELECT 1 FROM ministry_messages WHERE id=?", (mid,)).fetchone():
+            bad("Сообщение не найдено", 404)
+        c.execute("UPDATE ministry_messages SET read_at=?, read_by=? WHERE id=?", (now() if b.get("read", True) else "", u["id"] if b.get("read", True) else None, mid))
+    return {"ok": True}
 
 
 @app.get("/api/tg-avatar/{tg_id}")
