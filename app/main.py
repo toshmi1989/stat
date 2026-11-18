@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from . import auth, backup, bot, broadcast, exports, forecast, notify, people, reports, rules, stats, tg, xlsx_import
 from .db import all_settings, audit, connect, delete_facilities, delete_reports, init_db, now, now_dt, today, tx
@@ -504,12 +505,16 @@ async def api_reports_delete(request: Request):
 async def api_report_return(request: Request, report_id: int):
     u = need_write(request)
     b = await jbody(request)
-    with tx() as c:
-        r = scope_check_report(c, u, report_id)
-        reports.return_for_correction(c, report_id, str(b.get("reason") or ""), reports.by_staff(u))
-        # tell the responsible person
-        for a in c.execute("SELECT tg_id FROM assignments WHERE facility_id=? AND active=1", (r["facility_id"],)).fetchall():
-            tg.send(a["tg_id"], f"↩️ Отчёт за {r['report_date']} ({bot.esc(r['facility'])}) возвращён на исправление: {bot.esc(str(b.get('reason') or ''))}")
+    reason = str(b.get("reason") or "")
+
+    def work():
+        with tx() as c:
+            r = scope_check_report(c, u, report_id)
+            reports.return_for_correction(c, report_id, reason, reports.by_staff(u))
+            people_ = [a["tg_id"] for a in c.execute("SELECT tg_id FROM assignments WHERE facility_id=? AND active=1", (r["facility_id"],)).fetchall()]
+        for tid in people_:                                  # tell the responsible person: after the transaction is closed (a slow Telegram must not hold the database)
+            tg.send(tid, f"↩️ Отчёт за {r['report_date']} ({bot.esc(r['facility'])}) возвращён на исправление: {bot.esc(reason)}")
+    await run_in_threadpool(work)                            # blocking network work never runs on the event loop: it would stop every request of the worker
     return {"ok": True}
 
 
@@ -630,11 +635,14 @@ async def api_broadcast_preview(request: Request):
 async def api_broadcast_test(request: Request):
     u = need_users(request)
     b = await jbody(request)
-    c = connect()
-    try:
-        return {"sent_to": _bc(lambda: broadcast.send_test(c, u, b.get("text_ru"), b.get("text_uz"), str(b.get("tg_id") or "")))}
-    finally:
-        c.close()
+
+    def work():
+        c = connect()
+        try:
+            return {"sent_to": _bc(lambda: broadcast.send_test(c, u, b.get("text_ru"), b.get("text_uz"), str(b.get("tg_id") or "")))}
+        finally:
+            c.close()
+    return await run_in_threadpool(work)
 
 
 @app.post("/api/broadcasts")
@@ -716,18 +724,26 @@ async def api_message_reply(request: Request, tid: int):
         bad("Напишите ответ")
     if len(text) > bot.NOTE_MAX:
         bad(f"Ответ длиннее {bot.NOTE_MAX} знаков")
-    with tx() as c:
-        root = c.execute("SELECT * FROM ministry_messages WHERE id=? AND (thread_id=id OR thread_id IS NULL)", (tid,)).fetchone()
-        if not root:
-            bad("Диалог не найден", 404)
-        cur = c.execute("INSERT INTO ministry_messages(facility_id, report_date, tg_id, sender, text, created_at, direction, thread_id, staff_id, read_at) VALUES (?,?,?,?,?,?, 'out', ?, ?, ?)",
-                        (root["facility_id"], root["report_date"], root["tg_id"], "", text, now(), tid, u["id"], now()))
-        c.execute("UPDATE ministry_messages SET read_at=?, read_by=? WHERE thread_id=? AND direction='in' AND read_at=''", (now(), u["id"], tid))      # answering is reading
-        ok, err = bot.send_ministry_reply(c, root, text)
+    def work():
+        with tx() as c:
+            root = c.execute("SELECT * FROM ministry_messages WHERE id=? AND (thread_id=id OR thread_id IS NULL)", (tid,)).fetchone()
+            if not root:
+                bad("Диалог не найден", 404)
+            cur = c.execute("INSERT INTO ministry_messages(facility_id, report_date, tg_id, sender, text, created_at, direction, thread_id, staff_id, read_at) VALUES (?,?,?,?,?,?, 'out', ?, ?, ?)",
+                            (root["facility_id"], root["report_date"], root["tg_id"], "", text, now(), tid, u["id"], now()))
+            c.execute("UPDATE ministry_messages SET read_at=?, read_by=? WHERE thread_id=? AND direction='in' AND read_at=''", (now(), u["id"], tid))      # answering is reading
+            audit(c, "message.reply", "message", tid, {})
+            mid = cur.lastrowid
+        c = connect()
+        try:
+            ok, err = bot.send_ministry_reply(c, root, text)                       # the network call is made with no transaction open
+        finally:
+            c.close()
         if not ok:
-            c.execute("UPDATE ministry_messages SET error=? WHERE id=?", (err[:200] or "не доставлено", cur.lastrowid))
-        audit(c, "message.reply", "message", tid, {"delivered": ok})
-    return {"id": cur.lastrowid, "delivered": ok, "error": "" if ok else err}
+            with tx() as c:
+                c.execute("UPDATE ministry_messages SET error=? WHERE id=?", (err[:200] or "не доставлено", mid))
+        return {"id": mid, "delivered": ok, "error": "" if ok else err}
+    return await run_in_threadpool(work)
 
 
 @app.get("/api/tg-avatar/{tg_id}")
@@ -841,9 +857,11 @@ def api_requests(request: Request, status: str = ""):
 async def api_request_decide(request: Request, rid: int):
     u = need_users(request)
     b = await jbody(request)
-    with tx() as c:
-        out = people.decide(c, u, rid, bool(b.get("approve")), b.get("kind") or "primary", str(b.get("fio") or ""), str(b.get("note") or ""))
-    bot.notify_decision(out["tg_id"], out["facility_id"], out["approved"], out["note"], out["region_id"])
+    def work():
+        with tx() as c:
+            out = people.decide(c, u, rid, bool(b.get("approve")), b.get("kind") or "primary", str(b.get("fio") or ""), str(b.get("note") or ""))
+        bot.notify_decision(out["tg_id"], out["facility_id"], out["approved"], out["note"], out["region_id"])
+    await run_in_threadpool(work)
     return {"ok": True}
 
 
@@ -1294,7 +1312,7 @@ async def api_settings_put(request: Request):
 async def api_notify_run(request: Request):
     need_super(request)
     b = await jbody(request)
-    res = notify.run_due(force=bool(b.get("force")), dry=bool(b.get("dry")))
+    res = await run_in_threadpool(lambda: notify.run_due(force=bool(b.get("force")), dry=bool(b.get("dry"))))
     return {"items": res}
 
 
@@ -1307,11 +1325,13 @@ async def api_notify_remind(request: Request):
     check_region(u, rid)
     d = str(b.get("date") or today().isoformat())
     reports.parse_date(d)
-    c = connect()
-    try:
-        return notify.remind_now(c, u, d, rid, bool(b.get("dry", True)))
-    finally:
-        c.close()
+    def work():
+        c = connect()
+        try:
+            return notify.remind_now(c, u, d, rid, bool(b.get("dry", True)))
+        finally:
+            c.close()
+    return await run_in_threadpool(work)
 
 
 @app.get("/api/notify/log")

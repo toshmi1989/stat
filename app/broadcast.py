@@ -10,6 +10,7 @@ MAX_LEN = 3500
 PACE = 0.06                     # seconds between messages
 HEADER = {"ru": "📢 <b>Объявление</b>\n\n", "uz": "📢 <b>E’lon</b>\n\n"}
 RUNNING: dict[int, threading.Thread] = {}
+ALIVE_SEC = 120                 # a sending broadcast that has not made a move for this long is taken as interrupted (the service runs in several processes: only the database knows)
 
 
 class BroadcastError(Exception):
@@ -100,17 +101,22 @@ def _run(bid: int) -> None:
         c = connect()
         try:
             b = c.execute("SELECT text_ru, text_uz FROM broadcasts WHERE id=?", (bid,)).fetchone()
-            c.execute("UPDATE broadcasts SET status='sending' WHERE id=?", (bid,))
+            c.execute("UPDATE broadcasts SET status='sending', heartbeat=? WHERE id=?", (now(), bid))
             c.commit()
             queue = [(r["tg_id"], r["lang"]) for r in c.execute("SELECT tg_id, lang FROM broadcast_log WHERE broadcast_id=? AND status='queued' ORDER BY rowid", (bid,))]
         finally:
             c.close()
         for tid, lang in queue:
+            with tx() as c:                                    # a row is taken by exactly one sender, even if two of them run (several processes, a restart)
+                took = c.execute("UPDATE broadcast_log SET status='sending' WHERE broadcast_id=? AND tg_id=? AND status='queued'", (bid, tid)).rowcount
+                c.execute("UPDATE broadcasts SET heartbeat=? WHERE id=?", (now(), bid))
+            if not took:
+                continue
             text, _ = body_for(lang, b["text_ru"], b["text_uz"])
-            ok, err = tg.send(tid, text)
+            ok, err = tg.send(tid, text)                       # the network call: no transaction is open
             with tx() as c:
                 c.execute("UPDATE broadcast_log SET status=?, error=?, at=? WHERE broadcast_id=? AND tg_id=?", ("sent" if ok else "failed", "" if ok else err[:200], now(), bid, tid))
-                c.execute("UPDATE broadcasts SET sent=sent+?, failed=failed+? WHERE id=?", (1 if ok else 0, 0 if ok else 1, bid))
+                c.execute("UPDATE broadcasts SET sent=sent+?, failed=failed+?, heartbeat=? WHERE id=?", (1 if ok else 0, 0 if ok else 1, now(), bid))
             time.sleep(PACE)
         with tx() as c:
             c.execute("UPDATE broadcasts SET status='done', finished_at=? WHERE id=?", (now(), bid))
@@ -123,8 +129,10 @@ def _run(bid: int) -> None:
 
 
 def listing(c, user) -> list[dict]:
-    for r in c.execute("SELECT id FROM broadcasts WHERE status='sending'").fetchall():      # a restart of the service kills the thread: the broadcast is shown as interrupted
-        if r["id"] not in RUNNING or not RUNNING[r["id"]].is_alive():
+    from datetime import datetime, timedelta
+    limit = (datetime.strptime(now(), "%Y-%m-%d %H:%M:%S") - timedelta(seconds=ALIVE_SEC)).strftime("%Y-%m-%d %H:%M:%S")
+    for r in c.execute("SELECT id, created_at, heartbeat FROM broadcasts WHERE status='sending'").fetchall():
+        if (r["heartbeat"] or r["created_at"]) < limit:                          # nobody has touched it for two minutes: the sender is gone (a restart)
             c.execute("UPDATE broadcasts SET status='interrupted' WHERE id=?", (r["id"],))
     sql = """SELECT b.id, b.created_at, b.finished_at, b.text_ru, b.text_uz, b.audience, b.total, b.sent, b.failed, b.status, COALESCE(s.name, s.login, '') AS by_name,
                     (SELECT COUNT(*) FROM broadcast_log l WHERE l.broadcast_id=b.id AND l.status='queued') AS queued
@@ -145,10 +153,10 @@ def resume(c, user, bid: int) -> None:
     b = c.execute("SELECT created_by, status FROM broadcasts WHERE id=?", (bid,)).fetchone()
     if not b or (not auth.is_super(user) and b["created_by"] != user["id"]):
         raise BroadcastError("Рассылка не найдена", 404)
-    if b["status"] == "sending" and bid in RUNNING and RUNNING[bid].is_alive():
+    if b["status"] == "sending":                                     # the sender is alive (the list calls a silent one interrupted): nothing to resume
         return
-    c.execute("UPDATE broadcast_log SET status='queued', error='' WHERE broadcast_id=? AND status='failed'", (bid,))      # failed ones are tried again too
-    c.execute("UPDATE broadcasts SET failed=0, status='sending' WHERE id=?", (bid,))
+    c.execute("UPDATE broadcast_log SET status='queued', error='' WHERE broadcast_id=? AND status IN ('failed','sending')", (bid,))      # failed ones are tried again too
+    c.execute("UPDATE broadcasts SET failed=0, status='sending', heartbeat=? WHERE id=?", (now(), bid))
     c.execute("UPDATE broadcasts SET sent=(SELECT COUNT(*) FROM broadcast_log WHERE broadcast_id=? AND status='sent') WHERE id=?", (bid, bid))
 
 

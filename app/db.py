@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS broadcasts (
     id INTEGER PRIMARY KEY, created_by INTEGER, created_at TEXT NOT NULL,
     text_ru TEXT NOT NULL DEFAULT '', text_uz TEXT NOT NULL DEFAULT '', audience TEXT NOT NULL DEFAULT '{}',
     total INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'sending', finished_at TEXT NOT NULL DEFAULT ''
+    status TEXT NOT NULL DEFAULT 'sending', finished_at TEXT NOT NULL DEFAULT '', heartbeat TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS broadcast_log (
     broadcast_id INTEGER NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE, tg_id TEXT NOT NULL, lang TEXT NOT NULL DEFAULT 'uz',
@@ -317,6 +317,8 @@ def init_db() -> None:
             if col not in {r["name"] for r in c.execute("PRAGMA table_info(ministry_messages)")}:
                 c.execute(f"ALTER TABLE ministry_messages ADD COLUMN {col} {ddl}")
         c.execute("UPDATE ministry_messages SET thread_id=id WHERE thread_id IS NULL")
+        if "heartbeat" not in {r["name"] for r in c.execute("PRAGMA table_info(broadcasts)")}:
+            c.execute("ALTER TABLE broadcasts ADD COLUMN heartbeat TEXT NOT NULL DEFAULT ''")
         questionnaire_v2(c)
         questionnaire_texts_v3(c)
         if not c.execute("SELECT 1 FROM settings WHERE key='default_lang_uz_v1'").fetchone():     # one time: a database made earlier still has the old default
