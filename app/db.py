@@ -110,7 +110,8 @@ CREATE TABLE IF NOT EXISTS ministry_messages (
     report_date TEXT NOT NULL,
     tg_id TEXT NOT NULL, sender TEXT NOT NULL DEFAULT '',
     text TEXT NOT NULL, created_at TEXT NOT NULL,
-    read_at TEXT NOT NULL DEFAULT '', read_by INTEGER
+    read_at TEXT NOT NULL DEFAULT '', read_by INTEGER,
+    thread_id INTEGER, direction TEXT NOT NULL DEFAULT 'in', staff_id INTEGER, error TEXT NOT NULL DEFAULT ''
 );
 -- broadcasts written on the site and sent to the people of the bot; one log row per recipient
 CREATE TABLE IF NOT EXISTS broadcasts (
@@ -312,6 +313,10 @@ def init_db() -> None:
                 c.execute("INSERT INTO rules(kind, expr, message_ru, message_uz, sort, core) VALUES (?,?,?,?,?,1)", (kind, expr, ru, lat(uz), i))
         for k, v in SETTINGS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?,?)", (k, v))
+        for col, ddl in (("thread_id", "INTEGER"), ("direction", "TEXT NOT NULL DEFAULT 'in'"), ("staff_id", "INTEGER"), ("error", "TEXT NOT NULL DEFAULT ''")):     # a database made before the dialogues
+            if col not in {r["name"] for r in c.execute("PRAGMA table_info(ministry_messages)")}:
+                c.execute(f"ALTER TABLE ministry_messages ADD COLUMN {col} {ddl}")
+        c.execute("UPDATE ministry_messages SET thread_id=id WHERE thread_id IS NULL")
         questionnaire_v2(c)
         questionnaire_texts_v3(c)
         if not c.execute("SELECT 1 FROM settings WHERE key='default_lang_uz_v1'").fetchone():     # one time: a database made earlier still has the old default

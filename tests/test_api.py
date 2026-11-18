@@ -328,10 +328,11 @@ def test_confidential_message_for_the_ministry_from_the_last_bot_question(client
     assert "тест-систем" not in client.get("/api/reports?d1=2026-02-10&d2=2026-02-10&size=50").text               # not in the list of reports either
     # only the super administrator reads it
     m = client.get("/api/messages").json()
-    assert m["unread"] == 1 and m["items"][0]["facility"] == "Msg" and "нет тест-систем" in m["items"][0]["text"] and client.get("/api/me").json()["messages_unread"] == 1
+    t0 = m["items"][0]
+    assert m["unread"] == 1 and t0["facility"] == "Msg" and t0["messages"][0]["direction"] == "in" and "нет тест-систем" in t0["messages"][0]["text"] and client.get("/api/me").json()["messages_unread"] == 1
     assert mk_staff(client, "reg_msg", "admin", [1]).get("/api/messages").status_code == 403           # a regional administrator of that very region
     assert mk_staff(client, "vw_msg", "viewer", [1]).get("/api/messages").status_code == 403
-    assert client.post(f"/api/messages/{m['items'][0]['id']}/read", json={"read": True}).status_code == 200
+    assert client.post(f"/api/messages/{t0['thread_id']}/read", json={"read": True}).status_code == 200
     assert client.get("/api/messages?unread=1").json()["items"] == []
     # a second submission without a message adds nothing; skipping the question is allowed
     press(f"sd:{f}:2026-02-09")
@@ -420,3 +421,58 @@ def test_broadcast_test_message_goes_only_to_a_known_person(client, monkeypatch)
     assert client.post("/api/broadcasts/test", json={"text_ru": "Проверка", "tg_id": "770010"}).json()["sent_to"] == "770010"
     assert sent[-1][0] == "770010" and "Проверка" in sent[-1][1] and "тест" in sent[-1][1]
     assert connect().execute("SELECT COUNT(*) FROM broadcasts").fetchone()[0] >= 0                  # a test is not recorded as a broadcast
+
+
+def test_the_ministry_answers_and_the_person_continues_the_dialogue_from_the_button(client, monkeypatch):
+    from app import bot, people, tg
+    from app.db import connect, tx
+    sent = []
+    monkeypatch.setattr(tg, "send", lambda chat, text, markup=None: (sent.append((str(chat), text, markup)) or (True, "")))
+    monkeypatch.setattr(tg, "answer", lambda *a, **k: None)
+    f = make_facility(1, fac="Dlg")
+    with tx() as c:
+        for tid in ("661001", "661002"):
+            people.add_tg_user(c, tid, "Человек" + tid)
+            people.assign(c, {"id": 1, "role": "super_admin", "regions": None}, tid, f)
+        c.execute("UPDATE tg_users SET lang='uz' WHERE tg_id='661001'")
+        cur = c.execute("INSERT INTO ministry_messages(facility_id, report_date, tg_id, sender, text, created_at, direction) VALUES (?,?,?,?,?,?, 'in')", (f, "2026-02-10", "661001", "Человек661001", "Нет тест-систем", "2026-02-10 10:00:00"))
+        c.execute("UPDATE ministry_messages SET thread_id=id WHERE id=?", (cur.lastrowid,))
+        tid_ = cur.lastrowid
+    def say(uid, text):
+        bot.handle_update({"message": {"chat": {"id": uid, "type": "private"}, "from": {"id": uid, "first_name": "Х"}, "text": text}})
+    def press(uid, data):
+        bot.handle_update({"callback_query": {"id": "1", "data": data, "from": {"id": uid, "first_name": "Х"}, "message": {"message_id": 1, "chat": {"id": uid, "type": "private"}}}})
+    # the Ministry answers on the site: the person gets it in Telegram with the «Reply» button
+    r = client.post(f"/api/messages/{tid_}/reply", json={"text": "Тест-системы отправлены, ждите в среду."}).json()
+    assert r["delivered"] is True
+    chat, text, markup = sent[-1]
+    assert chat == "661001" and "Тест-системы отправлены" in text and "Sizning xabaringizga" in text                      # in the person's language, with a quote of their message
+    btn = markup["inline_keyboard"][0][0]
+    assert btn["callback_data"] == f"mr:{tid_}" and "Javob" in btn["text"]
+    assert client.post(f"/api/messages/{tid_}/reply", json={"text": ""}).status_code == 400
+    assert client.post("/api/messages/99999/reply", json={"text": "x"}).status_code == 404
+    assert mk_staff(client, "rep_reg", "admin", [1]).post(f"/api/messages/{tid_}/reply", json={"text": "x"}).status_code == 403
+    # another person cannot use the button of this dialogue
+    sent.clear(); press(661002, f"mr:{tid_}"); say(661002, "Я чужой")
+    assert connect().execute("SELECT COUNT(*) FROM ministry_messages WHERE tg_id='661002'").fetchone()[0] == 0
+    # the person presses it and writes: it joins the same dialogue, which the Ministry sees as new
+    sent.clear(); press(661001, f"mr:{tid_}")
+    assert "1000 belgigacha" in sent[-1][1] and "Vazirlik ko‘radi" in sent[-1][1]                                            # asked to write the answer, in Uzbek
+    say(661001, "Спасибо! А когда именно?")
+    m = client.get("/api/messages").json()
+    thr = next(t for t in m["items"] if t["thread_id"] == tid_)
+    assert [x["direction"] for x in thr["messages"]] == ["in", "out", "in"] and thr["unread"] == 1 and m["unread"] == 1
+    assert thr["messages"][2]["text"] == "Спасибо! А когда именно?" and client.get("/api/pulse").json()["unread"] == 1
+    assert "передан" in sent[-1][1] or "yuborildi" in sent[-1][1]                                                           # the person is told that it was passed on
+    # the Ministry answers again: the dialogue goes on, answering marks it read
+    assert client.post(f"/api/messages/{tid_}/reply", json={"text": "В среду до 12:00."}).json()["delivered"] is True
+    assert client.get("/api/messages").json()["unread"] == 0 and client.get("/api/me").json()["messages_unread"] == 0
+    assert sent[-1][2]["inline_keyboard"][0][0]["callback_data"] == f"mr:{tid_}"
+    # cancel leaves the dialogue state
+    press(661001, f"mr:{tid_}"); say(661001, "✖ Отмена")
+    assert connect().execute("SELECT state FROM bot_state WHERE tg_id='661001'").fetchone()["state"] in ("", None, "idle")
+    # a message too long is refused, the delivery failure is shown on the site
+    monkeypatch.setattr(tg, "send", lambda chat, text, markup=None: (False, "Forbidden: bot was blocked by the user"))
+    r = client.post(f"/api/messages/{tid_}/reply", json={"text": "ещё один"}).json()
+    assert r["delivered"] is False and "blocked" in r["error"]
+    assert client.get("/api/messages").json()["items"][0]["messages"][-1]["error"].startswith("Forbidden")

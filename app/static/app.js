@@ -16,7 +16,11 @@ async function api(path, opt = {}) {
   return j;
 }
 function toast(m) { const t = $("#toast"); t.textContent = m; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 3500); }
-const fail = e => { if (e.message !== "auth") toast(e.message); };
+const fail = e => {
+  if (e.message === "auth") return;
+  if (e instanceof TypeError && /of null/.test(e.message)) { console.debug("a late answer for a page that is no longer open was ignored:", e.message); return; }   // not an error for the person
+  toast(e.message);
+};
 function qs(o) { return Object.entries(o).filter(([, v]) => v !== "" && v != null).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&"); }
 const num = v => v == null ? "—" : (+v).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
 function modal(html, wide) { $("#modal").innerHTML = `<div class="modal${wide ? " wide" : ""}">${html}</div>`; $("#modal").onclick = ev => { if (ev.target.id === "modal") closeModal(); }; }
@@ -123,11 +127,13 @@ function kpiValue(key, k) {
   return t[key] == null ? "—" : `<span data-count="${t[key]}">${num(t[key])}</span>`;
 }
 async function dashboard(silent) {
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   silent = silent === true;                                   // a refresh from the pulse: the same page, patched in place
-  if (!silent) { const fb = await filterBar(dashboard); view.innerHTML = fb.html + `<div id="dash"></div>`; fb.bind(); }
+  if (!silent) { const fb = await filterBar(dashboard); if (nav !== NAVID) return; view.innerHTML = fb.html + `<div id="dash"></div>`; fb.bind(); }
   const [d1, d2] = periodOf();
   let dash;
   try { dash = await api("/api/dashboard?" + (F.preset === "day" ? qs({ date: d1, region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }) : scopeQ())); } catch (e) { return fail(e); }
+  if (nav !== NAVID || !$("#dash")) return;                          // moved to another page while the data was coming
   const k = dash.kpis, th = ME.thresholds, t = k.totals;
   const occState = t.occupancy == null ? "" : t.occupancy >= th.critical ? "critical" : t.occupancy >= th.elevated ? "warning" : "";
   const isToday = F.preset === "day" && dash.requested === ME.today;
@@ -252,8 +258,9 @@ async function loadBeds(d1, d2, silent) {
 
 // ---------- forecast
 async function forecastView() {
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const fb = await filterBar(forecastView, { noPeriod: true });
-  view.innerHTML = fb.html + `<div id="fc" class="card">Загрузка…</div><div id="al" class="card"></div>`; fb.bind();
+  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div id="fc" class="card">Загрузка…</div><div id="al" class="card"></div>`; fb.bind();
   try {
     const [fc, al] = await Promise.all([api("/api/forecast?" + qs({ region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id })), api("/api/alerts")]);
     const rel = { low: "critical", medium: "warning", high: "normal" };
@@ -276,8 +283,9 @@ async function forecastView() {
 
 // ---------- control table
 async function control() {
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const fb = await filterBar(control, { noPeriod: true });
-  view.innerHTML = fb.html + `<div class="row"><label>Дата <input type="date" id="c-d" value="${F.d1 || ME.today}"></label><div class="seg" id="c-f"></div><button class="btn warn right" id="c-rem">🔔 Напомнить не сдавшим</button></div><div id="ct" class="card">Загрузка…</div>`; fb.bind();
+  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div class="row"><label>Дата <input type="date" id="c-d" value="${F.d1 || ME.today}"></label><div class="seg" id="c-f"></div><button class="btn warn right" id="c-rem">🔔 Напомнить не сдавшим</button></div><div id="ct" class="card">Загрузка…</div>`; fb.bind();
   $("#c-rem").onclick = () => remindDlg(F.d1 || ME.today);
   $("#c-d").onchange = e => { F.d1 = e.target.value; control(); };
   try {
@@ -297,9 +305,10 @@ async function control() {
 
 // ---------- reports
 async function reportsView() {
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   if (F.preset === "day" && !F.d1) F.preset = "week";   // a single empty day is a useless first view of the list
   const fb = await filterBar(reportsView);
-  view.innerHTML = fb.html + `<div class="card"><div class="row"><h2>Отчёты</h2><select id="r-st"><option value="">Все</option><option value="sent">Отправленные</option><option value="returned">Возвращённые</option><option value="corrected">Исправленные</option><option value="late">С опозданием</option></select><input id="r-q" placeholder="Поиск по учреждению">${ME.role === "super_admin" ? '<button class="btn bad right" id="r-del" hidden>🗑 Удалить выбранные</button>' : ""}<button class="btn pri ${ME.role === "super_admin" ? "" : "right"}" id="r-new">+ Внести отчёт</button></div><div id="rl" class="scroll-x"></div></div>`; fb.bind();
+  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div class="card"><div class="row"><h2>Отчёты</h2><select id="r-st"><option value="">Все</option><option value="sent">Отправленные</option><option value="returned">Возвращённые</option><option value="corrected">Исправленные</option><option value="late">С опозданием</option></select><input id="r-q" placeholder="Поиск по учреждению">${ME.role === "super_admin" ? '<button class="btn bad right" id="r-del" hidden>🗑 Удалить выбранные</button>' : ""}<button class="btn pri ${ME.role === "super_admin" ? "" : "right"}" id="r-new">+ Внести отчёт</button></div><div id="rl" class="scroll-x"></div></div>`; fb.bind();
   $("#r-new").onclick = () => editReport(null);
   if (!ME.can_edit_reports) $("#r-new").hidden = true;
   const SU = ME.role === "super_admin";
@@ -366,7 +375,8 @@ const tgLink = u => u.username ? `<a class="btn sm" href="https://t.me/${esc(u.u
 const dropBrokenAvatars = root => root.querySelectorAll(".tgav img").forEach(im => { const rm = () => im.remove(); im.addEventListener("error", rm, { once: true }); if (im.complete && im.naturalWidth === 0) rm(); });
 const OPENRG = new Set();           // regions whose group of people is open (kept while the page is reloaded after an action)
 async function people() {
-  view.innerHTML = `<div class="card"><div class="row"><h2>Заявки на доступ</h2></div><div id="rq" class="scroll-x"></div></div><div class="card"><div class="row"><h2>Записаны заранее</h2><span class="muted sm">доступ откроется сам, когда человек впервые напишет боту</span></div><div id="pre" class="scroll-x"></div></div><div class="card"><div class="row"><h2>Ответственные (Telegram)</h2><button class="btn pri right" id="tg-add">+ Добавить</button></div><div id="tgl" class="scroll-x"></div></div><div id="staffbox"></div>`;
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
+  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>Заявки на доступ</h2></div><div id="rq" class="scroll-x"></div></div><div class="card"><div class="row"><h2>Записаны заранее</h2><span class="muted sm">доступ откроется сам, когда человек впервые напишет боту</span></div><div id="pre" class="scroll-x"></div></div><div class="card"><div class="row"><h2>Ответственные (Telegram)</h2><button class="btn pri right" id="tg-add">+ Добавить</button></div><div id="tgl" class="scroll-x"></div></div><div id="staffbox"></div>`;
   const loadReq = async () => { try { const r = await api("/api/requests?status=pending");
     $("#rq").innerHTML = r.items.length ? `<table><tr><th>Дата</th><th>Кто просит</th><th>Куда</th><th></th></tr>${r.items.map(x => `<tr><td>${esc(x.created_at)}</td><td>${tgWho(x)}<div class="mt">${tgLink(x)}</div></td><td><b>${esc(x.region)}</b>${x.district ? " — " + esc(x.district) : ""}${x.facility ? " — " + esc(x.facility) : ' <span class="pill">весь регион</span>'}</td><td class="row"><button class="btn sm pri" data-ap="${x.id}">Одобрить</button><button class="btn sm bad" data-no="${x.id}">Отклонить</button></td></tr>`).join("")}</table>` : `<p class="muted">Новых заявок нет.</p>`;
     dropBrokenAvatars($("#rq"));
@@ -423,6 +433,7 @@ async function assignDlg(tg, done) {
 }
 async function staffBox() {
   const [st] = await Promise.all([api("/api/staff")]);
+  if (!$("#staffbox")) return;                                  // the person has left the page while the list was coming
   $("#staffbox").innerHTML = `<div class="card"><div class="row"><h2>Пользователи панели</h2><button class="btn pri right" id="st-add">+ Добавить</button></div><div class="scroll-x"><table><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Регионы</th><th></th></tr>${st.items.map(s => `<tr><td>${esc(s.login)}${s.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(s.name)}</td><td>${esc({ super_admin: "Главный администратор", admin: "Администратор", viewer: "Просмотр" }[s.role])}</td><td>${s.role === "super_admin" || !s.regions.length ? "все" : s.regions.map(id => esc(META.regions.find(r => r.id === id)?.name_ru || id)).join(", ")}</td><td class="row"><button class="btn sm" data-ed="${s.id}">Изменить</button><button class="btn sm" data-pw="${s.id}">Сбросить пароль</button></td></tr>`).join("")}</table></div></div>`;
   const form = s => modal(`<h2>${s ? "Изменить" : "Новый пользователь"}</h2>${s ? "" : `<label>Логин<input id="s-l"></label>`}<label>Имя<input id="s-n" value="${esc(s?.name || "")}"></label>
     <label>Роль<select id="s-r">${[["viewer", "Просмотр"], ["admin", "Администратор"], ["super_admin", "Главный администратор"]].map(([k, l]) => `<option value="${k}" ${s?.role === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -439,7 +450,8 @@ async function staffBox() {
 
 // ---------- territories
 async function territories() {
-  view.innerHTML = `<div class="card"><div class="row"><h2>Территории</h2><button class="btn right" id="t-rep">Загрузить данные из Excel (учреждения и показатели за 2 дня)</button><button class="btn" id="t-imp">Импорт территорий</button><button class="btn pri" id="t-add">+ Регион</button></div><p class="muted sm">Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять.</p><div id="tt"></div></div>`;
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
+  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>Территории</h2><button class="btn right" id="t-rep">Загрузить данные из Excel (учреждения и показатели за 2 дня)</button><button class="btn" id="t-imp">Импорт территорий</button><button class="btn pri" id="t-add">+ Регион</button></div><p class="muted sm">Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять.</p><div id="tt"></div></div>`;
   let cur = null;
   const load = async () => {
     META = await api("/api/meta");
@@ -501,8 +513,9 @@ function importDlg(done) {
 
 // ---------- indicators and rules
 async function indicators() {
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const r = await api("/api/indicators");
-  view.innerHTML = `<div class="card"><div class="row"><h2>Показатели</h2><button class="btn pri right" id="i-add">+ Показатель</button></div><p class="muted sm">«Способ сложения»: sum — потоки (обращения), last — состояние на последний день (койки), max — максимум за период.</p><div class="scroll-x"><table><tr><th>Код</th><th>Название</th><th>Сложение</th><th>Активен</th><th></th></tr>${r.items.map(i => `<tr><td>${esc(i.code)}${i.core ? " 🔒" : ""}</td><td>${esc(i.name_ru)}</td><td>${i.agg}</td><td>${i.active ? "да" : "нет"}</td><td><button class="btn sm" data-i="${i.code}">Изменить</button></td></tr>`).join("")}</table></div></div>
+  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>Показатели</h2><button class="btn pri right" id="i-add">+ Показатель</button></div><p class="muted sm">«Способ сложения»: sum — потоки (обращения), last — состояние на последний день (койки), max — максимум за период.</p><div class="scroll-x"><table><tr><th>Код</th><th>Название</th><th>Сложение</th><th>Активен</th><th></th></tr>${r.items.map(i => `<tr><td>${esc(i.code)}${i.core ? " 🔒" : ""}</td><td>${esc(i.name_ru)}</td><td>${i.agg}</td><td>${i.active ? "да" : "нет"}</td><td><button class="btn sm" data-i="${i.code}">Изменить</button></td></tr>`).join("")}</table></div></div>
   <div class="card"><div class="row"><h2>Правила проверки</h2><button class="btn pri right" id="r-add">+ Правило</button></div><div class="scroll-x"><table><tr><th>Вид</th><th>Условие (должно выполняться)</th><th>Сообщение</th><th>Вкл.</th><th></th></tr>${r.rules.map(x => `<tr><td>${x.kind === "error" ? '<span class="pill critical">ошибка</span>' : '<span class="pill warning">предупреждение</span>'}</td><td><code>${esc(x.expr)}</code></td><td>${esc(x.message_ru)}</td><td>${x.active ? "да" : "нет"}</td><td><button class="btn sm" data-r="${x.id}">Изменить</button></td></tr>`).join("")}</table></div></div>`;
   $("#i-add").onclick = () => indDlg(null); document.querySelectorAll("[data-i]").forEach(b => b.onclick = () => indDlg(r.items.find(i => i.code === b.dataset.i)));
   $("#r-add").onclick = () => ruleDlg(null); document.querySelectorAll("[data-r]").forEach(b => b.onclick = () => ruleDlg(r.rules.find(x => x.id === +b.dataset.r)));
@@ -530,8 +543,9 @@ const SET = [["deadline_time", "Срок сдачи (время)", "time"], ["de
   ["occ_elevated", "Порог: повышенная нагрузка, %", "number"], ["occ_critical", "Порог: критическая загрузка, %", "number"], ["fac_occ_warn", "Порог для учреждения, %", "number"],
   ["growth_warn_pct", "Рост обращений: предупреждение, %", "number"], ["growth_crit_pct", "Рост: тревога, %", "number"], ["severe_growth_pct", "Рост тяжёлых, %", "number"], ["hosp_growth_pct", "Рост госпитализаций, %", "number"], ["org_title", "Название организации (для отчётов)", "text"]];
 async function settings() {
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const r = await api("/api/settings");
-  view.innerHTML = `<div class="card"><h2>Настройки</h2><p class="muted">Бот: ${r.bot.configured ? "подключён" + (r.bot.username ? " (@" + esc(r.bot.username) + ")" : "") : "токен не задан (TELEGRAM_BOT_TOKEN)"} ${r.bot.error ? "· ошибка: " + esc(r.bot.error) : ""}</p><div class="fields">${SET.map(([k, l, t]) => `<label>${l}<input data-k="${k}" type="${t === "time" ? "time" : t}" value="${esc(r.settings[k] ?? "")}"></label>`).join("")}</div>
+  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><h2>Настройки</h2><p class="muted">Бот: ${r.bot.configured ? "подключён" + (r.bot.username ? " (@" + esc(r.bot.username) + ")" : "") : "токен не задан (TELEGRAM_BOT_TOKEN)"} ${r.bot.error ? "· ошибка: " + esc(r.bot.error) : ""}</p><div class="fields">${SET.map(([k, l, t]) => `<label>${l}<input data-k="${k}" type="${t === "time" ? "time" : t}" value="${esc(r.settings[k] ?? "")}"></label>`).join("")}</div>
   <div class="row mt"><button class="btn pri" id="s-save">Сохранить</button><button class="btn" id="s-run">Проверить рассылку (без отправки)</button><button class="btn" id="s-bk">Резервная копия</button></div><pre id="s-out"></pre></div>`;
   $("#s-save").onclick = async () => { try { await api("/api/settings", { method: "PUT", body: Object.fromEntries([...document.querySelectorAll("[data-k]")].map(i => [i.dataset.k, i.value])) }); toast("Сохранено"); } catch (e) { fail(e); } };
   $("#s-run").onclick = async () => { try { const x = await api("/api/notify/run", { method: "POST", body: { dry: true, force: true } }); $("#s-out").textContent = JSON.stringify(x.items, null, 1); } catch (e) { fail(e); } };
@@ -540,14 +554,16 @@ async function settings() {
 
 // ---------- audit
 async function audit() {
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const r = await api("/api/audit?limit=300");
-  view.innerHTML = `<div class="card"><h2>Журнал действий</h2><p class="muted sm">Записи неизменяемы: изменить или удалить их нельзя.</p><div class="scroll-x"><table><tr><th>Когда</th><th>Кто</th><th>Действие</th><th>Объект</th><th>Подробности</th></tr>${r.items.map(x => `<tr><td>${esc(x.at || x.created_at)}</td><td>${esc(x.actor)}</td><td>${esc(x.action)}</td><td>${esc(x.entity)} ${esc(x.entity_id)}</td><td class="sm">${esc(typeof x.details === "string" ? x.details : JSON.stringify(x.details))}</td></tr>`).join("")}</table></div></div>`;
+  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><h2>Журнал действий</h2><p class="muted sm">Записи неизменяемы: изменить или удалить их нельзя.</p><div class="scroll-x"><table><tr><th>Когда</th><th>Кто</th><th>Действие</th><th>Объект</th><th>Подробности</th></tr>${r.items.map(x => `<tr><td>${esc(x.at || x.created_at)}</td><td>${esc(x.actor)}</td><td>${esc(x.action)}</td><td>${esc(x.entity)} ${esc(x.entity_id)}</td><td class="sm">${esc(typeof x.details === "string" ? x.details : JSON.stringify(x.details))}</td></tr>`).join("")}</table></div></div>`;
 }
 
 // ---------- export
 async function exportView() {
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const fb = await filterBar(exportView);
-  view.innerHTML = fb.html + `<div class="card"><h2>Выгрузка</h2><p class="muted">Сводный отчёт за выбранный период и территорию. В Excel — 3 листа (сводка, детали, динамика), печать A4 с повтором шапки и полями для подписей.</p>
+  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div class="card"><h2>Выгрузка</h2><p class="muted">Сводный отчёт за выбранный период и территорию. В Excel — 3 листа (сводка, детали, динамика), печать A4 с повтором шапки и полями для подписей.</p>
   <div class="row"><label>Вид<select id="x-k"><option value="daily">Ежедневный</option><option value="weekly">Недельный</option><option value="monthly">Месячный</option><option value="custom" selected>Произвольный период</option></select></label>
   ${["xlsx", "pdf", "csv"].map(f => `<a class="btn pri" data-f="${f}" href="#">${f.toUpperCase()}</a>`).join("")}</div></div>`; fb.bind();
   document.querySelectorAll("[data-f]").forEach(a => a.onclick = e => { e.preventDefault(); location.href = "/api/export?" + scopeQ() + "&" + qs({ fmt: a.dataset.f, kind: $("#x-k").value }); });
@@ -556,11 +572,12 @@ async function exportView() {
 // ---------- broadcast: a message written here goes to the people of the bot
 let BCPOLL = null;
 async function broadcastView() {
+  const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   clearTimeout(BCPOLL);
   const AUD = { all: "Все, у кого есть доступ", regions: "Выбранные регионы", unsent: "Не сдавшие сводку сегодня" };
   const regs = (ME.regions === null ? META.regions : META.regions.filter(r => ME.regions.includes(r.id)));
   let mode = "all", chosen = new Set();
-  view.innerHTML = `<div class="card"><div class="row"><h2>Рассылка</h2><span class="muted sm">сообщение придёт в Telegram тем, кто пользуется ботом</span></div>
+  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>Рассылка</h2><span class="muted sm">сообщение придёт в Telegram тем, кто пользуется ботом</span></div>
     <div class="lbl">Кому</div><div class="chips" id="bc-mode">${Object.entries(AUD).map(([k, l]) => `<button class="chip${k === mode ? " on" : ""}" data-m="${k}">${l}</button>`).join("")}</div>
     <div class="chips" id="bc-regs" hidden>${regs.map(r => `<button class="chip" data-r="${r.id}">${esc(r.name_ru.replace("Республика ", "").replace(" область", "").replace("город ", "г. "))}</button>`).join("")}</div>
     <div class="grid2"><label>Текст по-узбекски (O‘zbekcha)<textarea id="bc-uz" rows="6" maxlength="3500" placeholder="Xabar matni"></textarea><span class="muted sm" id="bc-uz-n">0 / 3500</span></label>
@@ -599,18 +616,27 @@ async function broadcastView() {
   list();
 }
 
-// ---------- confidential messages of the facilities for the Ministry (the super administrator only)
+// ---------- confidential messages of the facilities for the Ministry: dialogues (the super administrator only)
 async function messagesView() {
+  const nav = NAVID;
   let only = false;
   const draw = async () => {
     let r; try { r = await api("/api/messages" + (only ? "?unread=1" : "")); } catch (e) { return fail(e); }
+    if (nav !== NAVID) return;
     ME.messages_unread = r.unread; badgeMessages();
+    const bubble = m => `<div class="bub ${m.direction === "out" ? "out" : "in"}"><div class="bubmeta">${m.direction === "out" ? "Министерство" + (m.by ? " · " + esc(m.by) : "") : esc(m.by || "Учреждение")} · ${esc(m.at)}</div><div class="msgtext">${esc(m.text)}</div>${m.error ? `<div class="bubwarn">⚠️ В Telegram не доставлено: ${esc(m.error)}</div>` : ""}</div>`;
     view.innerHTML = `<div class="card"><div class="row"><h2>Сообщения для Министерства</h2><span class="muted sm">🔒 конфиденциально: видны только главному администратору; областные администраторы и просмотр их не видят, в выгрузки они не попадают</span>
       <div class="seg right"><button class="${only ? "" : "on"}" data-f="all">Все</button><button class="${only ? "on" : ""}" data-f="unread">Непрочитанные${r.unread ? ` (${r.unread})` : ""}</button></div></div>
-      ${r.items.length ? r.items.map(m => `<div class="msgcard${m.read_at ? "" : " unread"}"><div class="row"><b>${esc(m.region)} — ${esc(m.facility)}</b><span class="muted sm">отчёт за ${esc(m.report_date)} · ${esc(m.created_at)}</span><button class="btn sm right" data-r="${m.id}" data-v="${m.read_at ? 0 : 1}">${m.read_at ? "Вернуть в непрочитанные" : "Отметить прочитанным"}</button></div>
-        <p class="msgtext">${esc(m.text)}</p><div class="muted sm">От: ${esc(m.sender || "—")} · Telegram ID ${esc(m.tg_id)}</div></div>`).join("") : `<p class="muted">${only ? "Непрочитанных нет." : "Сообщений пока нет. Люди могут оставить его последним вопросом бота."}</p>`}</div>`;
+      ${r.items.length ? r.items.map(t => `<div class="msgcard${t.unread ? " unread" : ""}" data-t="${t.thread_id}"><div class="row"><b>${esc(t.region)} — ${esc(t.facility)}</b><span class="muted sm">отчёт за ${esc(t.report_date)} · Telegram ID ${esc(t.tg_id)}</span>${t.unread ? `<span class="pill critical">новых: ${t.unread}</span><button class="btn sm right" data-r="${t.thread_id}">Отметить прочитанным</button>` : ""}</div>
+        <div class="thread">${t.messages.map(bubble).join("")}</div>
+        <div class="replybox"><textarea rows="2" maxlength="1000" placeholder="Ответить: ${esc(t.sender || "учреждению")} получит ответ в Telegram с кнопкой «Ответить»" data-ta="${t.thread_id}"></textarea><button class="btn pri" data-send="${t.thread_id}">Ответить</button></div></div>`).join("")
+        : `<p class="muted">${only ? "Непрочитанных нет." : "Сообщений пока нет. Люди могут оставить его последним вопросом бота."}</p>`}</div>`;
     view.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { only = b.dataset.f === "unread"; draw(); });
-    view.querySelectorAll("[data-r]").forEach(b => b.onclick = async () => { try { await api(`/api/messages/${b.dataset.r}/read`, { method: "POST", body: { read: b.dataset.v === "1" } }); draw(); } catch (e) { fail(e); } });
+    view.querySelectorAll("[data-r]").forEach(b => b.onclick = async () => { try { await api(`/api/messages/${b.dataset.r}/read`, { method: "POST", body: { read: true } }); draw(); } catch (e) { fail(e); } });
+    const send = async id => { const ta = view.querySelector(`[data-ta="${id}"]`), text = ta.value.trim(); if (!text) return toast("Напишите ответ");
+      try { const x = await api(`/api/messages/${id}/reply`, { method: "POST", body: { text } }); toast(x.delivered ? "Ответ отправлен" : "Ответ сохранён, но Telegram его не принял: " + x.error); draw(); } catch (e) { fail(e); } };
+    view.querySelectorAll("[data-send]").forEach(b => b.onclick = () => send(b.dataset.send));
+    view.querySelectorAll("[data-ta]").forEach(ta => ta.onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(ta.dataset.ta); } });
   };
   await draw();
 }
@@ -620,7 +646,9 @@ function badgeMessages() { const a = document.querySelector('#tabs a[data-t="mes
 const TABS = [["dashboard", "Панель", dashboard, null], ["forecast", "Прогноз", forecastView, null], ["control", "Контроль", control, "w"], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
   ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "s"], ["indicators", "Показатели", indicators, "s"], ["broadcast", "Рассылка", broadcastView, "u"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
 function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users); }
+let NAVID = 0;
 function route() {
+  NAVID++;
   const name = (location.hash.slice(2) || "dashboard").split("?")[0];
   const tab = TABS.find(t => t[0] === name && allowed(t)) || TABS[0];
   document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.t === tab[0]));
@@ -636,25 +664,27 @@ $("#pwbtn").onclick = () => { modal(`<h2>Смена пароля</h2><label>Те
   livePulse();
 })();
 // the data refreshes itself: when a report arrives (from the bot or another person) the open page reloads in place
-const LIVE = ["dashboard", "control", "forecast", "reports"];
+const LIVE = ["dashboard", "control", "forecast", "reports", "messages"];
 function livePulse() {
   let last = null, busy = false;
   const idle = () => {   // do not disturb the person: an open dialog, typing, a selection in the list
     const a = document.activeElement;
     if ($("#modal").innerHTML.trim()) return false;
     if (a && (a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && !["checkbox", "radio", "button"].includes(a.type)))) return false;
+    if ([...view.querySelectorAll("textarea")].some(x => x.value.trim())) return false;     // a reply that is being written
     if (document.querySelector(".r-one:checked") || ($("#r-q") && $("#r-q").value) || ($("#rt-q") && $("#rt-q").value)) return false;
     return true;
   };
   const tick = async () => {
     if (busy || document.hidden) return; busy = true;
     try {
-      const t = (await api("/api/pulse")).token;
+      const pl = await api("/api/pulse"), t = pl.token;
+      if (pl.unread !== undefined && ME.messages_unread !== pl.unread) { ME.messages_unread = pl.unread; badgeMessages(); }
       if (last !== null && t !== last) {
         const name = (location.hash.slice(2) || "dashboard").split("?")[0];
         if (LIVE.includes(name) && idle()) {
           view.style.minHeight = view.offsetHeight + "px";   // keep the scroll position while the page is redrawn
-          if (name === "dashboard") dashboard(true); else route();            // the dashboard is patched in place, the other pages are drawn again
+          if (name === "dashboard") dashboard(true).catch(fail); else route();            // the dashboard is patched in place, the other pages are drawn again
           toast("Данные обновлены: получена новая сводка"); setTimeout(() => view.style.minHeight = "", 2500);
           last = t;
         }   // otherwise try again at the next beat: `last` stays old

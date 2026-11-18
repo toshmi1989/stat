@@ -156,6 +156,7 @@ def t(lang: str, key: str, **kw) -> str:
 
 
 T["ru"].update({
+    "mr_in": "💬 <b>Ответ Министерства здравоохранения</b>\n\n{text}\n\n<i>На ваше сообщение: «{quote}»</i>", "mr_btn": "↩️ Ответить", "mr_ask": "✍️ Напишите ответ Министерству (до 1000 знаков).\n🔒 Он будет добавлен к вашему диалогу, его увидит только Министерство.", "mr_sent": "✅ Ответ передан в Министерство здравоохранения.",
     "note_q": "📝 <b>{fac}</b> · {date}\n\n<b>Вопрос {i} из {n}</b>  {bar}\n\n💬 <b>Сообщение для Министерства здравоохранения</b> (необязательно)\nЕсли хотите, напишите проблему, просьбу или замечание.\n\n🔒 Сообщение конфиденциально: его увидит только Министерство здравоохранения.",
     "note_skip": "⏭ Без сообщения, продолжить", "note_ph": "Ваше сообщение (до 1000 знаков)", "note_now": "Сейчас записано: «{text}»", "note_long": "⚠️ Сообщение слишком длинное: {now} знаков, допускается до {n}. Сократите его.",
     "pv_note": "\n🔒 💬 Сообщение для Министерства: «{text}»", "pv_nonote": "\n💬 Сообщение для Министерства: нет", "note_btn": "💬 Сообщение для Министерства", "note_sent": "🔒 Ваше сообщение передано в Министерство здравоохранения конфиденциально.",
@@ -169,6 +170,7 @@ T["ru"].update({
     "dl_caption": "📥 Сводка: <b>{scope}</b>\nДата: {date}\nОтправлено учреждений: {n}", "dl_fail": "⚠️ Не удалось отправить файл: {why}", "dl_wait": "⏳ Готовлю файл…",
 })
 T["uz"].update({
+    "mr_in": "💬 <b>Sog‘liqni saqlash vazirligining javobi</b>\n\n{text}\n\n<i>Sizning xabaringizga: «{quote}»</i>", "mr_btn": "↩️ Javob berish", "mr_ask": "✍️ Vazirlikka javobingizni yozing (1000 belgigacha).\n🔒 U suhbatingizga qo‘shiladi, uni faqat Vazirlik ko‘radi.", "mr_sent": "✅ Javobingiz Sog‘liqni saqlash vazirligiga yuborildi.",
     "note_q": "📝 <b>{fac}</b> · {date}\n\n<b>{i}-savol / {n}</b>  {bar}\n\n💬 <b>Sog‘liqni saqlash vazirligiga xabar</b> (ixtiyoriy)\nXohlasangiz, muammo, iltimos yoki izohingizni yozing.\n\n🔒 Xabar maxfiy: uni faqat Sog‘liqni saqlash vazirligi ko‘radi.",
     "note_skip": "⏭ Xabarsiz davom etish", "note_ph": "Xabaringiz (1000 belgigacha)", "note_now": "Hozir yozilgan: «{text}»", "note_long": "⚠️ Xabar juda uzun: {now} belgi, ruxsat etilgani {n} gacha. Qisqartiring.",
     "pv_note": "\n🔒 💬 Vazirlikka xabar: «{text}»", "pv_nonote": "\n💬 Vazirlikka xabar: yo‘q", "note_btn": "💬 Vazirlikka xabar", "note_sent": "🔒 Xabaringiz Sog‘liqni saqlash vazirligiga maxfiy tarzda yuborildi.",
@@ -267,6 +269,8 @@ def handle_update(u: dict) -> None:
         if action:
             set_state(c, user["tg_id"])
             return do_action(c, user, chat["id"], action, has)
+        if st["state"] == "mreply":
+            return mreply_input(c, user, chat["id"], st, text, has)
         if st["state"] in ("form", "edit_field", "note"):
             return form_input(c, user, chat["id"], st, text, has)
         if st["state"] in ("pick_district", "pick_facility", "pick_date_text", "pick_region_fac", "add_facility", "dl_date"):
@@ -768,6 +772,29 @@ def form_input(c, user, chat, st: dict, text: str, has: bool) -> None:
 NOTE_MAX = 1000
 
 
+def send_ministry_reply(c, root, text: str) -> tuple[bool, str]:
+    """The Ministry's answer to a message of the person, with the button that continues the dialogue."""
+    u = c.execute("SELECT lang FROM tg_users WHERE tg_id=?", (root["tg_id"],)).fetchone()
+    lang = (u["lang"] if u else None) or "uz"
+    quote = esc(root["text"][:120] + ("…" if len(root["text"]) > 120 else ""))
+    return tg.send(root["tg_id"], t(lang, "mr_in", text=esc(text), quote=quote), ik([[btn(t(lang, "mr_btn"), f"mr:{root['id']}")]]))
+
+
+def mreply_input(c, user, chat, st: dict, text: str, has: bool) -> None:
+    """The person's answer to the Ministry: it is added to the same dialogue, which the Ministry reads on the site."""
+    lang, tid = user["lang"], user["tg_id"]
+    root = c.execute("SELECT * FROM ministry_messages WHERE id=? AND tg_id=?", (st["data"].get("thread"), tid)).fetchone()
+    if not root:
+        set_state(c, tid)
+        return tg.send(chat, t(lang, "fail", msg="—"), main_kb(lang, has))
+    if len(text) > NOTE_MAX:
+        return tg.send(chat, t(lang, "note_long", n=NOTE_MAX, now=len(text)))
+    c.execute("INSERT INTO ministry_messages(facility_id, report_date, tg_id, sender, text, created_at, direction, thread_id) VALUES (?,?,?,?,?,?, 'in', ?)",
+              (root["facility_id"], root["report_date"], tid, reports.by_tg(user)["name"], text.strip(), now(), root["id"]))
+    set_state(c, tid)
+    tg.send(chat, t(lang, "mr_sent"), main_kb(lang, has))
+
+
 def ask_note(c, user, chat, data: dict) -> None:
     lang = user["lang"]
     n = len(data["codes"]) + 1
@@ -847,6 +874,12 @@ def handle_callback(cq: dict) -> None:
         k = p[0]
         if k == "rq":
             return request_flow(c, user, chat, msg, p)
+        if k == "mr":                                                         # «Reply» under the Ministry's answer: the next text goes into the same dialogue
+            root = c.execute("SELECT id FROM ministry_messages WHERE id=? AND tg_id=?", (int(p[1]), user["tg_id"])).fetchone() if len(p) > 1 and p[1].isdigit() else None
+            if not root:
+                return
+            set_state(c, user["tg_id"], "mreply", {"thread": root["id"]})
+            return tg.send(chat, t(lang, "mr_ask"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True, "input_field_placeholder": t(lang, "note_ph")})
         if k == "sf":
             return pick_facility(c, user, chat, int(p[1]))
         if k == "sx":
@@ -967,8 +1000,9 @@ def confirm(c, user, chat, d: dict, has: bool) -> None:
     if out.get("late") and out.get("created"):
         text += t(lang, "saved_late")
     if (d.get("note") or "").strip():                           # the confidential message goes to the Ministry only (a table of its own, read by the super administrator)
-        c.execute("INSERT INTO ministry_messages(facility_id, report_date, tg_id, sender, text, created_at) VALUES (?,?,?,?,?,?)",
-                  (d["fid"], d["date"], user["tg_id"], reports.by_tg(user)["name"], d["note"].strip()[:NOTE_MAX], now()))
+        cur = c.execute("INSERT INTO ministry_messages(facility_id, report_date, tg_id, sender, text, created_at, direction) VALUES (?,?,?,?,?,?, 'in')",
+                        (d["fid"], d["date"], user["tg_id"], reports.by_tg(user)["name"], d["note"].strip()[:NOTE_MAX], now()))
+        c.execute("UPDATE ministry_messages SET thread_id=id WHERE id=?", (cur.lastrowid,))       # the first message is the root of the dialogue
         text += "\n\n" + t(lang, "note_sent")
     tg.send(chat, text, main_kb(lang, True))
 
