@@ -156,3 +156,7 @@ tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
 /* dialogues with the facilities */
 .thread{display:flex;flex-direction:column;gap:8px;margin:10px 0}.bub{max-width:78%;border-radius:14px;padding:8px 12px;background:var(--grey)}.bub.out{align-self:flex-end;background:color-mix(in srgb,var(--pri) 14%,var(--card));border:1px solid color-mix(in srgb,var(--pri) 30%,transparent)}
 .bubmeta{font-size:12px;color:var(--mut);margin-bottom:2px}.bubwarn{font-size:12px;color:var(--bad);margin-top:4px}.replybox{display:flex;gap:8px;align-items:flex-end}.replybox textarea{flex:1;min-width:0}
+
+/* coverage */
+.cvk{grid-template-columns:repeat(5,minmax(0,1fr))}@media(max-width:900px){.cvk{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cvt>tbody>tr.cvd>td{background:var(--grey);padding:10px 12px}.cvt>tbody>tr.cvd table{background:var(--card);border-radius:10px}.cvreg{margin:0 0 8px}.cvp.off{opacity:.55}.cvc{display:inline-block;width:14px;color:var(--mut)}

@@ -569,6 +569,40 @@ async function exportView() {
   document.querySelectorAll("[data-f]").forEach(a => a.onclick = e => { e.preventDefault(); location.href = "/api/export?" + scopeQ() + "&" + qs({ fmt: a.dataset.f, kind: $("#x-k").value }); });
 }
 
+// ---------- coverage: regions, districts, facilities, who is connected, how many reports were sent
+const COVP = { d1: "", d2: "" }, OPENCOV = new Set();
+async function coverageView() {
+  const nav = NAVID;
+  const iso = d => d.toISOString().slice(0, 10), back = n => { const d = new Date(ME.today + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - n); return iso(d); };
+  if (!COVP.d1) { COVP.d1 = back(6); COVP.d2 = ME.today; }
+  const draw = async () => {
+    let r; try { r = await api("/api/coverage?" + qs({ d1: COVP.d1, d2: COVP.d2 })); } catch (e) { return fail(e); }
+    if (nav !== NAVID) return;
+    const t = r.totals, pct = (a, b) => b ? Math.round(100 * a / b) : 0;
+    const person = p => `<span class="cvp${p.active ? "" : " off"}">${esc(p.name)}${p.username ? ` <a href="https://t.me/${esc(p.username)}" target="_blank" rel="noopener noreferrer">@${esc(p.username)}</a>` : ""}${p.kind === "reserve" ? ' <span class="muted">(резерв)</span>' : ""}${p.active ? "" : ' <span class="pill critical">отключён</span>'}</span>`;
+    const presets = [["Сегодня", 0], ["7 дней", 6], ["30 дней", 29], ["90 дней", 89]];
+    view.innerHTML = `<div class="card"><div class="row"><h2>Охват и отчёты</h2><span class="muted sm">регионы, районы, учреждения, кто подключён и сколько отчётов отправлено</span>
+        <a class="btn right" href="/api/coverage.xlsx?${qs({ d1: COVP.d1, d2: COVP.d2 })}">⬇ Скачать Excel</a></div>
+      <div class="row"><div class="chips" id="cv-p">${presets.map(([l, n]) => `<button class="chip${COVP.d1 === back(n) && COVP.d2 === ME.today ? " on" : ""}" data-n="${n}">${l}</button>`).join("")}</div>
+        <label>С <input type="date" id="cv-d1" value="${COVP.d1}"></label><label>По <input type="date" id="cv-d2" value="${COVP.d2}"></label><button class="btn sm" id="cv-go">Показать</button></div></div>
+      <div class="kpis cvk"><div class="kpi" data-t="pri"><div class="v">${t.districts}</div><div class="l">Районов (регионов: ${t.regions})</div></div>
+        <div class="kpi" data-t="pur"><div class="v">${t.facilities}</div><div class="l">Учреждений</div></div>
+        <div class="kpi" data-t="ok"><div class="v">${t.people}</div><div class="l">Подключено людей${t.waiting ? ` (ждут входа: ${t.waiting})` : ""}</div></div>
+        <div class="kpi" data-t="warn"><div class="v">${t.with_responsible}<small class="muted"> из ${t.facilities}</small></div><div class="l">Учреждений с ответственным (${pct(t.with_responsible, t.facilities)}%)</div></div>
+        <div class="kpi" data-t="ok"><div class="v">${t.reports}</div><div class="l">Отчётов за ${r.days} дн. (${pct(t.reports, t.possible)}% от возможных)</div></div></div>
+      <div class="card"><div class="row"><h3 style="margin:0">По регионам</h3><button class="btn sm right" id="cv-all">Развернуть все</button><button class="btn sm" id="cv-none">Свернуть все</button></div><div class="scroll-x"><table class="cvt"><tr><th>Регион</th><th class="n">Районов</th><th class="n">Учреждений</th><th class="n">Подключено людей</th><th class="n">С ответственным</th><th class="n">Отчётов</th><th class="n">Сдача</th></tr>
+      ${r.regions.map(g => `<tr class="link cvr" data-rg="${g.id}"><td><span class="cvc">${OPENCOV.has(String(g.id)) ? "▾" : "▸"}</span> <b>${esc(g.name)}</b></td><td class="n">${g.n_districts}</td><td class="n">${g.facilities}</td><td class="n">${g.people}${g.waiting ? ` <span class="muted" title="записаны заранее, ещё не заходили в бот">+${g.waiting}</span>` : ""}</td><td class="n">${g.with_responsible}/${g.facilities}</td><td class="n"><b>${g.reports}</b></td><td class="n"><span class="pill ${pct(g.reports, g.possible) >= 80 ? "normal" : pct(g.reports, g.possible) >= 40 ? "elevated" : "critical"}">${pct(g.reports, g.possible)}%</span></td></tr>
+        <tr class="cvd" data-d="${g.id}" ${OPENCOV.has(String(g.id)) ? "" : "hidden"}><td colspan="7">${g.region_people.length ? `<div class="cvreg"><b>Доступ ко всему региону:</b> ${g.region_people.map(person).join(", ")}</div>` : ""}
+          <table><tr><th>Район</th><th>Учреждение</th><th>Подключены</th><th class="n">Отчётов</th><th>Последний отчёт</th></tr>${g.districts.map(d => d.facilities.map((f, i) => `<tr><td>${i === 0 ? `<b>${esc(d.name)}</b><div class="muted sm">учреждений: ${d.facilities.length}, людей: ${d.people}</div>` : ""}</td><td>${esc(f.name)}</td><td>${f.people.length ? f.people.map(person).join("<br>") : (g.region_people.length ? '<span class="muted">через доступ к региону</span>' : '<span class="pill critical">никто не подключён</span>')}</td><td class="n"><b>${f.reports}</b>${f.returned ? `<div class="muted sm">возвращено: ${f.returned}</div>` : ""}</td><td>${esc(f.last_ever || "—")}</td></tr>`).join("") || `<tr><td><b>${esc(d.name)}</b></td><td colspan="4" class="muted">нет учреждений</td></tr>`).join("")}</table></td></tr>`).join("")}
+      </table></div></div>`;
+    view.querySelectorAll("tr.cvr").forEach(tr => tr.onclick = () => { const id = tr.dataset.rg, d = view.querySelector(`tr.cvd[data-d="${id}"]`); d.hidden = !d.hidden; d.hidden ? OPENCOV.delete(id) : OPENCOV.add(id); tr.querySelector(".cvc").textContent = d.hidden ? "▸" : "▾"; });
+    $("#cv-all").onclick = () => { r.regions.forEach(g => OPENCOV.add(String(g.id))); draw(); }; $("#cv-none").onclick = () => { OPENCOV.clear(); draw(); };
+    $("#cv-p").onclick = e => { const b = e.target.closest("[data-n]"); if (b) { COVP.d1 = back(+b.dataset.n); COVP.d2 = ME.today; draw(); } };
+    $("#cv-go").onclick = () => { COVP.d1 = $("#cv-d1").value; COVP.d2 = $("#cv-d2").value; draw(); };
+  };
+  await draw();
+}
+
 // ---------- broadcast: a message written here goes to the people of the bot
 let BCPOLL = null;
 async function broadcastView() {
@@ -644,7 +678,7 @@ function badgeMessages() { const a = document.querySelector('#tabs a[data-t="mes
 
 // ---------- shell
 const TABS = [["dashboard", "Панель", dashboard, null], ["forecast", "Прогноз", forecastView, null], ["control", "Контроль", control, "w"], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
-  ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "s"], ["indicators", "Показатели", indicators, "s"], ["broadcast", "Рассылка", broadcastView, "u"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
+  ["coverage", "Охват", coverageView, "w"], ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "s"], ["indicators", "Показатели", indicators, "s"], ["broadcast", "Рассылка", broadcastView, "u"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
 function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users); }
 let NAVID = 0;
 function route() {

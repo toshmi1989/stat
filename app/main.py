@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, backup, bot, broadcast, exports, forecast, notify, people, reports, rules, stats, tg, xlsx_import
+from . import auth, backup, bot, broadcast, coverage, exports, forecast, notify, people, reports, rules, stats, tg, xlsx_import
 from .db import all_settings, audit, connect, delete_facilities, delete_reports, init_db, now, now_dt, today, tx
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -1364,6 +1364,43 @@ def api_backup(request: Request):
 
 
 # ---------------------------------------------------------------- exports
+def _cov_period(d1: str, d2: str) -> tuple[str, str]:
+    t = today()
+    a = reports.parse_date(d1).isoformat() if d1 else (t - timedelta(days=6)).isoformat()
+    b = reports.parse_date(d2).isoformat() if d2 else t.isoformat()
+    if a > b:
+        bad("Начало периода позже конца")
+    if (date.fromisoformat(b) - date.fromisoformat(a)).days > 800:
+        bad("Период слишком длинный")
+    return a, b
+
+
+@app.get("/api/coverage")
+def api_coverage(request: Request, d1: str = "", d2: str = ""):
+    """Regions, districts and facilities with the people connected to each and the number of reports in the period; limited to the regions of the viewer."""
+    u = need_write(request)
+    a, b = _cov_period(d1, d2)
+    c = connect()
+    try:
+        return coverage.build(c, u, a, b)
+    finally:
+        c.close()
+
+
+@app.get("/api/coverage.xlsx")
+def api_coverage_xlsx(request: Request, d1: str = "", d2: str = ""):
+    u = need_write(request)
+    a, b = _cov_period(d1, d2)
+    c = connect()
+    try:
+        data = coverage.build(c, u, a, b)
+        audit(c, "export", "coverage", "xlsx", {"d1": a, "d2": b})
+        c.commit()
+    finally:
+        c.close()
+    return Response(coverage.xlsx(data), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="coverage_{a}_{b}.xlsx"'})
+
+
 @app.get("/api/export")
 def api_export(request: Request, fmt: str = "xlsx", kind: str = "custom"):
     u = me(request)

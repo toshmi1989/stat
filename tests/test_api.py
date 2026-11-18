@@ -476,3 +476,52 @@ def test_the_ministry_answers_and_the_person_continues_the_dialogue_from_the_but
     r = client.post(f"/api/messages/{tid_}/reply", json={"text": "ещё один"}).json()
     assert r["delivered"] is False and "blocked" in r["error"]
     assert client.get("/api/messages").json()["items"][0]["messages"][-1]["error"].startswith("Forbidden")
+
+
+def test_coverage_counts_districts_people_and_reports_and_respects_scope(client):
+    import io, openpyxl
+    from app import people
+    from app.db import tx
+    fa, fb = make_facility(1, "Район А", "Cov A"), make_facility(1, "Район Б", "Cov B")
+    fc = make_facility(2, "Район В", "Cov C")
+    adm = {"id": 1, "role": "super_admin", "regions": None}
+    with tx() as c:
+        people.touch(c, {"id": 880101, "first_name": "Олим", "last_name": "Тест", "username": "olim_t"}, "uz")
+        people.touch(c, {"id": 880102, "first_name": "Резерв"}, "uz")
+        people.touch(c, {"id": 880103, "first_name": "Региональный"}, "uz")
+        people.assign(c, adm, "880101", fa, "primary")
+        people.assign(c, adm, "880102", fa, "reserve")
+        people.assign_region(c, adm, "880103", 1)
+        people.preapprove(c, adm, "@later_person", 1)
+    for d in ("2026-02-08", "2026-02-09", "2026-02-10"):
+        put_report(fa, d)
+    put_report(fb, "2026-02-10")
+    r = client.get("/api/coverage?d1=2026-02-04&d2=2026-02-10").json()                                    # 7 days
+    assert r["days"] == 7
+    g1 = next(g for g in r["regions"] if g["id"] == 1)
+    assert g1["n_districts"] >= 2 and g1["facilities"] >= 2 and g1["reports"] == 4 and g1["waiting"] == 1
+    assert g1["people"] == 3                                                                              # two on the facility (primary and reserve) and one on the whole region
+    assert [p["name"] for p in g1["region_people"]] == ["Региональный"]
+    cov_a = next(f for d in g1["districts"] for f in d["facilities"] if f["id"] == fa)
+    assert cov_a["reports"] == 3 and cov_a["last_in_period"] == "2026-02-10" and [(p["name"], p["kind"], p["username"]) for p in cov_a["people"]] == [("Олим Тест", "primary", "olim_t"), ("Резерв", "reserve", "")]
+    cov_b = next(f for d in g1["districts"] for f in d["facilities"] if f["id"] == fb)
+    assert cov_b["reports"] == 1 and cov_b["people"] == [] and cov_b["has_responsible"] is True                # covered by the region access
+    g2 = next(g for g in r["regions"] if g["id"] == 2)
+    assert g2["reports"] == 0 and g2["people"] == 0 and next(f for d in g2["districts"] for f in d["facilities"] if f["id"] == fc)["has_responsible"] is False
+    assert r["totals"]["reports"] == 4 and r["totals"]["districts"] >= 3 and r["totals"]["people"] == 3 and r["totals"]["waiting"] == 1
+    # a period outside the reports
+    assert client.get("/api/coverage?d1=2025-01-01&d2=2025-01-07").json()["totals"]["reports"] == 0
+    assert client.get("/api/coverage?d1=2026-02-10&d2=2026-02-01").status_code == 400 and client.get("/api/coverage?d1=2020-01-01&d2=2026-02-01").status_code == 400
+    # a regional administrator sees only their regions; a viewer is refused
+    a2 = mk_staff(client, "cov_reg2", "admin", [2])
+    only = a2.get("/api/coverage?d1=2026-02-04&d2=2026-02-10").json()
+    assert [g["id"] for g in only["regions"]] == [2] and only["totals"]["reports"] == 0
+    assert mk_staff(client, "cov_view", "viewer", [1]).get("/api/coverage").status_code == 403
+    # the same table as an Excel file
+    x = client.get("/api/coverage.xlsx?d1=2026-02-04&d2=2026-02-10")
+    assert x.status_code == 200 and "coverage_2026-02-04_2026-02-10.xlsx" in x.headers["content-disposition"]
+    ws = openpyxl.load_workbook(io.BytesIO(x.content)).active
+    rows = [[c.value for c in row] for row in ws.iter_rows(min_row=3)]
+    assert rows[0][:3] == ["Регион", "Район", "Учреждение"]
+    mine = [r_ for r_ in rows if r_[2] == "Cov A"][0]
+    assert "Олим Тест (@olim_t)" in mine[3] and "Резерв" in mine[3] and "[резерв]" in mine[3] and "Региональный" in mine[4] and mine[5] == 3
