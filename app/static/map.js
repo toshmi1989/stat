@@ -1,6 +1,22 @@
 // Map of Uzbekistan: regions pulse by the numbers the regions report. Outlines: uzmap.js (tools/build_map.py).
 const MAP_METRICS = [["occupancy", "Загрузка коек", "%"], ["visits", "Обращения", ""], ["severe", "Тяжёлые", ""], ["extreme", "Крайне тяжёлые", ""], ["not_reported", "Не сдали отчёт", ""]];
 let MAPM = "occupancy";
+// The views change by themselves every 3 seconds; a view the person picks stays for a minute, then the changing goes on.
+const MAP_AUTO = { every: 3, pinSec: 60, tick: 0, pinnedUntil: 0, draw: null, timer: null };
+const mapCaption = () => { const left = Math.ceil((MAP_AUTO.pinnedUntil - Date.now()) / 1000);
+  return left > 0 ? `Выбранный вид закреплён: ещё ${left} с, потом виды снова меняются сами. Нажмите на регион, чтобы открыть его.` : `Виды меняются сами каждые ${MAP_AUTO.every} с; выберите вид, и он останется на минуту. Нажмите на регион, чтобы открыть его.`; };
+function mapAutoStart() {
+  if (MAP_AUTO.timer) return;
+  MAP_AUTO.timer = setInterval(() => {
+    const box = $("#map"); if (!box || !MAP_AUTO.draw || document.hidden) return;      // another page, or the tab is in the background
+    const cap = $("#map-cap"); if (cap) cap.textContent = mapCaption();
+    if (MAP_AUTO.pinnedUntil - Date.now() > 0 || RM || box.matches(":hover")) { MAP_AUTO.tick = 0; return; }   // pinned, reduced motion, or the pointer is on the map: nothing changes under it
+    if (++MAP_AUTO.tick >= MAP_AUTO.every) {
+      MAP_AUTO.tick = 0;
+      const i = MAP_METRICS.findIndex(x => x[0] === MAPM); MAPM = MAP_METRICS[(i + 1) % MAP_METRICS.length][0]; MAP_AUTO.draw();
+    }
+  }, 1000);
+}
 const mapShort = n => n.replace("Республика ", "").replace("Каракалпакстан", "Каракалп.").replace(" область", "").replace("город ", "г. ");
 function mapValue(r, m) { return m === "not_reported" ? Math.max((r.facilities || 0) - (r.reported || 0), 0) : r.values[m]; }
 // state of a region: occupancy by the thresholds of the settings; the other figures have no norm, so by the share of the leading region
@@ -48,7 +64,7 @@ function bindMap(rows, th, onPick, silent) {
     H($("#map-leg"), true).innerHTML = MAPM === "occupancy"
       ? `<span><i style="background:var(--ok)"></i>норма до ${th.elevated}%</span><span><i style="background:var(--warn)"></i>повышенная до ${th.critical}%</span><span><i style="background:var(--bad)"></i>критическая от ${th.critical}% — пульсирует</span><span><i style="background:var(--mut)"></i>нет данных</span>`
       : `<span><i style="background:var(--ok)"></i>меньше 40% от лидера</span><span><i style="background:var(--warn)"></i>40–75% от лидера</span><span><i style="background:var(--bad)"></i>от 75% лидера${MAPM === "extreme" ? " и любой случай" : ""} — пульсирует</span><span class="muted">у этого показателя нет нормы, цвет считается относительно лидера</span>`;
-    $("#map-cap").textContent = "Чем выше значение, тем чаще пульсирует регион. Нажмите на регион, чтобы открыть его.";
+    $("#map-cap").textContent = mapCaption();
   };
   const tip = $("#map-tip"), find = e => e.target.closest && e.target.closest(".rg");
   const by = () => Object.fromEntries(mapStates(rows, MAPM, th).map(s => [s.r.id, s]));
@@ -62,7 +78,8 @@ function bindMap(rows, th, onPick, silent) {
   box.onpointerleave = () => { tip.hidden = true; };
   box.onclick = e => { const el = find(e); if (el) onPick(el.dataset.rid); };
   box.onkeydown = e => { if ((e.key === "Enter" || e.key === " ") && find(e)) { e.preventDefault(); onPick(find(e).dataset.rid); } };
-  $("#map-m").onclick = e => { const b = e.target.closest("[data-m]"); if (b) { MAPM = b.dataset.m; draw(); } };
+  $("#map-m").onclick = e => { const b = e.target.closest("[data-m]"); if (b) { MAPM = b.dataset.m; MAP_AUTO.pinnedUntil = Date.now() + MAP_AUTO.pinSec * 1000; MAP_AUTO.tick = 0; draw(); } };
   $("#map-side").onclick = e => { const b = e.target.closest("[data-rid]"); if (b) onPick(b.dataset.rid); };
+  MAP_AUTO.draw = draw; mapAutoStart();
   draw();
 }

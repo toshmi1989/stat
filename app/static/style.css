@@ -141,3 +141,8 @@ tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
 
 /* Telegram people: avatar (initials until the photo loads), name and @username */
 .tgwho{display:flex;gap:10px;align-items:center}.tgav{position:relative;flex:none;width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;display:inline-grid;place-items:center;font-weight:700;overflow:hidden}.tgav img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+
+/* people grouped by region */
+.rgsum{margin:0 0 8px}.rgchips .chip.dim{opacity:.5}.rgchips .chip b{margin-left:4px}
+.rgrp{border:1px solid var(--line);border-radius:12px;margin:0 0 8px;padding:0 12px;background:var(--card)}.rgrp>summary{cursor:pointer;display:flex;gap:10px;align-items:center;padding:10px 0;list-style:none}.rgrp>summary::-webkit-details-marker{display:none}
+.rgrp>summary::before{content:"▸";color:var(--mut);transition:transform .15s}.rgrp[open]>summary::before{transform:rotate(90deg)}.rgrp[open]{padding-bottom:8px}
