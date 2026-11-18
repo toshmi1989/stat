@@ -493,6 +493,8 @@ def test_coverage_counts_districts_people_and_reports_and_respects_scope(client)
         people.assign(c, adm, "880102", fa, "reserve")
         people.assign_region(c, adm, "880103", 1)
         people.preapprove(c, adm, "@later_person", 1)
+        people.touch(c, {"id": 880104, "first_name": "Проситель", "username": "asker_x"}, "uz")
+        people.create_request(c, "880104", 2)
     for d in ("2026-02-08", "2026-02-09", "2026-02-10"):
         put_report(fa, d)
     put_report(fb, "2026-02-10")
@@ -520,8 +522,25 @@ def test_coverage_counts_districts_people_and_reports_and_respects_scope(client)
     # the same table as an Excel file
     x = client.get("/api/coverage.xlsx?d1=2026-02-04&d2=2026-02-10")
     assert x.status_code == 200 and "coverage_2026-02-04_2026-02-10.xlsx" in x.headers["content-disposition"]
-    ws = openpyxl.load_workbook(io.BytesIO(x.content)).active
-    rows = [[c.value for c in row] for row in ws.iter_rows(min_row=3)]
-    assert rows[0][:3] == ["Регион", "Район", "Учреждение"]
+    wb = openpyxl.load_workbook(io.BytesIO(x.content))
+    assert wb.sheetnames == ["Сводка", "Не подключены", "Люди", "По учреждениям"]
+    cell = lambda ws: [[c.value for c in row] for row in ws.iter_rows()]
+    summ = cell(wb["Сводка"])
+    head = next(r for r in summ if r and r[0] == "Регион")
+    row1 = next(r for r in summ if r[0] == g1["name"])
+    col = lambda name: head.index(name)
+    assert row1[col("Районов")] == g1["n_districts"] and row1[col("Учреждений")] == g1["facilities"] and row1[col("Подключено людей")] == 3 and row1[col("Отчётов за период")] == 4
+    assert row1[col("Записаны, ещё не вошли в бот")] == 1 and row1[col("Учреждений БЕЗ ответственного")] == 0
+    row2 = next(r for r in summ if r[0] == g2["name"])
+    assert row2[col("Подключено людей")] == 0 and row2[col("Учреждений БЕЗ ответственного")] == g2["facilities"] and row2[col("Заявки на доступ (ждут решения)")] == 1
+    total = next(r for r in summ if r[0] == "ИТОГО")
+    assert total[col("Подключено людей")] == 3 and total[col("Отчётов за период")] == 4
+    notc = cell(wb["Не подключены"])
+    flat = [str(v) for r in notc for v in r if v is not None]
+    assert any("Cov C" == v for v in flat) and "@later_person" in flat and any("Проситель (@asker_x)" == v for v in flat) and any(v.startswith("Учреждения без ответственного (") for v in flat)
+    ppl = cell(wb["Люди"])
+    assert any(r[1] == "Олим Тест" and r[2] == "@olim_t" and r[4] == "основной" and "Cov A" in (r[6] or "") for r in ppl) and any(r[1] == "Региональный" and r[5] == "весь регион" for r in ppl)
+    rows = cell(wb["По учреждениям"])
     mine = [r_ for r_ in rows if r_[2] == "Cov A"][0]
     assert "Олим Тест (@olim_t)" in mine[3] and "Резерв" in mine[3] and "[резерв]" in mine[3] and "Региональный" in mine[4] and mine[5] == 3
+    assert [r_ for r_ in rows if r_[2] == "Cov C"][0][3] == "НЕ ПОДКЛЮЧЁН"
