@@ -553,6 +553,52 @@ async function exportView() {
   document.querySelectorAll("[data-f]").forEach(a => a.onclick = e => { e.preventDefault(); location.href = "/api/export?" + scopeQ() + "&" + qs({ fmt: a.dataset.f, kind: $("#x-k").value }); });
 }
 
+// ---------- broadcast: a message written here goes to the people of the bot
+let BCPOLL = null;
+async function broadcastView() {
+  clearTimeout(BCPOLL);
+  const AUD = { all: "Все, у кого есть доступ", regions: "Выбранные регионы", unsent: "Не сдавшие сводку сегодня" };
+  const regs = (ME.regions === null ? META.regions : META.regions.filter(r => ME.regions.includes(r.id)));
+  let mode = "all", chosen = new Set();
+  view.innerHTML = `<div class="card"><div class="row"><h2>Рассылка</h2><span class="muted sm">сообщение придёт в Telegram тем, кто пользуется ботом</span></div>
+    <div class="lbl">Кому</div><div class="chips" id="bc-mode">${Object.entries(AUD).map(([k, l]) => `<button class="chip${k === mode ? " on" : ""}" data-m="${k}">${l}</button>`).join("")}</div>
+    <div class="chips" id="bc-regs" hidden>${regs.map(r => `<button class="chip" data-r="${r.id}">${esc(r.name_ru.replace("Республика ", "").replace(" область", "").replace("город ", "г. "))}</button>`).join("")}</div>
+    <div class="grid2"><label>Текст по-узбекски (O‘zbekcha)<textarea id="bc-uz" rows="6" maxlength="3500" placeholder="Xabar matni"></textarea><span class="muted sm" id="bc-uz-n">0 / 3500</span></label>
+    <label>Текст по-русски<textarea id="bc-ru" rows="6" maxlength="3500" placeholder="Текст сообщения"></textarea><span class="muted sm" id="bc-ru-n">0 / 3500</span></label></div>
+    <p class="muted sm">Каждый получит текст на своём языке бота. Если один язык оставить пустым, его получатели увидят текст на другом. Перед текстом бот добавит строку «📢 Объявление».</p>
+    <div class="row mt"><button class="btn pri" id="bc-go">Предпросмотр и отправка</button><button class="btn" id="bc-test">🧪 Тест себе</button><input id="bc-tid" placeholder="Telegram ID для теста (если не указан в профиле)" style="max-width:300px"></div></div>
+    <div class="card"><div class="row"><h2>История рассылок</h2></div><div id="bc-list" class="scroll-x"></div></div>`;
+  const spec = () => ({ mode, regions: [...chosen] });
+  const body = () => ({ audience: spec(), text_ru: $("#bc-ru").value, text_uz: $("#bc-uz").value });
+  ["uz", "ru"].forEach(l => $("#bc-" + l).oninput = () => { $("#bc-" + l + "-n").textContent = $("#bc-" + l).value.length + " / 3500"; });
+  $("#bc-mode").onclick = e => { const b = e.target.closest("[data-m]"); if (!b) return; mode = b.dataset.m; $("#bc-mode").querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === b)); $("#bc-regs").hidden = mode !== "regions"; };
+  $("#bc-regs").onclick = e => { const b = e.target.closest("[data-r]"); if (!b) return; const id = b.dataset.r; chosen.has(id) ? chosen.delete(id) : chosen.add(id); b.classList.toggle("on", chosen.has(id)); };
+  $("#bc-test").onclick = async () => { try { const r = await api("/api/broadcasts/test", { method: "POST", body: { ...body(), tg_id: $("#bc-tid").value.trim() } }); toast("Тест отправлен (Telegram ID " + r.sent_to + ")"); } catch (e) { fail(e); } };
+  $("#bc-go").onclick = async () => {
+    let pv; try { pv = await api("/api/broadcasts/preview", { method: "POST", body: body() }); } catch (e) { return fail(e); }
+    modal(`<h2>📢 Проверьте рассылку</h2><p>Кому: <b>${esc(AUD[mode])}</b>${mode === "regions" ? ` (${chosen.size})` : ""} · получателей: <b>${pv.total}</b> (по-узбекски ${pv.uz}, по-русски ${pv.ru})</p>
+      ${pv.fallback ? `<div class="note">У ${pv.fallback} человек язык, на котором вы ничего не написали: они получат текст на другом языке.</div>` : ""}
+      ${pv.total ? `<div class="bcsample"><div class="muted sm">Так увидит человек с узбекским ботом:</div><div class="bcmsg">${pv.sample_uz.replace(/\n/g, "<br>")}</div><div class="muted sm">С русским:</div><div class="bcmsg">${pv.sample_ru.replace(/\n/g, "<br>")}</div></div>
+      <details><summary>Получатели (${pv.total})</summary><p class="sm">${pv.people.map(esc).join(", ")}${pv.total > pv.people.length ? "…" : ""}</p></details>` : `<div class="alert critical">Получателей нет.</div>`}
+      <div class="row mt"><button class="btn pri" id="bc-ok" ${pv.total ? "" : "disabled"}>Отправить ${pv.total || ""}</button><button class="btn right" data-close>Назад</button></div>`, true);
+    const ok = $("#bc-ok"); if (ok) ok.onclick = async () => { ok.disabled = true; try { await api("/api/broadcasts", { method: "POST", body: { ...body(), confirm: true } }); closeModal(); toast("Рассылка запущена"); $("#bc-ru").value = $("#bc-uz").value = ""; list(); } catch (e) { fail(e); ok.disabled = false; } };
+  };
+  const STX = { sending: ["warning", "Отправляется"], done: ["sent", "Готово"], interrupted: ["critical", "Прервана"] };
+  const list = async () => {
+    clearTimeout(BCPOLL);
+    let r; try { r = await api("/api/broadcasts"); } catch (e) { return fail(e); }
+    if (!$("#bc-list")) return;
+    $("#bc-list").innerHTML = r.items.length ? `<table><tr><th>Когда</th><th>От кого</th><th>Текст</th><th>Кому</th><th>Итог</th><th></th></tr>${r.items.map(b => { const a = JSON.parse(b.audience || "{}"), [cls, lbl] = STX[b.status] || ["", b.status]; const pct = b.total ? Math.round(100 * (b.sent + b.failed) / b.total) : 0;
+      return `<tr><td>${esc(b.created_at)}</td><td>${esc(b.by_name)}</td><td class="sm" style="max-width:320px">${esc((b.text_uz || b.text_ru).slice(0, 110))}${(b.text_uz || b.text_ru).length > 110 ? "…" : ""}</td><td>${esc(AUD[a.mode || "all"] || "")}</td>
+        <td><span class="pill ${cls}">${lbl}</span> отправлено <b>${b.sent}</b> из ${b.total}${b.failed ? `, не доставлено <b>${b.failed}</b>` : ""}${b.status === "sending" ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}</td>
+        <td class="row">${b.failed ? `<button class="btn sm" data-fl="${b.id}">Кому не дошло</button>` : ""}${(b.status === "interrupted" || (b.status === "done" && b.failed)) ? `<button class="btn sm" data-rs="${b.id}">${b.status === "interrupted" ? "Продолжить" : "Повторить"}</button>` : ""}</td></tr>`; }).join("")}</table>` : `<p class="muted">Рассылок пока не было.</p>`;
+    $("#bc-list").querySelectorAll("[data-rs]").forEach(b => b.onclick = async () => { try { await api(`/api/broadcasts/${b.dataset.rs}/resume`, { method: "POST", body: {} }); list(); } catch (e) { fail(e); } });
+    $("#bc-list").querySelectorAll("[data-fl]").forEach(b => b.onclick = async () => { try { const f = await api(`/api/broadcasts/${b.dataset.fl}/failures`); modal(`<h2>Не доставлено</h2><p class="muted sm">Обычно человек остановил или заблокировал бота.</p><div class="scroll-x"><table><tr><th>Кто</th><th>Причина</th></tr>${f.items.map(x => `<tr><td>${esc(x.name || x.username || x.tg_id)} <span class="muted">${esc(x.tg_id)}</span></td><td class="sm">${esc(x.error)}</td></tr>`).join("")}</table></div><div class="row mt"><button class="btn right" data-close>Закрыть</button></div>`); } catch (e) { fail(e); } });
+    if (r.items.some(b => b.status === "sending")) BCPOLL = setTimeout(() => { if (location.hash.startsWith("#/broadcast")) list(); }, 2000);
+  };
+  list();
+}
+
 // ---------- confidential messages of the facilities for the Ministry (the super administrator only)
 async function messagesView() {
   let only = false;
@@ -572,7 +618,7 @@ function badgeMessages() { const a = document.querySelector('#tabs a[data-t="mes
 
 // ---------- shell
 const TABS = [["dashboard", "Панель", dashboard, null], ["forecast", "Прогноз", forecastView, null], ["control", "Контроль", control, "w"], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
-  ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "s"], ["indicators", "Показатели", indicators, "s"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
+  ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "s"], ["indicators", "Показатели", indicators, "s"], ["broadcast", "Рассылка", broadcastView, "u"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
 function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users); }
 function route() {
   const name = (location.hash.slice(2) || "dashboard").split("?")[0];

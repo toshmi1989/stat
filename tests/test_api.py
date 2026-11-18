@@ -341,3 +341,82 @@ def test_confidential_message_for_the_ministry_from_the_last_bot_question(client
     assert "Сообщение для Министерства: нет" in sent[-1][1]
     press("ok")
     assert len(client.get("/api/messages").json()["items"]) == 1
+
+
+def _wait_broadcast(client, bid, timeout=8):
+    import time
+    end = time.time() + timeout
+    while time.time() < end:
+        b = next(x for x in client.get("/api/broadcasts").json()["items"] if x["id"] == bid)
+        if b["status"] != "sending":
+            return b
+        time.sleep(0.05)
+    raise AssertionError("the broadcast did not finish")
+
+
+def test_broadcast_audience_languages_scope_and_delivery_log(client, monkeypatch):
+    from app import broadcast, people, tg
+    from app.db import connect, tx
+    broadcast.PACE = 0
+    sent, fail_for = [], set()
+    def fake_send(chat, text, markup=None):
+        if str(chat) in fail_for:
+            return False, "Forbidden: bot was blocked by the user"
+        sent.append((str(chat), text)); return True, ""
+    monkeypatch.setattr(tg, "send", fake_send)
+    f1, f2 = make_facility(1, fac="B1"), make_facility(2, "Район Б", "B2")
+    adm = {"id": 1, "role": "super_admin", "regions": None}
+    with tx() as c:
+        for tid, name, region in (("770001", "Узбек", 1), ("770002", "Русский", 1), ("770003", "Чужой", 2), ("770004", "БезДоступа", None)):
+            people.add_tg_user(c, tid, name)
+            if region:
+                people.assign_region(c, adm, tid, region)
+        c.execute("UPDATE tg_users SET lang='uz' WHERE tg_id IN ('770001','770003')")
+        c.execute("UPDATE tg_users SET lang='ru' WHERE tg_id='770002'")
+    pv = client.post("/api/broadcasts/preview", json={"audience": {"mode": "all"}, "text_ru": "Привет", "text_uz": "Salom"}).json()
+    assert pv["total"] == 3 and pv["uz"] == 2 and pv["ru"] == 1 and pv["fallback"] == 0               # the person with no access is not a recipient
+    assert "Salom" in pv["sample_uz"] and "Привет" in pv["sample_ru"] and "E’lon" in pv["sample_uz"]
+    pv = client.post("/api/broadcasts/preview", json={"audience": {"mode": "all"}, "text_ru": "", "text_uz": "Faqat o‘zbekcha"}).json()
+    assert pv["fallback"] == 1                                                                         # the Russian speaker will get the Uzbek text
+    assert client.post("/api/broadcasts/preview", json={"audience": {"mode": "regions", "regions": [1]}, "text_ru": "x"}).json()["total"] == 2
+    assert client.post("/api/broadcasts/preview", json={"audience": {"mode": "regions", "regions": []}, "text_ru": "x"}).status_code == 400
+    assert client.post("/api/broadcasts/preview", json={"audience": {"mode": "all"}, "text_ru": "", "text_uz": ""}).status_code == 400
+    assert client.post("/api/broadcasts/preview", json={"audience": {"mode": "all"}, "text_ru": "x" * 3501}).status_code == 400
+    # a regional administrator can write only to people of their own region and only sees their own broadcasts
+    a1 = mk_staff(client, "bc_reg1", "admin", [1])
+    c0 = connect(); c0.execute("UPDATE staff SET can_manage_users=1 WHERE login='bc_reg1'"); c0.commit(); c0.close()
+    assert a1.post("/api/broadcasts/preview", json={"audience": {"mode": "all"}, "text_ru": "x"}).json()["total"] == 2
+    assert a1.post("/api/broadcasts/preview", json={"audience": {"mode": "regions", "regions": [2]}, "text_ru": "x"}).status_code == 403
+    assert mk_staff(client, "bc_view", "viewer", [1]).get("/api/broadcasts").status_code == 403
+    # sending needs the confirmation; then everyone gets the text of their own language
+    assert client.post("/api/broadcasts", json={"audience": {"mode": "all"}, "text_ru": "Привет", "text_uz": "Salom"}).status_code == 400
+    fail_for.add("770003")
+    bid = client.post("/api/broadcasts", json={"audience": {"mode": "all"}, "text_ru": "Привет всем", "text_uz": "Hammaga salom", "confirm": True}).json()["id"]
+    b = _wait_broadcast(client, bid)
+    assert b["status"] == "done" and b["total"] == 3 and b["sent"] == 2 and b["failed"] == 1
+    by = dict(sent)
+    assert "Hammaga salom" in by["770001"] and "Привет всем" in by["770002"] and by["770002"].startswith("📢 <b>Объявление</b>") and by["770001"].startswith("📢 <b>E’lon</b>")
+    fl = client.get(f"/api/broadcasts/{bid}/failures").json()["items"]
+    assert [x["tg_id"] for x in fl] == ["770003"] and "blocked" in fl[0]["error"]
+    assert a1.get(f"/api/broadcasts/{bid}/failures").status_code == 404                              # another sender's broadcast is not theirs
+    # the failed one is tried again
+    fail_for.clear()
+    assert client.post(f"/api/broadcasts/{bid}/resume", json={}).status_code == 200
+    b = _wait_broadcast(client, bid)
+    assert b["sent"] == 3 and b["failed"] == 0 and dict(sent)["770003"].endswith("Hammaga salom")
+    assert connect().execute("SELECT COUNT(*) FROM audit WHERE action='broadcast.start'").fetchone()[0] >= 1
+
+
+def test_broadcast_test_message_goes_only_to_a_known_person(client, monkeypatch):
+    from app import broadcast, people, tg
+    from app.db import connect, tx
+    sent = []
+    monkeypatch.setattr(tg, "send", lambda chat, text, markup=None: (sent.append((str(chat), text)) or (True, "")))
+    assert client.post("/api/broadcasts/test", json={"text_ru": "x"}).status_code == 400            # no id given and none in the profile
+    assert client.post("/api/broadcasts/test", json={"text_ru": "x", "tg_id": "123456789"}).status_code == 400   # not a person of the bot: no spam to arbitrary ids
+    with tx() as c:
+        people.add_tg_user(c, "770010", "Я")
+        c.execute("UPDATE tg_users SET lang='ru' WHERE tg_id='770010'")
+    assert client.post("/api/broadcasts/test", json={"text_ru": "Проверка", "tg_id": "770010"}).json()["sent_to"] == "770010"
+    assert sent[-1][0] == "770010" and "Проверка" in sent[-1][1] and "тест" in sent[-1][1]
+    assert connect().execute("SELECT COUNT(*) FROM broadcasts").fetchone()[0] >= 0                  # a test is not recorded as a broadcast

@@ -112,6 +112,17 @@ CREATE TABLE IF NOT EXISTS ministry_messages (
     text TEXT NOT NULL, created_at TEXT NOT NULL,
     read_at TEXT NOT NULL DEFAULT '', read_by INTEGER
 );
+-- broadcasts written on the site and sent to the people of the bot; one log row per recipient
+CREATE TABLE IF NOT EXISTS broadcasts (
+    id INTEGER PRIMARY KEY, created_by INTEGER, created_at TEXT NOT NULL,
+    text_ru TEXT NOT NULL DEFAULT '', text_uz TEXT NOT NULL DEFAULT '', audience TEXT NOT NULL DEFAULT '{}',
+    total INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'sending', finished_at TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS broadcast_log (
+    broadcast_id INTEGER NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE, tg_id TEXT NOT NULL, lang TEXT NOT NULL DEFAULT 'uz',
+    status TEXT NOT NULL DEFAULT 'queued', error TEXT NOT NULL DEFAULT '', at TEXT NOT NULL DEFAULT '', PRIMARY KEY (broadcast_id, tg_id)
+);
 -- profile photos fetched from Telegram (the bot token never leaves the server): found=0 means the person has none or hides it
 CREATE TABLE IF NOT EXISTS tg_avatars (tg_id TEXT PRIMARY KEY, data BLOB, fetched_at TEXT NOT NULL, found INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS access_requests (

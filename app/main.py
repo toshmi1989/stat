@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, backup, bot, exports, forecast, notify, people, reports, rules, stats, tg, xlsx_import
+from . import auth, backup, bot, broadcast, exports, forecast, notify, people, reports, rules, stats, tg, xlsx_import
 from .db import all_settings, audit, connect, delete_facilities, delete_reports, init_db, now, now_dt, today, tx
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -597,6 +597,73 @@ async def api_tg_user_add(request: Request):
 
 
 AVATAR_FRESH_HOURS, AVATAR_NONE_HOURS = 12, 1
+
+
+def _bc(fn):
+    try:
+        return fn()
+    except broadcast.BroadcastError as e:
+        bad(e.message, e.status)
+
+
+@app.get("/api/broadcasts")
+def api_broadcasts(request: Request):
+    u = need_users(request)
+    with tx() as c:
+        return {"items": broadcast.listing(c, u)}
+
+
+@app.post("/api/broadcasts/preview")
+async def api_broadcast_preview(request: Request):
+    u = need_users(request)
+    b = await jbody(request)
+    c = connect()
+    try:
+        return _bc(lambda: broadcast.preview(c, u, b.get("audience") or {}, b.get("text_ru"), b.get("text_uz")))
+    finally:
+        c.close()
+
+
+@app.post("/api/broadcasts/test")
+async def api_broadcast_test(request: Request):
+    u = need_users(request)
+    b = await jbody(request)
+    c = connect()
+    try:
+        return {"sent_to": _bc(lambda: broadcast.send_test(c, u, b.get("text_ru"), b.get("text_uz"), str(b.get("tg_id") or "")))}
+    finally:
+        c.close()
+
+
+@app.post("/api/broadcasts")
+async def api_broadcast_send(request: Request):
+    u = need_users(request)
+    b = await jbody(request)
+    if b.get("confirm") is not True:
+        bad("Нужно подтверждение отправки")
+    with tx() as c:
+        bid = _bc(lambda: broadcast.start(c, u, b.get("audience") or {}, b.get("text_ru"), b.get("text_uz")))
+    broadcast.launch(bid)
+    return {"id": bid}
+
+
+@app.post("/api/broadcasts/{bid}/resume")
+def api_broadcast_resume(request: Request, bid: int):
+    u = need_users(request)
+    with tx() as c:
+        _bc(lambda: broadcast.resume(c, u, bid))
+    broadcast.launch(bid)
+    return {"ok": True}
+
+
+@app.get("/api/broadcasts/{bid}/failures")
+def api_broadcast_failures(request: Request, bid: int):
+    u = need_users(request)
+    c = connect()
+    try:
+        return {"items": _bc(lambda: broadcast.failures(c, u, bid))}
+    finally:
+        c.close()
 
 
 @app.get("/api/messages")

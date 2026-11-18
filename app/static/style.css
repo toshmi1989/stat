@@ -149,3 +149,6 @@ tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
 
 /* confidential messages */
 .msgcard{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;background:var(--card)}.msgcard.unread{border-color:var(--pri);box-shadow:0 0 0 3px color-mix(in srgb,var(--pri) 14%,transparent)}.msgtext{white-space:pre-wrap;margin:8px 0;font-size:15px}
+
+/* broadcast */
+.bcmsg{background:var(--grey);border-radius:12px;padding:10px 12px;margin:6px 0 12px;max-width:520px;font-size:14px}
