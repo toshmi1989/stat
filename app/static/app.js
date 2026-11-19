@@ -451,8 +451,9 @@ async function staffBox() {
 // ---------- territories
 async function territories() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
+  const SUP = ME.role === "super_admin";
   if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>Территории</h2>${SUP ? `<button class="btn right" id="t-rep">Загрузить данные из Excel (учреждения и показатели за 2 дня)</button><button class="btn" id="t-imp">Импорт территорий</button><button class="btn pri" id="t-add">+ Регион</button>` : ""}</div><p class="muted sm">Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять${SUP ? "" : " (только в ваших регионах)"}.</p><div id="tt"></div></div>`;
-  let cur = null; const SUP = ME.role === "super_admin";
+  let cur = null;
   const load = async () => {
     META = await api("/api/meta");
     $("#tt").innerHTML = `<table><tr><th>Регион</th><th>Название (узб.)</th><th></th></tr>${META.regions.map(r => `<tr class="link${cur === r.id ? " sel" : ""}" data-id="${r.id}"><td>${esc(r.name_ru)}${r.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(r.name_uz)}</td><td>${SUP ? `<button class="btn sm" data-er="${r.id}">Изменить</button> <button class="btn sm bad" data-dr="${r.id}">Удалить</button>` : ""}</td></tr>`).join("")}</table><div id="tsub"></div>`;
