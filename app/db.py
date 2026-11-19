@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS staff (
     active INTEGER NOT NULL DEFAULT 1,
     tg_id TEXT NOT NULL DEFAULT '',
     can_manage_users INTEGER NOT NULL DEFAULT 0,
+    can_manage_territories INTEGER NOT NULL DEFAULT 0,
     can_edit_reports INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT ''
 );
@@ -317,6 +318,8 @@ def init_db() -> None:
             if col not in {r["name"] for r in c.execute("PRAGMA table_info(ministry_messages)")}:
                 c.execute(f"ALTER TABLE ministry_messages ADD COLUMN {col} {ddl}")
         c.execute("UPDATE ministry_messages SET thread_id=id WHERE thread_id IS NULL")
+        if "can_manage_territories" not in {r["name"] for r in c.execute("PRAGMA table_info(staff)")}:      # a database made before the territories of the administrators
+            c.execute("ALTER TABLE staff ADD COLUMN can_manage_territories INTEGER NOT NULL DEFAULT 0")
         if "heartbeat" not in {r["name"] for r in c.execute("PRAGMA table_info(broadcasts)")}:
             c.execute("ALTER TABLE broadcasts ADD COLUMN heartbeat TEXT NOT NULL DEFAULT ''")
         questionnaire_v2(c)

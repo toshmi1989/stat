@@ -544,3 +544,26 @@ def test_coverage_counts_districts_people_and_reports_and_respects_scope(client)
     mine = [r_ for r_ in rows if r_[2] == "Cov A"][0]
     assert "Олим Тест (@olim_t)" in mine[3] and "Резерв" in mine[3] and "[резерв]" in mine[3] and "Региональный" in mine[4] and mine[5] == 3
     assert [r_ for r_ in rows if r_[2] == "Cov C"][0][3] == "НЕ ПОДКЛЮЧЁН"
+
+
+def test_admin_with_territories_manages_only_own_regions(client):
+    a = mk_staff(client, "terr", "admin", [1])
+    assert a.post("/api/districts", json={"region_id": 1, "name_ru": "Новый"}).status_code == 403        # not given the section yet
+    sid = [x for x in client.get("/api/staff").json()["items"] if x["login"] == "terr"][0]["id"]
+    assert client.patch(f"/api/staff/{sid}", json={"can_manage_territories": True}).status_code == 200
+    assert a.get("/api/me").json()["can_manage_territories"] is True
+    r = a.post("/api/districts", json={"region_id": 1, "name_ru": "Новый район"}); assert r.status_code == 200, r.text
+    did = r.json()["id"]
+    assert a.post("/api/districts", json={"region_id": 2, "name_ru": "Чужой"}).status_code == 403          # not their region
+    f = a.post("/api/facilities", json={"district_id": did, "name_ru": "Поликлиника 1"}); assert f.status_code == 200, f.text
+    other = make_facility(region=2, district="Чужой район", fac="Чужая больница")
+    assert a.delete(f"/api/facilities/{other}").status_code == 403
+    assert a.patch(f"/api/facilities/{other}", json={"name_ru": "x"}).status_code == 403
+    assert a.patch(f"/api/facilities/{f.json()['id']}", json={"name_ru": "Поликлиника 2"}).status_code == 200
+    assert a.delete(f"/api/facilities/{f.json()['id']}").status_code == 200
+    assert a.delete(f"/api/districts/{did}").status_code == 200
+    assert a.post("/api/regions", json={"name_ru": "Свой регион"}).status_code == 403                       # regions stay with the main administrator
+    assert client.post("/api/regions", json={"name_ru": "Свой регион"}).status_code == 200
+    v = mk_staff(client, "viewer1", "viewer", [1])
+    client.patch(f"/api/staff/{[x for x in client.get('/api/staff').json()['items'] if x['login'] == 'viewer1'][0]['id']}", json={"can_manage_territories": True})
+    assert v.post("/api/districts", json={"region_id": 1, "name_ru": "Z"}).status_code == 403              # a viewer never edits

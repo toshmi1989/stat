@@ -78,7 +78,7 @@ def user_from_token(token: str | None) -> dict | None:
         return None
     c = connect()
     try:
-        row = c.execute("""SELECT s.id, s.login, s.name, s.role, s.tg_id, s.can_manage_users, s.can_edit_reports FROM sessions t JOIN staff s ON s.id=t.staff_id
+        row = c.execute("""SELECT s.id, s.login, s.name, s.role, s.tg_id, s.can_manage_users, s.can_manage_territories, s.can_edit_reports FROM sessions t JOIN staff s ON s.id=t.staff_id
                            WHERE t.token=? AND t.expires_at > datetime('now') AND s.active=1""", (token,)).fetchone()
         if not row:
             return None
@@ -120,6 +120,11 @@ def is_super(u) -> bool:
 
 def can_write(u) -> bool:
     return bool(u) and u["role"] in ("super_admin", "admin")
+
+
+def can_territories(u) -> bool:
+    """The super administrator, or an administrator who was given the section «Территории» (only for his own regions)."""
+    return bool(u) and (u["role"] == "super_admin" or (u["role"] == "admin" and bool(u["can_manage_territories"])))
 
 
 def sees_region(u, region_id: int) -> bool:

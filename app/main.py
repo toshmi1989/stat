@@ -105,6 +105,32 @@ def need_super(request: Request) -> dict:
     return me(request)
 
 
+def need_territory(request: Request, region_id) -> dict:
+    """The super administrator, or an administrator with the section «Территории» inside his own regions."""
+    u = me(request)
+    if not auth.can_territories(u):
+        bad("Раздел «Территории» недоступен", 403)
+    if auth.is_super(u):
+        return u
+    if region_id is None or not auth.sees_region(u, int(region_id)):
+        bad("Этот регион вам не назначен", 403)
+    return u
+
+
+def region_of(c, kind: str, ident) -> int | None:
+    sql = {"district": "SELECT region_id FROM districts WHERE id=?", "facility": "SELECT d.region_id FROM facilities f JOIN districts d ON d.id=f.district_id WHERE f.id=?"}[kind]
+    r = c.execute(sql, (q_int(ident),)).fetchone()
+    return r[0] if r else None
+
+
+def terr_guard(request: Request, c, kind: str, ident) -> None:
+    """For an existing district / facility: the region it belongs to must be the person's own."""
+    rid = region_of(c, kind, ident)
+    if rid is None:
+        bad("Не найдено", 404)
+    need_territory(request, rid)
+
+
 def need_write(request: Request) -> dict:
     if not auth.can_write(me(request)):
         bad("Недостаточно прав", 403)
@@ -225,7 +251,7 @@ def api_me(request: Request):
     try:
         st = all_settings(c)
         return {"id": u["id"], "login": u["login"], "name": u["name"], "role": u["role"], "role_label": auth.ROLES[u["role"]], "regions": u["regions"],
-                "can_manage_users": bool(u["can_manage_users"]) or auth.is_super(u), "can_edit_reports": bool(u["can_edit_reports"]) and auth.can_write(u),
+                "can_manage_users": bool(u["can_manage_users"]) or auth.is_super(u), "can_manage_territories": auth.can_territories(u), "can_edit_reports": bool(u["can_edit_reports"]) and auth.can_write(u),
                 "today": today().isoformat(), "bot": tg.bot_username() if tg.configured() else "", "bot_configured": tg.configured(),
                 "thresholds": {"elevated": float(st["occ_elevated"]), "critical": float(st["occ_critical"])}, "org": st["org_title"],
                 "messages_unread": c.execute("SELECT COUNT(*) FROM ministry_messages WHERE read_at='' AND direction='in'").fetchone()[0] if auth.is_super(u) else 0}
@@ -894,8 +920,8 @@ async def api_region_update(request: Request, rid: int):
 
 @app.post("/api/districts")
 async def api_district_create(request: Request):
-    need_super(request)
     b = await jbody(request)
+    need_territory(request, q_int(b.get("region_id")))
     name = str(b.get("name_ru") or "").strip()
     with tx() as c:
         if not name or not c.execute("SELECT 1 FROM regions WHERE id=?", (q_int(b.get("region_id")),)).fetchone():
@@ -907,9 +933,9 @@ async def api_district_create(request: Request):
 
 @app.patch("/api/districts/{did}")
 async def api_district_update(request: Request, did: int):
-    need_super(request)
     b = await jbody(request)
     with tx() as c:
+        terr_guard(request, c, "district", did)
         r = c.execute("SELECT * FROM districts WHERE id=?", (did,)).fetchone()
         if not r:
             bad("Район не найден", 404)
@@ -920,10 +946,13 @@ async def api_district_update(request: Request, did: int):
 
 @app.post("/api/facilities")
 async def api_facility_create(request: Request):
-    need_super(request)
     b = await jbody(request)
     name = str(b.get("name_ru") or "").strip()
     with tx() as c:
+        if region_of(c, "district", b.get("district_id")) is not None:
+            terr_guard(request, c, "district", b.get("district_id"))
+        else:
+            need_territory(request, None)
         if not name or not c.execute("SELECT 1 FROM districts WHERE id=?", (q_int(b.get("district_id")),)).fetchone():
             bad("Укажите район и название учреждения")
         cur = c.execute("INSERT INTO facilities(district_id, name_ru, name_uz, contact, created_at) VALUES (?,?,?,?,?)", (int(b["district_id"]), name, str(b.get("name_uz") or "").strip(), str(b.get("contact") or "").strip(), now()))
@@ -933,9 +962,11 @@ async def api_facility_create(request: Request):
 
 @app.patch("/api/facilities/{fid}")
 async def api_facility_update(request: Request, fid: int):
-    need_super(request)
     b = await jbody(request)
     with tx() as c:
+        terr_guard(request, c, "facility", fid)
+        if q_int(b.get("district_id")) and region_of(c, "district", b.get("district_id")) is not None:
+            terr_guard(request, c, "district", b.get("district_id"))       # a facility cannot be moved into a region that is not the person's
         r = c.execute("SELECT * FROM facilities WHERE id=?", (fid,)).fetchone()
         if not r:
             bad("Учреждение не найдено", 404)
@@ -948,8 +979,8 @@ async def api_facility_update(request: Request, fid: int):
 
 @app.delete("/api/facilities/{fid}")
 def api_facility_delete(request: Request, fid: int, force: int = 0):
-    need_super(request)
     with tx() as c:
+        terr_guard(request, c, "facility", fid)
         if not c.execute("SELECT 1 FROM facilities WHERE id=?", (fid,)).fetchone():
             bad("Учреждение не найдено", 404)
         n = c.execute("SELECT COUNT(*) FROM reports WHERE facility_id=?", (fid,)).fetchone()[0]
@@ -960,8 +991,8 @@ def api_facility_delete(request: Request, fid: int, force: int = 0):
 
 @app.delete("/api/districts/{did}")
 def api_district_delete(request: Request, did: int):
-    need_super(request)
     with tx() as c:
+        terr_guard(request, c, "district", did)
         if not c.execute("SELECT 1 FROM districts WHERE id=?", (did,)).fetchone():
             bad("Район не найден", 404)
         n = c.execute("SELECT COUNT(*) FROM facilities WHERE district_id=?", (did,)).fetchone()[0]
@@ -1022,7 +1053,7 @@ def api_staff(request: Request):
     need_super(request)
     c = connect()
     try:
-        return {"items": [{"id": r["id"], "login": r["login"], "name": r["name"], "role": r["role"], "active": bool(r["active"]), "tg_id": r["tg_id"], "can_manage_users": bool(r["can_manage_users"]),
+        return {"items": [{"id": r["id"], "login": r["login"], "name": r["name"], "role": r["role"], "active": bool(r["active"]), "tg_id": r["tg_id"], "can_manage_users": bool(r["can_manage_users"]), "can_manage_territories": bool(r["can_manage_territories"]),
                            "can_edit_reports": bool(r["can_edit_reports"]), "regions": [x["region_id"] for x in c.execute("SELECT region_id FROM staff_scope WHERE staff_id=?", (r["id"],))]}
                           for r in c.execute("SELECT * FROM staff ORDER BY role, name")]}
     finally:
@@ -1052,8 +1083,8 @@ async def api_staff_create(request: Request):
     with tx() as c:
         if c.execute("SELECT 1 FROM staff WHERE login=?", (login,)).fetchone():
             bad("Такой логин уже есть")
-        cur = c.execute("INSERT INTO staff(login, name, password_hash, role, tg_id, can_manage_users, can_edit_reports, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                        (login, str(b.get("name") or "").strip(), auth.hash_password(password), role, str(b.get("tg_id") or "").strip(), int(bool(b.get("can_manage_users"))), int(b.get("can_edit_reports", True) is not False), now()))
+        cur = c.execute("INSERT INTO staff(login, name, password_hash, role, tg_id, can_manage_users, can_manage_territories, can_edit_reports, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                        (login, str(b.get("name") or "").strip(), auth.hash_password(password), role, str(b.get("tg_id") or "").strip(), int(bool(b.get("can_manage_users"))), int(bool(b.get("can_manage_territories"))), int(b.get("can_edit_reports", True) is not False), now()))
         for rid in _scope_ok(c, b.get("regions")):
             c.execute("INSERT INTO staff_scope(staff_id, region_id) VALUES (?,?)", (cur.lastrowid, rid))
         audit(c, "staff.create", "staff", cur.lastrowid, {"login": login, "role": role})
@@ -1076,8 +1107,8 @@ async def api_staff_update(request: Request, sid: int):
             bad("Нельзя понизить или отключить самого себя")
         if r["role"] == "super_admin" and (role != "super_admin" or not active) and c.execute("SELECT COUNT(*) FROM staff WHERE role='super_admin' AND active=1 AND id != ?", (sid,)).fetchone()[0] == 0:
             bad("Должен остаться хотя бы один активный главный администратор")
-        c.execute("UPDATE staff SET name=?, role=?, active=?, tg_id=?, can_manage_users=?, can_edit_reports=? WHERE id=?",
-                  (str(b.get("name", r["name"])).strip(), role, active, str(b.get("tg_id", r["tg_id"])).strip(), int(bool(b.get("can_manage_users", r["can_manage_users"]))), int(bool(b.get("can_edit_reports", r["can_edit_reports"]))), sid))
+        c.execute("UPDATE staff SET name=?, role=?, active=?, tg_id=?, can_manage_users=?, can_manage_territories=?, can_edit_reports=? WHERE id=?",
+                  (str(b.get("name", r["name"])).strip(), role, active, str(b.get("tg_id", r["tg_id"])).strip(), int(bool(b.get("can_manage_users", r["can_manage_users"]))), int(bool(b.get("can_manage_territories", r["can_manage_territories"]))), int(bool(b.get("can_edit_reports", r["can_edit_reports"]))), sid))
         if "regions" in b:
             c.execute("DELETE FROM staff_scope WHERE staff_id=?", (sid,))
             for rid in _scope_ok(c, b["regions"]):

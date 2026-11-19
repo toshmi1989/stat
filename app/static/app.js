@@ -439,10 +439,10 @@ async function staffBox() {
     <label>Роль<select id="s-r">${[["viewer", "Просмотр"], ["admin", "Администратор"], ["super_admin", "Главный администратор"]].map(([k, l]) => `<option value="${k}" ${s?.role === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
     <label>Регионы (пусто = все; для администратора регионального уровня выберите свои)<select id="s-reg" multiple size="6">${META.regions.map(r => `<option value="${r.id}" ${s?.regions.includes(r.id) ? "selected" : ""}>${esc(r.name_ru)}</option>`).join("")}</select></label>
     <label>Telegram ID (для сводок)<input id="s-tg" value="${esc(s?.tg_id || "")}"></label>
-    <label><input type="checkbox" id="s-mu" ${s?.can_manage_users ? "checked" : ""} style="width:auto"> Может управлять доступами</label><label><input type="checkbox" id="s-er" ${s ? (s.can_edit_reports ? "checked" : "") : "checked"} style="width:auto"> Может исправлять отчёты</label>
+    <label><input type="checkbox" id="s-mu" ${s?.can_manage_users ? "checked" : ""} style="width:auto"> Может управлять доступами</label><label><input type="checkbox" id="s-mt" ${s?.can_manage_territories ? "checked" : ""} style="width:auto"> Раздел «Территории»: добавлять и удалять районы и учреждения в своих регионах (для администратора)</label><label><input type="checkbox" id="s-er" ${s ? (s.can_edit_reports ? "checked" : "") : "checked"} style="width:auto"> Может исправлять отчёты</label>
     ${s ? `<label><input type="checkbox" id="s-ac" ${s.active ? "checked" : ""} style="width:auto"> Активен</label>` : ""}
     <div class="row mt"><button class="btn pri" id="s-ok">Сохранить</button><button class="btn right" data-close>Отмена</button></div>`);
-  const body = s => ({ name: $("#s-n").value, role: $("#s-r").value, regions: [...$("#s-reg").selectedOptions].map(o => +o.value), tg_id: $("#s-tg").value, can_manage_users: $("#s-mu").checked, can_edit_reports: $("#s-er").checked, ...(s ? { active: $("#s-ac").checked } : { login: $("#s-l").value }) });
+  const body = s => ({ name: $("#s-n").value, role: $("#s-r").value, regions: [...$("#s-reg").selectedOptions].map(o => +o.value), tg_id: $("#s-tg").value, can_manage_users: $("#s-mu").checked, can_manage_territories: $("#s-mt").checked, can_edit_reports: $("#s-er").checked, ...(s ? { active: $("#s-ac").checked } : { login: $("#s-l").value }) });
   $("#st-add").onclick = () => { form(null); $("#s-ok").onclick = async () => { try { const r = await api("/api/staff", { method: "POST", body: body(null) }); modal(`<h2>Пользователь создан</h2><p>Пароль (показывается один раз):</p><p><b id="pwv">${esc(r.password || "задан вручную")}</b></p><button class="btn pri" id="pw-ok">Готово</button>`); $("#pw-ok").onclick = () => { closeModal(); people(); }; } catch (e) { fail(e); } }; };
   document.querySelectorAll("[data-ed]").forEach(b => b.onclick = () => { const s = st.items.find(x => x.id === +b.dataset.ed); form(s); $("#s-ok").onclick = async () => { try { await api("/api/staff/" + s.id, { method: "PATCH", body: body(s) }); closeModal(); people(); } catch (e) { fail(e); } }; });
   document.querySelectorAll("[data-pw]").forEach(b => b.onclick = async () => { if (!confirm("Сгенерировать новый пароль?")) return; try { const r = await api(`/api/staff/${b.dataset.pw}/password`, { method: "POST", body: {} }); modal(`<h2>Новый пароль</h2><p><b id="pwv">${esc(r.password)}</b></p><button class="btn pri" data-close>Готово</button>`); } catch (e) { fail(e); } });
@@ -451,11 +451,11 @@ async function staffBox() {
 // ---------- territories
 async function territories() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
-  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>Территории</h2><button class="btn right" id="t-rep">Загрузить данные из Excel (учреждения и показатели за 2 дня)</button><button class="btn" id="t-imp">Импорт территорий</button><button class="btn pri" id="t-add">+ Регион</button></div><p class="muted sm">Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять.</p><div id="tt"></div></div>`;
-  let cur = null;
+  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>Территории</h2>${SUP ? `<button class="btn right" id="t-rep">Загрузить данные из Excel (учреждения и показатели за 2 дня)</button><button class="btn" id="t-imp">Импорт территорий</button><button class="btn pri" id="t-add">+ Регион</button>` : ""}</div><p class="muted sm">Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять${SUP ? "" : " (только в ваших регионах)"}.</p><div id="tt"></div></div>`;
+  let cur = null; const SUP = ME.role === "super_admin";
   const load = async () => {
     META = await api("/api/meta");
-    $("#tt").innerHTML = `<table><tr><th>Регион</th><th>Название (узб.)</th><th></th></tr>${META.regions.map(r => `<tr class="link${cur === r.id ? " sel" : ""}" data-id="${r.id}"><td>${esc(r.name_ru)}${r.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(r.name_uz)}</td><td><button class="btn sm" data-er="${r.id}">Изменить</button> <button class="btn sm bad" data-dr="${r.id}">Удалить</button></td></tr>`).join("")}</table><div id="tsub"></div>`;
+    $("#tt").innerHTML = `<table><tr><th>Регион</th><th>Название (узб.)</th><th></th></tr>${META.regions.map(r => `<tr class="link${cur === r.id ? " sel" : ""}" data-id="${r.id}"><td>${esc(r.name_ru)}${r.active ? "" : ' <span class="pill critical">отключён</span>'}</td><td>${esc(r.name_uz)}</td><td>${SUP ? `<button class="btn sm" data-er="${r.id}">Изменить</button> <button class="btn sm bad" data-dr="${r.id}">Удалить</button>` : ""}</td></tr>`).join("")}</table><div id="tsub"></div>`;
     document.querySelectorAll("#tt tr[data-id]").forEach(tr => tr.onclick = ev => { if (ev.target.dataset.er || ev.target.dataset.dr) return; cur = +tr.dataset.id; load().then(() => regionView(cur)); });
     document.querySelectorAll("[data-er]").forEach(b => b.onclick = () => nameDlg("regions", META.regions.find(r => r.id === +b.dataset.er), load));
     document.querySelectorAll("[data-dr]").forEach(b => b.onclick = () => { const r = META.regions.find(x => x.id === +b.dataset.dr); confirmDlg("Удалить регион", `<p>Регион <b>${esc(r.name_ru)}</b> будет удалён вместе с пустыми районами. Если в нём есть учреждения или доступы, система откажет: сначала удалите их.</p>`, "Удалить регион", async () => { await api("/api/regions/" + r.id, { method: "DELETE" }); closeModal(); if (cur === r.id) cur = null; toast("Регион удалён"); load(); }); });
@@ -478,9 +478,7 @@ async function territories() {
     document.querySelectorAll("[data-df]").forEach(b => b.onclick = () => { const x = f.items.find(y => y.id === +b.dataset.df);
       confirmDlg("Удалить учреждение", `<p>Учреждение <b>${esc(x.name_ru)}</b> (${esc(x.district)}) будет удалено.</p><ul class="sm"><li>Отчётов, которые удалятся вместе с ним: <b>${x.reports}</b></li><li>Ответственных, у которых пропадёт привязка: <b>${x.assignments.length}</b> (в боте они останутся)</li></ul><p class="muted sm">Если нужно только скрыть учреждение из отчётности, используйте «Изменить» и снимите «Активно»: данные сохранятся.</p>`, "Удалить безвозвратно", async () => { await api("/api/facilities/" + x.id + "?force=1", { method: "DELETE" }); closeModal(); toast("Учреждение удалено"); again(); }); });
   };
-  $("#t-add").onclick = () => nameDlg("regions", {}, load, true);
-  $("#t-imp").onclick = () => importDlg(load);
-  $("#t-rep").onclick = () => reportImportDlg(load);
+  if (SUP) { $("#t-add").onclick = () => nameDlg("regions", {}, load, true); $("#t-imp").onclick = () => importDlg(load); $("#t-rep").onclick = () => reportImportDlg(load); }
   load();
 }
 function facAddDlg(districts, did, done) {
@@ -696,8 +694,8 @@ function badgeMessages() { const a = document.querySelector('#tabs a[data-t="mes
 
 // ---------- shell
 const TABS = [["dashboard", "Панель", dashboard, null], ["forecast", "Прогноз", forecastView, null], ["control", "Контроль", control, "w"], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
-  ["coverage", "Охват", coverageView, "w"], ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "s"], ["indicators", "Показатели", indicators, "s"], ["broadcast", "Рассылка", broadcastView, "u"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
-function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users); }
+  ["coverage", "Охват", coverageView, "w"], ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "t"], ["indicators", "Показатели", indicators, "s"], ["broadcast", "Рассылка", broadcastView, "u"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
+function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users) || (t[3] === "t" && ME.can_manage_territories); }
 let NAVID = 0;
 function route() {
   NAVID++;
