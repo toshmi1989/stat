@@ -252,7 +252,6 @@ RETIRED = ("severe_pregnant", "severe_children")   # asked before the questionna
 
 RULES = [
     ("error", "beds_flu <= beds_total", "Коек для больных гриппом и ОРВИ ({beds_flu}) больше общего числа коек ({beds_total}).", "Грипп ва ОРВИ учун ажратилган ўринлар ({beds_flu}) жами ўринлардан ({beds_total}) кўп."),
-    ("error", "beds_occupied <= beds_flu", "Занятых коек ({beds_occupied}) больше, чем выделено для гриппа и ОРВИ ({beds_flu}).", "Банд ўринлар ({beds_occupied}) грипп ва ОРВИ учун ажратилганлардан ({beds_flu}) кўп."),
     ("error", "severe <= visits", "Тяжёлых пациентов ({severe}) больше, чем обращений ({visits}).", "Оғир беморлар ({severe}) мурожаатлардан ({visits}) кўп."),
     ("error", "extreme <= visits", "Крайне тяжёлых пациентов ({extreme}) больше, чем обращений ({visits}).", "Ўта оғир беморлар ({extreme}) мурожаатлардан ({visits}) кўп."),
     ("error", "occ_pregnant <= beds_occupied", "Беременных среди занятых коек ({occ_pregnant}) больше, чем занято коек ({beds_occupied}).", "Band o‘rinlardagi homilador ayollar ({occ_pregnant}) band o‘rinlardan ({beds_occupied}) ko‘p."),
@@ -324,6 +323,7 @@ def init_db() -> None:
             c.execute("ALTER TABLE broadcasts ADD COLUMN heartbeat TEXT NOT NULL DEFAULT ''")
         questionnaire_v2(c)
         questionnaire_texts_v3(c)
+        occupied_unbounded_v4(c)
         if not c.execute("SELECT 1 FROM settings WHERE key='default_lang_uz_v1'").fetchone():     # one time: a database made earlier still has the old default
             c.execute("UPDATE settings SET value='uz' WHERE key='default_lang'")
             c.execute("INSERT INTO settings(key, value) VALUES ('default_lang_uz_v1', ?)", (now(),))
@@ -368,6 +368,14 @@ def questionnaire_texts_v3(c) -> None:
     for kind, expr, ru, uz in RULES:
         c.execute("UPDATE rules SET message_ru=?, message_uz=? WHERE expr=? AND core=1", (ru, lat(uz), expr))
     c.execute("INSERT INTO settings(key, value) VALUES ('questionnaire_v3', ?)", (now(),))
+
+
+def occupied_unbounded_v4(c) -> None:
+    """One time: the rule «occupied beds <= beds for flu and ARVI» is removed (the number of the occupied beds is no longer limited by the number of the beds)."""
+    if c.execute("SELECT 1 FROM settings WHERE key='occupied_unbounded_v4'").fetchone():
+        return
+    c.execute("DELETE FROM rules WHERE core=1 AND expr='beds_occupied <= beds_flu'")
+    c.execute("INSERT INTO settings(key, value) VALUES ('occupied_unbounded_v4', ?)", (now(),))
 
 
 def all_settings(c=None) -> dict:

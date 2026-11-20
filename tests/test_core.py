@@ -8,7 +8,9 @@ def test_rules_block_and_warn(env):
     c = connect()
     ok = dict(beds_total=100, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6)
     assert rules.validate(c, ok, "ru", None, None)["errors"] == []
-    bad = dict(ok, beds_occupied=41)
+    free = dict(ok, beds_occupied=41)                    # the occupied beds are not limited by the beds for flu and ARVI any more
+    assert rules.validate(c, free, "ru", None, None)["errors"] == []
+    bad = dict(ok, occ_pregnant=21)                      # but the pregnant among them cannot be more than the occupied beds
     assert rules.validate(c, bad, "ru", None, None)["errors"]
     bad = dict(ok, severe=60)
     assert rules.validate(c, bad, "ru", None, None)["errors"]

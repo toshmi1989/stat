@@ -702,7 +702,7 @@ def pick_date(c, user, chat, fid: int, d: str) -> None:
 # here the person is told at once, at the question)
 SECTION = {"beds_total": "beds", "beds_flu": "beds", "visits": "flow", "hosp": "flow", "disch": "flow", "beds_occupied": "occ", "occ_pregnant": "occ", "occ_children": "occ",
            "severe": "sev", "extreme": "sev", "extreme_pregnant": "sev", "extreme_children": "sev"}
-BOUND = {"beds_flu": "beds_total", "beds_occupied": "beds_flu", "occ_pregnant": "beds_occupied", "occ_children": "beds_occupied", "severe": "visits", "extreme": "visits",
+BOUND = {"beds_flu": "beds_total", "occ_pregnant": "beds_occupied", "occ_children": "beds_occupied", "severe": "visits", "extreme": "visits",
          "extreme_pregnant": "extreme", "extreme_children": "extreme"}
 
 
