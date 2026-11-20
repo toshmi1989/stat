@@ -96,7 +96,7 @@ def test_report_edit_via_api_and_history(client):
     assert r.status_code == 200 and r.json()["version"] == 2
     bad = client.put("/api/reports", json={"facility_id": f1, "date": "2026-02-10", "values": {"visits": 99}, "reason": ""})
     assert bad.status_code == 400
-    block = client.put("/api/reports", json={"facility_id": f1, "date": "2026-02-10", "values": {"beds_occupied": 500}, "reason": "тест"})
+    block = client.put("/api/reports", json={"facility_id": f1, "date": "2026-02-10", "values": {"occ_pregnant": 500}, "reason": "тест"})
     assert block.status_code in (400, 422) and "error" in block.json()
     rid = r.json()["id"]
     rep = client.get(f"/api/reports/{rid}").json()
