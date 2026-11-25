@@ -31,13 +31,17 @@ function mapStates(rows, m, th) {
     return { r, v, st, k };
   });
 }
-// where the labels of the small regions stand: ids -> {ax: the vertical leader, ty: the baseline of the label}. Leaders keep 26 apart; the order is by x, and of two dots
-// above each other the lower one goes first, so that the leader of the upper one does not pass through its dot.
-function uzCallouts(M, ids, y0 = 478, step = 27, gap = 26) {
-  const out = {}; let prev = -1e9;
-  ids.slice().sort((a, b) => (M.r[a].c[0] - M.r[a].c[1] * 0.1) - (M.r[b].c[0] - M.r[b].c[1] * 0.1)).forEach((id, i) => {
-    prev = Math.max(M.r[id].c[0], prev + gap); out[id] = { ax: Math.round(prev), ty: y0 + i * step };
+// where the labels of the small regions stand: id -> {ax: x of the vertical leader, ty: baseline of the label, end: the text ends at the leader (else it starts there)}.
+// Some labels stand above the valley, some below it, always near the dot. In each group the leaders are vertical (sideways first where needed) and the labels form a staircase
+// (below: the farther right the lower, text ending at its leader; above: the farther right the nearer, text starting at its leader), so no leader crosses another leader or a label.
+function uzCallouts(M, below, above, y0 = 476, yUp = 305, step = 27, gap = 26, cap = 845) {
+  const out = {}, cx = id => M.r[id].c[0], cy = id => M.r[id].c[1];
+  let prev = -1e9;
+  below.slice().sort((a, b) => (cx(a) - cy(a) * 0.1) - (cx(b) - cy(b) * 0.1)).forEach((id, i) => {    // of two dots one above the other the lower goes first: the leader of the upper one must not pass through its dot
+    prev = Math.max(cx(id), prev + gap); out[id] = { ax: Math.round(prev), ty: y0 + i * step, end: true };
   });
+  const up = above.slice().sort((a, b) => cx(a) - cx(b)); let next = cap + gap + 1;
+  for (let i = up.length - 1; i >= 0; i--) { next = Math.min(cx(up[i]), next - gap - 4, cap); out[up[i]] = { ax: Math.round(next), ty: yUp - (up.length - 1 - i) * step, end: false }; }
   return out;
 }
 function uzMap(rows, m, th, sel) {
@@ -46,14 +50,13 @@ function uzMap(rows, m, th, sel) {
   const by = Object.fromEntries(S.map(s => [s.r.id, s])), ids = Object.keys(M.r);
   const order = ids.slice().sort((a, b) => (id => id == 14 ? 1 : 0)(a) - (id => id == 14 ? 1 : 0)(b));   // the city of Tashkent lies inside the region: draw it last
   const dur = s => (s.st === "critical" ? 1.9 - 1.1 * s.k : 3.2).toFixed(2);     // the higher the figure, the faster the pulse
-  // small regions of the Fergana valley and Tashkent: the label stands below the map on a leader line. The leaders go straight down (from the dot, sideways first where two dots
-  // are one above the other) and the labels form a staircase, the farther right the lower, with the text ending at its leader: so no leader crosses another leader or a label.
-  const CALL = uzCallouts(M, [10, 14, 11, 7, 12, 2]);
+  // small regions of the Fergana valley and Tashkent: the label stands next to the map on a leader line (see uzCallouts)
+  const CALL = uzCallouts(M, [10, 12, 2], [14, 11, 7]);
   const g = id => {
     const s = by[id] || { r: { id, name: "—", reported: 0, facilities: 0, values: {} }, v: null, st: "off", k: 0 }, p = M.r[id], [cx, cy] = p.c, alive = s.st === "critical" || s.st === "warning", city = +id === 14, co = CALL[id];
     const lab = !co
       ? `<text class="lb" x="${cx}" y="${cy - 11}" text-anchor="middle"><tspan class="ln1">${esc(mapShort(s.r.name))}</tspan><tspan class="ln2" x="${cx}" dy="15">${fmt(s.v)}</tspan></text>`
-      : `<polyline class="lead" points="${cx},${cy} ${co.ax},${cy} ${co.ax},${co.ty - 4}"/><text class="lb call" x="${co.ax - 7}" y="${co.ty}" text-anchor="end"><tspan class="ln1">${esc(mapShort(s.r.name))} </tspan><tspan class="ln2">${fmt(s.v)}</tspan></text>`;
+      : `<polyline class="lead" points="${cx},${cy} ${co.ax},${cy} ${co.ax},${co.ty - 4}"/><text class="lb call" x="${co.end ? co.ax - 7 : co.ax + 7}" y="${co.ty}" text-anchor="${co.end ? "end" : "start"}"><tspan class="ln1">${esc(mapShort(s.r.name))} </tspan><tspan class="ln2">${fmt(s.v)}</tspan></text>`;
     return `<g class="rg st-${s.st}${String(sel) === String(id) ? " sel" : ""}" data-rid="${id}" tabindex="0" role="button" aria-label="${esc(s.r.name)}: ${fmt(s.v)}" style="--dur:${dur(s)}s">
       <path class="fl" d="${p.d}"/>${alive ? `<path class="gl" d="${p.d}"/>` : ""}<path class="ln" d="${p.d}"/>
       ${alive ? `<circle class="ring" cx="${cx}" cy="${cy}" r="${city ? 7 : 16}"/><circle class="ring r2" cx="${cx}" cy="${cy}" r="${city ? 7 : 16}"/>` : ""}
