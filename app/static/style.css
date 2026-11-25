@@ -197,3 +197,14 @@ tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
 .subtabs a{padding:5px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--mut);text-decoration:none;font-size:14px}
 .subtabs a:hover{color:var(--ink);background:var(--grey)}.subtabs a.on{background:var(--ink);border-color:var(--ink);color:var(--card);font-weight:600}
 @media(max-width:700px){.subtabs{padding:8px 10px 0;flex-wrap:nowrap;overflow-x:auto}.subtabs a{white-space:nowrap}}
+
+/* the table of regions on the dashboard: a wide column of names, equal narrow columns of numbers, the headers of the numbers turned 90° counter-clockwise */
+.crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:2px 0 12px}.crumbs .sep{color:var(--mut)}
+.crumbs .btn.on{background:linear-gradient(135deg,var(--pri),var(--pri2));border-color:transparent;color:#fff}
+.rtab{table-layout:fixed;min-width:1080px}.rtab col.cn{width:auto}.rtab col.cv{width:62px}
+.rtab th,.rtab td{padding:8px 6px}.rtab td:first-child,.rtab th:first-child{padding-left:12px;white-space:normal;word-break:normal;overflow-wrap:anywhere}
+.rtab th{vertical-align:bottom;text-transform:none;letter-spacing:0;font-size:12px}
+.rtab th.n{text-align:right;padding-right:12px}.rtab td.n{text-align:right;padding-right:12px;white-space:nowrap}
+.rtab .vt{display:inline-block;writing-mode:vertical-rl;text-orientation:sideways;transform:rotate(180deg);white-space:nowrap;max-height:210px;line-height:1.1;text-align:left}
+.rtab th.on:not(:first-child)::after{content:none}.rtab th.on:not(:first-child)::before{content:"▾";display:block;text-align:right;line-height:1}.rtab th.on.asc:not(:first-child)::before{content:"▴"}
+.rtab th.on{color:var(--ink)}
