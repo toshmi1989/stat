@@ -54,9 +54,9 @@ def demo() -> int:
         regs = [r["id"] for r in c.execute("SELECT id FROM regions ORDER BY sort")]
         fids = []
         for rid in regs:
-            did = c.execute("INSERT INTO districts(region_id, name_ru) VALUES (?,?)", (rid, "Центральный район")).lastrowid
+            did = c.execute("INSERT INTO districts(region_id, name_ru, name_uz) VALUES (?,?,?)", (rid, "Центральный район", "Markaziy tuman")).lastrowid
             for k in range(1, 4):
-                fids.append(c.execute("INSERT INTO facilities(district_id, name_ru, created_at) VALUES (?,?,datetime('now'))", (did, f"Больница №{k}")).lastrowid)
+                fids.append(c.execute("INSERT INTO facilities(district_id, name_ru, name_uz, created_at) VALUES (?,?,?,datetime('now'))", (did, f"Больница №{k}", f"{k}-son shifoxona")).lastrowid)
         for i, fid in enumerate(fids):
             beds = rnd.randint(20, 80)
             occ = int(beds * rnd.uniform(.3, .7))

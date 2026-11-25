@@ -5,6 +5,7 @@ from math import sqrt
 
 from . import auth, stats
 from .db import all_settings, today
+from .translit import lat
 
 METHOD = "Линейный тренд (метод наименьших квадратов) по последним дням с данными; значения не ниже нуля"
 WINDOW = 14
@@ -92,11 +93,18 @@ def _growth(tot: dict, code: str, ref_d: date, mode: str = "sum") -> tuple[float
     return (None if a == 0 else round(100 * (b - a) / a, 1)), round(a, 1), round(b, 1)
 
 
-def alerts(c, user, ref: str | None = None) -> list[dict]:
-    """The warnings of §8.3 for the regions of the person: growth, severe cases, hospitalisations, occupancy, bed shortage, missing reports."""
+def _uz_name(ru: str, uz: str) -> str:
+    return lat(uz) if uz else ru
+
+
+def alerts(c, user, ref: str | None = None, lang: str = "ru") -> list[dict]:
+    """The warnings of §8.3 for the regions of the person: growth, severe cases, hospitalisations, occupancy, bed shortage, missing reports.
+    lang 'uz': the text is written in Uzbek (Latin) with the Uzbek names of the territories; `scope` stays the Russian name of the region (the key the page maps to a name)."""
     st = all_settings(c)
     ref_d = date.fromisoformat(ref) if ref else today()
+    uz = lang == "uz"
     names = {r["id"]: r["name_ru"] for r in c.execute("SELECT id, name_ru FROM regions WHERE active=1 ORDER BY sort")}
+    shown = {r["id"]: (_uz_name(r["name_ru"], r["name_uz"]) if uz else r["name_ru"]) for r in c.execute("SELECT id, name_ru, name_uz FROM regions")}
     out = []
 
     def add(level, kind, scope, text, **kw):
@@ -105,46 +113,55 @@ def alerts(c, user, ref: str | None = None) -> list[dict]:
     for rid, name in names.items():
         if not auth.sees_region(user, rid):
             continue
+        sname = shown[rid]
         tot = stats.daily_totals(c, user, (ref_d - timedelta(days=WINDOW)).isoformat(), ref_d.isoformat(), rid)
         if not tot:
             continue
-        for code, label, key, mode, absmin in (("visits", "обращений", "growth_warn_pct", "sum", 0), ("severe", "тяжёлых пациентов", "severe_growth_pct", "mean", 1),
-                                               ("extreme", "крайне тяжёлых пациентов", "severe_growth_pct", "mean", 2), ("hosp", "госпитализаций", "hosp_growth_pct", "sum", 0)):
+        for code, label, label_uz, key, mode, absmin in (("visits", "обращений", "murojaatlar", "growth_warn_pct", "sum", 0), ("severe", "тяжёлых пациентов", "og‘ir ahvoldagi bemorlar", "severe_growth_pct", "mean", 1),
+                                                         ("extreme", "крайне тяжёлых пациентов", "o‘ta og‘ir ahvoldagi bemorlar", "severe_growth_pct", "mean", 2), ("hosp", "госпитализаций", "yotqizilganlar", "hosp_growth_pct", "sum", 0)):
             g, a, b = _growth(tot, code, ref_d, mode)
             if g is None or abs(b - a) < absmin:
                 continue
             crit = float(st["growth_crit_pct"])
             if g >= float(st[key]):
-                add("critical" if g >= crit else "warning", "growth_" + code, name,
-                    f"{'Внимание! ' if g < crit else 'Тревога! '}В регионе «{name}» за последние 3 дня отмечается увеличение количества {label} на {g:g}% относительно предыдущего сопоставимого периода ({a:g} → {b:g}).",
-                    region_id=rid, value=g)
+                text = (f"{'Diqqat! ' if g < crit else 'Xavotirli holat! '}«{sname}» bo‘yicha so‘nggi 3 kunda {label_uz} soni oldingi taqqoslanadigan davrga nisbatan {g:g}% ga oshgani qayd etilmoqda ({a:g} → {b:g})." if uz else
+                        f"{'Внимание! ' if g < crit else 'Тревога! '}В регионе «{name}» за последние 3 дня отмечается увеличение количества {label} на {g:g}% относительно предыдущего сопоставимого периода ({a:g} → {b:g}).")
+                add("critical" if g >= crit else "warning", "growth_" + code, name, text, region_id=rid, value=g)
         lastd = max(tot)
         t = tot[lastd]
         occ = t.get("occupancy")
         if occ is not None:
             if occ >= float(st["occ_critical"]):
-                add("critical", "occupancy", name, f"Критическая загрузка коек: в регионе «{name}» занято {occ:g}% коек для больных гриппом (на {lastd}).", region_id=rid, value=occ)
+                add("critical", "occupancy", name, f"O‘rinlar bandligi kritik: «{sname}» bo‘yicha gripp va ORVI bilan kasallangan bemorlar uchun ajratilgan o‘rinlarning {occ:g}% band ({lastd} holatiga)." if uz
+                    else f"Критическая загрузка коек: в регионе «{name}» занято {occ:g}% коек для больных гриппом (на {lastd}).", region_id=rid, value=occ)
             elif occ >= float(st["occ_elevated"]):
-                add("warning", "occupancy", name, f"Повышенная нагрузка: в регионе «{name}» занято {occ:g}% коек для больных гриппом (на {lastd}).", region_id=rid, value=occ)
+                add("warning", "occupancy", name, f"Yuklama oshgan: «{sname}» bo‘yicha gripp va ORVI bilan kasallangan bemorlar uchun ajratilgan o‘rinlarning {occ:g}% band ({lastd} holatiga)." if uz
+                    else f"Повышенная нагрузка: в регионе «{name}» занято {occ:g}% коек для больных гриппом (на {lastd}).", region_id=rid, value=occ)
         ov = overview(c, user, ref_d.isoformat(), rid)
         b = ov.get("beds")
         if b:
             d3 = b["days"][2]
             if d3["deficit"] > 0 or d3["occupancy"] >= 100:
-                add("critical", "bed_risk", name, f"Риск нехватки коек: в регионе «{name}» через 3 дня ожидается потребность {d3['occupied']:g} коек при {b['beds_flu']:g} выделенных. Надёжность прогноза: {b['reliability_text'].split(':')[0].lower()}.", region_id=rid, value=d3["occupancy"])
+                rel = b["reliability_text"].split(":")[0].lower()
+                add("critical", "bed_risk", name, f"O‘rinlar yetishmasligi xavfi: «{sname}» bo‘yicha 3 kundan so‘ng {d3['occupied']:g} o‘rin talab etilishi kutilmoqda, ajratilgani {b['beds_flu']:g} o‘rin. Prognoz ishonchliligi: {RELIABILITY_UZ.get(rel, rel)}." if uz
+                    else f"Риск нехватки коек: в регионе «{name}» через 3 дня ожидается потребность {d3['occupied']:g} коек при {b['beds_flu']:g} выделенных. Надёжность прогноза: {rel}.", region_id=rid, value=d3["occupancy"])
     # facilities with a very high occupancy on the latest day
     last = stats.latest_date(c, user, ref_d.isoformat())
     if last:
         thr = float(st["fac_occ_warn"])
         for fid, t in stats.aggregate(c, user, last, last, "facility").items():
             if t.get("occupancy") is not None and t["occupancy"] >= thr:
-                f = c.execute("SELECT f.name_ru, r.name_ru AS region FROM facilities f JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id WHERE f.id=?", (fid,)).fetchone()
-                add("warning", "facility_occupancy", f["region"], f"Предупреждение! В учреждении «{f['name_ru']}» ({f['region']}) занято {t['occupancy']:g}% коек, выделенных для госпитализации больных гриппом.", facility_id=fid, value=t["occupancy"])
+                f = c.execute("SELECT f.name_ru, f.name_uz, r.name_ru AS region, r.name_uz AS region_uz FROM facilities f JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id WHERE f.id=?", (fid,)).fetchone()
+                add("warning", "facility_occupancy", f["region"], f"Ogohlantirish! «{_uz_name(f['name_ru'], f['name_uz'])}» muassasasida ({_uz_name(f['region'], f['region_uz'])}) gripp va ORVI bilan kasallangan bemorlarni yotqizish uchun ajratilgan o‘rinlarning {t['occupancy']:g}% band." if uz
+                    else f"Предупреждение! В учреждении «{f['name_ru']}» ({f['region']}) занято {t['occupancy']:g}% коек, выделенных для госпитализации больных гриппом.", facility_id=fid, value=t["occupancy"])
     out.sort(key=lambda a: (0 if a["level"] == "critical" else 1, a["scope"]))
     return out
 
 
-def missing_reports_alerts(c, user, d: str, st: dict | None = None) -> list[dict]:
+RELIABILITY_UZ = {"низкая": "past", "средняя": "o‘rtacha", "высокая": "yuqori"}
+
+
+def missing_reports_alerts(c, user, d: str, st: dict | None = None, lang: str = "ru") -> list[dict]:
     """After the deadline: how many facilities have not reported, by region."""
     from . import reports
     st = st or all_settings(c)
@@ -155,4 +172,6 @@ def missing_reports_alerts(c, user, d: str, st: dict | None = None) -> list[dict
     for r in ctl["rows"]:
         if r["state"] == "overdue":
             by.setdefault(r["region"], []).append(r["facility"])
-    return [{"level": "warning", "kind": "missing_report", "scope": reg, "text": f"Нет отчёта за {d} от {len(f)} учреждений региона «{reg}».", "count": len(f)} for reg, f in sorted(by.items())]
+    uzn = {r["name_ru"]: _uz_name(r["name_ru"], r["name_uz"]) for r in c.execute("SELECT name_ru, name_uz FROM regions")} if lang == "uz" else {}
+    return [{"level": "warning", "kind": "missing_report", "scope": reg, "count": len(f),
+             "text": f"{d} sanasi uchun «{uzn.get(reg, reg)}» hududidagi {len(f)} muassasadan hisobot yo‘q." if lang == "uz" else f"Нет отчёта за {d} от {len(f)} учреждений региона «{reg}»."} for reg, f in sorted(by.items())]

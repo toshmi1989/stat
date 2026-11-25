@@ -15,8 +15,11 @@ class PeopleError(Exception):
         self.message, self.status = message, status
 
 
+_QUOTES = str.maketrans({"‘": "'", "’": "'", "ʻ": "'", "ʼ": "'", "`": "'"})     # the Uzbek o‘ g‘ ’ may be typed with any of these
+
+
 def norm(s) -> str:
-    return re.sub(r"\s+", " ", str(s or "")).strip().casefold()
+    return re.sub(r"\s+", " ", str(s or "").translate(_QUOTES)).strip().casefold()
 
 
 # ---------------------------------------------------------------- Telegram users
@@ -250,7 +253,9 @@ def decide(c, user, request_id: int, approve: bool, kind: str = "primary", fio: 
 
 # ---------------------------------------------------------------- import of territories from Excel / CSV
 HEAD = {"регион": "region", "вилоят": "region", "район": "district", "туман": "district", "учреждение": "facility", "муассаса": "facility",
-        "район (узб)": "district_uz", "учреждение (узб)": "facility_uz", "название района (узб)": "district_uz", "название учреждения (узб)": "facility_uz"}
+        "район (узб)": "district_uz", "учреждение (узб)": "facility_uz", "название района (узб)": "district_uz", "название учреждения (узб)": "facility_uz",
+        # the same headers in Uzbek (Latin), as the interface now writes them
+        "viloyat": "region", "tuman": "district", "muassasa": "facility", "tuman (uz)": "district_uz", "muassasa (uz)": "facility_uz", "tuman nomi (uz)": "district_uz", "muassasa nomi (uz)": "facility_uz"}
 
 
 def read_table(data: bytes, filename: str) -> list[list]:

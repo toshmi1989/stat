@@ -1,10 +1,12 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Вход — Мониторинг гриппа и ОРВИ</title>
+<html lang="{{lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Вход — Мониторинг гриппа и ОРВИ</title>
 <link rel="stylesheet" href="/static/style.css"></head>
 <body class="login-body"><main class="login-card">
-<h1>Мониторинг гриппа и ОРВИ</h1><p class="muted">Ежедневная статистика по учреждениям здравоохранения</p>
+<div style="text-align:right;margin-bottom:10px"><span class="seg" id="lang"><button type="button" data-l="uz">UZ</button><button type="button" data-l="ru">RU</button></span></div>
+<h1 data-i18n>Мониторинг гриппа и ОРВИ</h1><p class="muted" data-i18n>Ежедневная статистика по учреждениям здравоохранения</p>
 <form method="post" action="/login" autocomplete="on">
-<label>Логин<input name="login" value="{{login}}" autocomplete="username" required autofocus></label>
-<label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+<label><span data-i18n>Логин</span><input name="login" value="{{login}}" autocomplete="username" required autofocus></label>
+<label><span data-i18n>Пароль</span><input name="password" type="password" autocomplete="current-password" required></label>
 <p class="err" role="alert">{{error}}</p>
-<button class="btn pri" type="submit">Войти</button></form></main></body></html>
+<button class="btn pri" type="submit" data-i18n>Войти</button></form></main>
+<script src="/static/i18n.js"></script><script src="/static/i18n/uz-server.js"></script><script src="/static/login.js"></script></body></html>
