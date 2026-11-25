@@ -132,6 +132,10 @@ Object.assign(window.UZ, {
   "Занятые койки сегодня + прогноз госпитализаций − прогноз выписок за каждый следующий день": "Bugungi band o‘rinlar + yotqizilganlar prognozi − har bir keyingi kun uchun chiqarilganlar prognozi",
   "Низкая: данных меньше 5 дней": "Past: ma’lumot 5 kundan kam",
   "Низкая: данных недостаточно для прогноза": "Past: prognoz uchun ma’lumot yetarli emas",
+  "Укажите решение: выполнено или отклонено": "Qarorni ko‘rsating: bajarildi yoki rad etildi",
+  "Предложение не найдено": "Taklif topilmadi",
+  "Предложение уже обработано": "Taklif allaqachon ko‘rib chiqilgan",
+  "Учреждение должно быть из того же региона": "Muassasa shu viloyatdan bo‘lishi kerak",
 });
 window.UZP.push(
   // with a number or a name inside

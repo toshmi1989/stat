@@ -254,6 +254,14 @@ def logout(request: Request):
     return resp
 
 
+def proposals_new(c, u) -> int:
+    """The number of proposals of the bot's people that wait for a decision in the regions of this person (only for those who have the section «Территории»)."""
+    if not auth.can_territories(u):
+        return 0
+    w, a = ("", []) if u["regions"] is None else (" AND region_id IN (%s)" % ",".join("?" * len(u["regions"])), list(u["regions"]))
+    return c.execute("SELECT COUNT(*) FROM facility_proposals WHERE status='new'" + w, a).fetchone()[0]
+
+
 @app.get("/api/me")
 def api_me(request: Request):
     u = me(request)
@@ -264,7 +272,8 @@ def api_me(request: Request):
                 "can_manage_users": bool(u["can_manage_users"]) or auth.is_super(u), "can_manage_territories": auth.can_territories(u), "can_edit_reports": bool(u["can_edit_reports"]) and auth.can_write(u),
                 "today": today().isoformat(), "bot": tg.bot_username() if tg.configured() else "", "bot_configured": tg.configured(),
                 "thresholds": {"elevated": float(st["occ_elevated"]), "critical": float(st["occ_critical"])}, "org": st["org_title"],
-                "messages_unread": c.execute("SELECT COUNT(*) FROM ministry_messages WHERE read_at='' AND direction='in'").fetchone()[0] if auth.is_super(u) else 0}
+                "messages_unread": c.execute("SELECT COUNT(*) FROM ministry_messages WHERE read_at='' AND direction='in'").fetchone()[0] if auth.is_super(u) else 0,
+                "proposals_new": proposals_new(c, u)}
     finally:
         c.close()
 
@@ -354,7 +363,7 @@ def api_pulse(request: Request):
         r = c.execute("SELECT (SELECT COALESCE(MAX(id),0) FROM report_versions) AS v, (SELECT COUNT(*) FROM reports) AS n, (SELECT COUNT(*) FROM facilities) AS f, "
                         "(SELECT COALESCE(MAX(id),0) FROM ministry_messages) AS m").fetchone()
         unread = c.execute("SELECT COUNT(*) FROM ministry_messages WHERE read_at='' AND direction='in'").fetchone()[0] if auth.is_super(me(request)) else 0
-        return {"token": f"{r['v']}.{r['n']}.{r['f']}.{r['m']}", "unread": unread}
+        return {"token": f"{r['v']}.{r['n']}.{r['f']}.{r['m']}", "unread": unread, "proposals": proposals_new(c, me(request))}
     finally:
         c.close()
 
@@ -1009,6 +1018,63 @@ def api_facility_delete(request: Request, fid: int, force: int = 0):
         if n and not force:
             bad(f"У учреждения есть отчёты: {n}. Подтвердите удаление вместе с ними", 409)
         return delete_facilities(c, [fid], "удаление учреждения")
+
+
+@app.get("/api/facility-proposals")
+def api_facility_proposals(request: Request, status: str = "new"):
+    """The proposals of the bot's people to add or to remove a facility, for the people who have the section «Территории» (their own regions only)."""
+    u = me(request)
+    if not auth.can_territories(u):
+        bad("Раздел «Территории» недоступен", 403)
+    c = connect()
+    try:
+        w, a = ["1=1"], []
+        if status in ("new", "done", "rejected"):
+            w.append("p.status=?"); a.append(status)
+        elif status == "handled":
+            w.append("p.status!='new'")
+        if u["regions"] is not None:
+            w.append("p.region_id IN (%s)" % ",".join("?" * len(u["regions"]))); a += list(u["regions"])
+        rows = c.execute(f"""SELECT p.*, r.name_ru AS region, r.name_uz AS region_uz, tu.first_name, tu.last_name, tu.username,
+                                    f.name_ru AS facility, f.name_uz AS facility_uz, d.name_ru AS district, f.id AS fid, COALESCE(hs.name, hs.login, '') AS handled_name,
+                                    (SELECT COUNT(*) FROM reports WHERE facility_id=f.id) AS reports
+                             FROM facility_proposals p JOIN regions r ON r.id=p.region_id LEFT JOIN tg_users tu ON tu.tg_id=p.tg_id
+                             LEFT JOIN facilities f ON f.id=p.facility_id LEFT JOIN districts d ON d.id=f.district_id LEFT JOIN staff hs ON hs.id=p.handled_by
+                             WHERE {' AND '.join(w)} ORDER BY (p.status='new') DESC, p.id DESC LIMIT 300""", a).fetchall()
+        items = []
+        for x in rows:
+            who = " ".join(v for v in (x["first_name"], x["last_name"]) if v) or (("@" + x["username"]) if x["username"] else x["tg_id"])
+            items.append({"id": x["id"], "kind": x["kind"], "status": x["status"], "region_id": x["region_id"], "region": x["region"], "region_uz": x["region_uz"], "name": x["name"],
+                          "facility_id": x["facility_id"] if x["fid"] else None, "facility": x["facility"] or "", "facility_uz": x["facility_uz"] or "", "district": x["district"] or "", "reports": x["reports"] or 0,
+                          "comment": x["comment"], "who": who, "username": x["username"] or "", "tg_id": x["tg_id"], "at": x["created_at"],
+                          "handled_by": x["handled_name"], "handled_at": x["handled_at"], "handled_comment": x["handled_comment"]})
+        return {"items": items, "new": proposals_new(c, u)}
+    finally:
+        c.close()
+
+
+@app.post("/api/facility-proposals/{pid}/resolve")
+async def api_facility_proposal_resolve(request: Request, pid: int):
+    """A decision on a proposal: «done» (the facility was added / removed by the person on the site; `facility_id` of the new one may be given) or «rejected», with a comment."""
+    b = await jbody(request)
+    status = str(b.get("status") or "")
+    if status not in ("done", "rejected"):
+        bad("Укажите решение: выполнено или отклонено")
+    with tx() as c:
+        p = c.execute("SELECT * FROM facility_proposals WHERE id=?", (pid,)).fetchone()
+        if not p:
+            bad("Предложение не найдено", 404)
+        u = need_territory(request, p["region_id"])
+        if p["status"] != "new":
+            bad("Предложение уже обработано", 409)
+        fid = p["facility_id"]
+        if status == "done" and p["kind"] == "add" and b.get("facility_id"):
+            if region_of(c, "facility", b.get("facility_id")) != p["region_id"]:
+                bad("Учреждение должно быть из того же региона")
+            fid = int(b["facility_id"])
+        c.execute("UPDATE facility_proposals SET status=?, facility_id=?, handled_by=?, handled_at=?, handled_comment=? WHERE id=?", (status, fid, u["id"], now(), str(b.get("comment") or "").strip()[:500], pid))
+        audit(c, "facility_proposal." + status, "facility_proposal", pid, {"kind": p["kind"], "name": p["name"]})
+    return {"ok": True}
 
 
 @app.delete("/api/districts/{did}")

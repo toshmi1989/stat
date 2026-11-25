@@ -208,3 +208,7 @@ tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
 .rtab .vt{display:inline-block;writing-mode:vertical-rl;text-orientation:sideways;transform:rotate(180deg);white-space:nowrap;max-height:210px;line-height:1.1;text-align:left}
 .rtab th.on:not(:first-child)::after{content:none}.rtab th.on:not(:first-child)::before{content:"▾";display:block;text-align:right;line-height:1}.rtab th.on.asc:not(:first-child)::before{content:"▴"}
 .rtab th.on{color:var(--ink)}
+
+/* proposals of the bot's people on the page «Территории» */
+.prop{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:8px 0;background:var(--card)}.prop.new{border-color:var(--pri);box-shadow:0 0 0 3px color-mix(in srgb,var(--pri) 12%,transparent)}
+.prop-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.prop-c{margin:6px 0;padding:6px 10px;background:var(--grey);border-radius:8px;white-space:pre-wrap}
