@@ -1,6 +1,7 @@
 // Uzbek (Latin) texts: Russian source text -> Uzbek. See tools/uz-glossary.md for the terms.
 // Worker A: the shared part of app.js (filters, dialogs, dashboard), viz.js, charts.js, map.js.
 Object.assign(window.UZ, {
+  "Беременные": "Homilador ayollar",
   // indicator names (charts, chips)
   "Всего коек": "Jami o‘rinlar",
   "Занято: беременные": "Band: homilador ayollar",
