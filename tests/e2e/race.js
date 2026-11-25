@@ -7,7 +7,7 @@ const { chromium } = require("playwright");
   await p.goto((process.env.BASE || "http://localhost:8770") + "/"); await p.waitForSelector(".kpi");
   await p.route("**/api/**", async r => { await new Promise(res => setTimeout(res, Math.random() * 500)); r.continue(); });
   await p.selectOption("#f-r", { index: 3 }); await p.waitForTimeout(1500);      // a region is chosen: the filter bar needs the network (districts) on every page
-  const tabs = ["forecast", "control", "reports", "people", "export", "territories", "dashboard"];
+  const tabs = ["forecast", "settings", "reports", "people", "export", "territories", "dashboard"];
   for (let i = 0; i < 8; i++) {
     const hops = 1 + Math.floor(Math.random() * 3);
     for (let h = 0; h < hops; h++) { await p.click(`#tabs a[data-t="${tabs[Math.floor(Math.random() * 6)]}"]`); await p.waitForTimeout(Math.random() * 150); }
