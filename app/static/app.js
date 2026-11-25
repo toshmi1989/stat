@@ -568,58 +568,6 @@ async function exportView() {
   document.querySelectorAll("[data-f]").forEach(a => a.onclick = e => { e.preventDefault(); location.href = "/api/export?" + scopeQ() + "&" + qs({ fmt: a.dataset.f, kind: $("#x-k").value }); });
 }
 
-// ---------- coverage: regions, districts, facilities, who is connected, how many reports were sent
-const COVP = { d1: "", d2: "", mode: "sum" }, OPENCOV = new Set();
-const plural = (n, one, few, many) => { const m = Math.abs(n) % 100, d = m % 10; return m > 10 && m < 20 ? many : d === 1 ? one : d >= 2 && d <= 4 ? few : many; };
-async function coverageView() {
-  const nav = NAVID;
-  const iso = d => d.toISOString().slice(0, 10), back = n => { const d = new Date(ME.today + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - n); return iso(d); };
-  if (!COVP.d1) { COVP.d1 = back(6); COVP.d2 = ME.today; }
-  const draw = async () => {
-    let r; try { r = await api("/api/coverage?" + qs({ d1: COVP.d1, d2: COVP.d2 })); } catch (e) { return fail(e); }
-    if (nav !== NAVID) return;
-    const t = r.totals, pct = (a, b) => b ? Math.round(100 * a / b) : 0, cls = v => v >= 80 ? "normal" : v >= 40 ? "elevated" : "critical";
-    const person = p => `<span class="cvp${p.active ? "" : " off"}">${esc(p.name)}${p.username ? ` <a href="https://t.me/${esc(p.username)}" target="_blank" rel="noopener noreferrer">@${esc(p.username)}</a>` : ""}${p.kind === "reserve" ? ' <span class="muted">(резерв)</span>' : ""}${p.active ? "" : ' <span class="pill critical">отключён</span>'}</span>`;
-    const presets = [["Сегодня", 0], ["7 дней", 6], ["30 дней", 29], ["90 дней", 89]];
-    // the summary: one card per region with the numbers that matter
-    const cards = `<div class="cvcards">${r.regions.map(g => { const rp = pct(g.reports, g.possible), wp = pct(g.with_responsible, g.facilities);
-      return `<button class="cvcard" data-open="${g.id}"><div class="cvch"><b>${esc(g.name)}</b><span class="pill ${cls(rp)}" title="отчётов от возможных за период">${rp}%</span></div>
-        <div class="cvgrid"><div><b>${g.n_districts}</b><span>${plural(g.n_districts, "район", "района", "районов")}</span></div><div><b>${g.facilities}</b><span>${plural(g.facilities, "учреждение", "учреждения", "учреждений")}</span></div>
-          <div><b>${g.people}</b><span>подключено${g.waiting ? ` (+${g.waiting} ждёт)` : ""}</span></div><div><b>${g.reports}</b><span>${plural(g.reports, "отчёт", "отчёта", "отчётов")}</span></div></div>
-        <div class="cvbar" title="учреждений с ответственным"><i style="width:${wp}%" class="${wp === 100 ? "ok" : wp === 0 ? "bad" : "warn"}"></i></div>
-        <div class="cvnote">${g.with_responsible === g.facilities ? "У всех учреждений есть ответственный" : g.with_responsible === 0 ? "Никто не подключён" : `С ответственным: ${g.with_responsible} из ${g.facilities}`}</div></button>`; }).join("")}</div>`;
-    // the details: a table with the districts and facilities of every region
-    const table = `<div class="card"><div class="row"><h3 style="margin:0">Подробно по регионам</h3><button class="btn sm right" id="cv-all">Развернуть все</button><button class="btn sm" id="cv-none">Свернуть все</button></div><div class="scroll-x"><table class="cvt"><tr><th>Регион</th><th class="n">Районов</th><th class="n">Учреждений</th><th class="n">Подключено людей</th><th class="n">С ответственным</th><th class="n">Отчётов</th><th class="n">Сдача</th></tr>
-      ${r.regions.map(g => { const rp = pct(g.reports, g.possible), open = OPENCOV.has(String(g.id));
-        return `<tr class="link cvr" data-rg="${g.id}"><td><span class="cvc">${open ? "▾" : "▸"}</span> <b>${esc(g.name)}</b></td><td class="n">${g.n_districts}</td><td class="n">${g.facilities}</td><td class="n">${g.people}${g.waiting ? ` <span class="muted" title="записаны заранее, ещё не заходили в бот">+${g.waiting}</span>` : ""}</td><td class="n">${g.with_responsible}/${g.facilities}</td><td class="n"><b>${g.reports}</b></td><td class="n"><span class="pill ${cls(rp)}">${rp}%</span></td></tr>
-        <tr class="cvd" data-d="${g.id}" ${open ? "" : "hidden"}><td colspan="7">${g.region_people.length ? `<div class="cvreg"><b>Доступ ко всему региону:</b> ${g.region_people.map(person).join(", ")}</div>` : ""}
-          <table><tr><th>Район</th><th>Учреждение</th><th>Подключены</th><th class="n">Отчётов</th><th>Последний отчёт</th></tr>${g.districts.map(d => d.facilities.map((f, i) => `<tr><td>${i === 0 ? `<b>${esc(d.name)}</b><div class="muted sm">учреждений: ${d.facilities.length}, людей: ${d.people}</div>` : ""}</td><td>${esc(f.name)}</td><td>${f.people.length ? f.people.map(person).join("<br>") : (g.region_people.length ? '<span class="muted">через доступ к региону</span>' : '<span class="pill critical">никто не подключён</span>')}</td><td class="n"><b>${f.reports}</b>${f.returned ? `<div class="muted sm">возвращено: ${f.returned}</div>` : ""}</td><td>${esc(f.last_ever || "—")}</td></tr>`).join("") || `<tr><td><b>${esc(d.name)}</b></td><td colspan="4" class="muted">нет учреждений</td></tr>`).join("")}</table></td></tr>`; }).join("")}
-      </table></div></div>`;
-    // who is not connected yet: facilities nobody answers for, people registered in advance who have not entered the bot, requests nobody has decided
-    const list = (title, items, empty) => `<div><h4>${title} <span class="pill">${items.length}</span></h4>${items.length ? `<ul class="cvlist">${items.slice(0, 40).join("")}</ul>${items.length > 40 ? `<p class="muted sm">…и ещё ${items.length - 40}: полный список в Excel</p>` : ""}` : `<p class="muted sm">${empty}</p>`}</div>`;
-    const notYet = `<div class="card cvnot"><h3 style="margin:0 0 8px">Кто ещё не подключился</h3><div class="cvnotg">
-      ${list("Учреждения без ответственного", r.no_responsible.map(x => `<li><b>${esc(x.facility)}</b><span class="muted sm"> · ${esc(x.region)}</span></li>`), "У всех учреждений есть ответственный")}
-      ${list("Записаны заранее, ещё не вошли в бот", r.waiting_list.map(x => `<li><b>@${esc(x.username)}</b><span class="muted sm"> · ${esc(x.region)}${x.facility ? ", " + esc(x.facility) : ", весь регион"}</span></li>`), "Нет записанных заранее")}
-      ${list("Заявки на доступ без решения", r.requests.map(x => `<li><b>${esc(x.name)}</b>${x.username ? ` <a href="https://t.me/${esc(x.username)}" target="_blank" rel="noopener noreferrer">@${esc(x.username)}</a>` : ""}<span class="muted sm"> · ${esc(x.region)}</span></li>`), "Заявок нет")}</div></div>`;
-    view.innerHTML = `<div class="card"><div class="row"><h2>Охват и отчёты</h2><span class="muted sm">регионы, районы, учреждения, кто подключён и сколько отчётов отправлено</span>
-        <a class="btn right" href="/api/coverage.xlsx?${qs({ d1: COVP.d1, d2: COVP.d2 })}">⬇ Скачать Excel</a></div>
-      <div class="row"><div class="chips" id="cv-p">${presets.map(([l, n]) => `<button class="chip${COVP.d1 === back(n) && COVP.d2 === ME.today ? " on" : ""}" data-n="${n}">${l}</button>`).join("")}</div>
-        <label>С <input type="date" id="cv-d1" value="${COVP.d1}"></label><label>По <input type="date" id="cv-d2" value="${COVP.d2}"></label><button class="btn sm" id="cv-go">Показать</button></div></div>
-      <div class="card cvsentence">В <b>${t.regions}</b> ${plural(t.regions, "регионе", "регионах", "регионах")}: <b>${t.districts}</b> ${plural(t.districts, "район", "района", "районов")} и <b>${t.facilities}</b> ${plural(t.facilities, "учреждение", "учреждения", "учреждений")}.
-        Подключено <b>${t.people}</b> ${plural(t.people, "человек", "человека", "человек")}${t.waiting ? ` (ещё ${t.waiting}: записаны заранее, ждут первого входа)` : ""}; у <b>${t.with_responsible}</b> из ${t.facilities} учреждений есть ответственный (${pct(t.with_responsible, t.facilities)}%).
-        За ${r.days} ${plural(r.days, "день", "дня", "дней")} отправлено <b>${t.reports}</b> ${plural(t.reports, "отчёт", "отчёта", "отчётов")} (${pct(t.reports, t.possible)}% от возможных).</div>
-      <div class="seg" id="cv-mode" style="margin:0 0 12px"><button data-m="sum" class="${COVP.mode === "sum" ? "on" : ""}">Сводка по регионам</button><button data-m="tab" class="${COVP.mode === "tab" ? "on" : ""}">Подробная таблица</button></div>
-      ${COVP.mode === "sum" ? cards + notYet : table}`;
-    view.querySelectorAll("tr.cvr").forEach(tr => tr.onclick = () => { const id = tr.dataset.rg, d = view.querySelector(`tr.cvd[data-d="${id}"]`); d.hidden = !d.hidden; d.hidden ? OPENCOV.delete(id) : OPENCOV.add(id); tr.querySelector(".cvc").textContent = d.hidden ? "▸" : "▾"; });
-    view.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { COVP.mode = "tab"; OPENCOV.clear(); OPENCOV.add(b.dataset.open); draw().then(() => { const row = view.querySelector(`tr.cvr[data-rg="${b.dataset.open}"]`); if (row) row.scrollIntoView({ block: "start" }); }); });
-    const all = $("#cv-all"); if (all) { all.onclick = () => { r.regions.forEach(g => OPENCOV.add(String(g.id))); draw(); }; $("#cv-none").onclick = () => { OPENCOV.clear(); draw(); }; }
-    $("#cv-mode").onclick = e => { const b = e.target.closest("[data-m]"); if (b) { COVP.mode = b.dataset.m; draw(); } };
-    $("#cv-p").onclick = e => { const b = e.target.closest("[data-n]"); if (b) { COVP.d1 = back(+b.dataset.n); COVP.d2 = ME.today; draw(); } };
-    $("#cv-go").onclick = () => { COVP.d1 = $("#cv-d1").value; COVP.d2 = $("#cv-d2").value; draw(); };
-  };
-  await draw();
-}
-
 // ---------- broadcast: a message written here goes to the people of the bot
 let BCPOLL = null;
 async function broadcastView() {
@@ -759,15 +707,26 @@ async function messagesView() {
 function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = "Сообщения" + (ME.messages_unread ? ` <span class="pill critical">${ME.messages_unread}</span>` : ""); }
 
 // ---------- shell
-const TABS = [["dashboard", "Панель", dashboard, null], ["forecast", "Прогноз", forecastView, null], ["control", "Контроль", control, "w"], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
-  ["coverage", "Охват", coverageView, "w"], ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "t"], ["indicators", "Показатели", indicators, "s"], ["broadcast", "Рассылка", broadcastView, "u"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
+// [name, label, page, right, group]: the pages of a group share one tab of the menu and a row of sub-tabs under it (SUBTABS lists them in the order of the row)
+const TABS = [["dashboard", "Панель", dashboard, null], ["messages", "Сообщения", messagesView, "s"], ["forecast", "Прогноз", forecastView, null], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
+  ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "t"], ["broadcast", "Рассылка", broadcastView, "u"],
+  ["settings", "Настройки", settings, "s", "settings"], ["control", "Контроль", control, "w", "settings"], ["indicators", "Показатели", indicators, "s", "settings"], ["audit", "Журнал", audit, "s"]];
+const SUBTABS = { settings: [["settings", "Общие"], ["control", "Контроль"], ["indicators", "Показатели"]] };
 function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users) || (t[3] === "t" && ME.can_manage_territories); }
+const tabOf = name => TABS.find(t => t[0] === name);
+// the menu: a group is one tab (its label is its first page's) that leads to the first page of the group the person may open
+const menuTabs = () => TABS.filter(t => !t[4] || t[0] === t[4]).map(t => { const g = (t[4] ? SUBTABS[t[4]].map(x => tabOf(x[0])) : [t]).filter(allowed); return g.length ? { name: t[0], label: t[4] && g.length === 1 ? g[0][1] : t[1], href: g[0][0] } : null; }).filter(Boolean);
+function drawSubtabs(tab) {
+  const box = $("#subtabs"), g = tab[4] ? SUBTABS[tab[4]].filter(x => allowed(tabOf(x[0]))) : [];
+  box.innerHTML = g.length > 1 ? g.map(x => `<a href="#/${x[0]}" class="${x[0] === tab[0] ? "on" : ""}">${x[1]}</a>`).join("") : ""; box.hidden = g.length < 2;
+}
 let NAVID = 0;
 function route() {
   NAVID++;
   const name = (location.hash.slice(2) || "dashboard").split("?")[0];
   const tab = TABS.find(t => t[0] === name && allowed(t)) || TABS[0];
-  document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.t === tab[0]));
+  document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.t === (tab[4] || tab[0])));
+  drawSubtabs(tab);
   Promise.resolve(tab[2]()).catch(fail);
 }
 $("#pwbtn").onclick = () => { modal(`<h2>Смена пароля</h2><label>Текущий пароль<input type="password" id="o"></label><label>Новый пароль (от 8 знаков)<input type="password" id="n"></label><div class="row mt"><button class="btn pri" id="ok">Сменить</button><button class="btn right" data-close>Отмена</button></div>`);
@@ -775,7 +734,7 @@ $("#pwbtn").onclick = () => { modal(`<h2>Смена пароля</h2><label>Те
 (async () => {
   try { ME = await api("/api/me"); META = await api("/api/meta"); } catch (e) { return; }
   $("#who").textContent = `${ME.name && ME.name !== ME.role_label ? ME.name : ME.login} · ${ME.role_label}`;
-  $("#tabs").innerHTML = TABS.filter(allowed).map(t => `<a href="#/${t[0]}" data-t="${t[0]}">${t[1]}</a>`).join("");
+  $("#tabs").innerHTML = menuTabs().map(t => `<a href="#/${t.href}" data-t="${t.name}">${t.label}</a>`).join("");
   window.addEventListener("hashchange", route); route(); badgeMessages();
   livePulse();
 })();
