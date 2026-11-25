@@ -11,7 +11,7 @@
 | Панель | Boshqaruv paneli |
 | Прогноз | Prognoz |
 | Контроль | Nazorat |
-| Отчёты / Отчёт / сводка | Hisobotlar / Hisobot / Ma’lumotnoma → «Hisobot» |
+| Отчёты / Отчёт / сводка | Hisobotlar / Hisobot / Hisobot (сводка тоже «hisobot») |
 | Доступы | Ruxsatlar |
 | Выгрузка | Yuklab olish |
 | Территории | Hududlar |
