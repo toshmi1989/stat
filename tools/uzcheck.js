@@ -1,4 +1,4 @@
-// Finds what is still not translated in Uzbek mode: texts that went through t()/ts() with no Uzbek entry (window.MISSING) and Cyrillic text on the page
+// Finds what is still not translated in Uzbek mode: texts that went through T()/TS() with no Uzbek entry (window.MISSING) and Cyrillic text on the page
 // (names of regions, facilities and people from the database are data and are allowed; look at the rest).
 // Usage: BASE=http://localhost:8201 PASS=secret node tools/uzcheck.js [route ...]     (needs playwright and a server with demo data: python -m app.cli demo)
 const { chromium } = require("playwright");
@@ -23,6 +23,6 @@ const CYR = /[А-Яа-яЁё]/;
     res.cyr.forEach(s => { if (!seen.has(s)) { seen.add(s); console.log("   ", s); } });
     res.miss.forEach(s => missing.add(s));
   }
-  console.log(`=== not in the dictionary (went through t()/ts()): ${missing.size}`); [...missing].forEach(s => console.log("   ", s.slice(0, 160)));
+  console.log(`=== not in the dictionary (went through T()/TS()): ${missing.size}`); [...missing].forEach(s => console.log("   ", s.slice(0, 160)));
   await b.close();
 })();

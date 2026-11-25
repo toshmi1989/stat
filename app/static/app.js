@@ -2,6 +2,9 @@
 const $ = (s, r = document) => r.querySelector(s);
 const view = $("#view");
 let ME = null, META = null, DEB = null;
+// the names from the database: a region by its Russian name or an object with name_ru / name_uz, in the language of the interface (the Uzbek one when there is one)
+const rname = s => LANG === "uz" && META && (META.regions || []).some(r => r.name_ru === s && r.name_uz) ? META.regions.find(r => r.name_ru === s).name_uz : s;
+const nm = o => (LANG === "uz" && o.name_uz) || o.name_ru || o.name || "";
 const NAMES = { beds_total: "Всего коек", occ_pregnant: "Занято: беременные", occ_children: "Занято: дети", extreme_pregnant: "Крайне тяжёлые: беременные", extreme_children: "Крайне тяжёлые: дети", visits: "Обращения", severe: "Тяжёлые", extreme: "Крайне тяжёлые", hosp: "Госпитализации", disch: "Выписки", beds_occupied: "Занято коек", occupancy: "Загрузка, %", beds_free: "Свободно коек", beds_flu: "Коек для гриппа и ОРВИ" };
 const STATE = { sent: "Отправлен", corrected: "Исправлен", returned: "Возвращён", not_sent: "Не отправлен", overdue: "Просрочен", normal: "Норма", elevated: "Повышенная", critical: "Критическая", none: "—" };
 
@@ -12,7 +15,7 @@ async function api(path, opt = {}) {
   const r = await fetch(path, o);
   if (r.status === 401) { location.href = "/login"; throw new Error("auth"); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(j.error || "Ошибка " + r.status); e.details = j.details; throw e; }
+  if (!r.ok) { const e = new Error(TS(j.error) || T("Ошибка") + " " + r.status); e.details = j.details; throw e; }
   return j;
 }
 function toast(m) { const t = $("#toast"); t.textContent = m; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 3500); }
@@ -22,7 +25,7 @@ const fail = e => {
   toast(e.message);
 };
 function qs(o) { return Object.entries(o).filter(([, v]) => v !== "" && v != null).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&"); }
-const num = v => v == null ? "—" : (+v).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
+const num = v => v == null ? "—" : (+v).toLocaleString(LOCALE, { maximumFractionDigits: 1 });
 function modal(html, wide) { $("#modal").innerHTML = `<div class="modal${wide ? " wide" : ""}">${html}</div>`; $("#modal").onclick = ev => { if (ev.target.id === "modal") closeModal(); }; }
 document.addEventListener("click", e => { if (e.target.closest("[data-close]")) closeModal(); });
 // a confirmation with an optional required reason; onOk(reason) runs on "ok"
