@@ -567,3 +567,27 @@ def test_admin_with_territories_manages_only_own_regions(client):
     v = mk_staff(client, "viewer1", "viewer", [1])
     client.patch(f"/api/staff/{[x for x in client.get('/api/staff').json()['items'] if x['login'] == 'viewer1'][0]['id']}", json={"can_manage_territories": True})
     assert v.post("/api/districts", json={"region_id": 1, "name_ru": "Z"}).status_code == 403              # a viewer never edits
+
+
+def test_messages_of_one_telegram_profile_are_one_chat(client, monkeypatch):
+    from app import people, tg
+    from app.db import connect, tx
+    monkeypatch.setattr(tg, "send", lambda chat, text, markup=None: (True, ""))
+    f1, f2 = make_facility(1, fac="ChatA"), make_facility(1, fac="ChatB")
+    with tx() as c:
+        for tid in ("662001", "662002"):
+            people.add_tg_user(c, tid, "Человек" + tid)
+        for tid, f, day, text in (("662001", f1, "2026-02-10", "Первое"), ("662002", f1, "2026-02-10", "Чужое"), ("662001", f2, "2026-02-11", "Второе, другое учреждение")):
+            cur = c.execute("INSERT INTO ministry_messages(facility_id, report_date, tg_id, sender, text, created_at, direction) VALUES (?,?,?,?,?,?, 'in')", (f, day, tid, "Человек" + tid, text, day + " 10:00:00"))
+            c.execute("UPDATE ministry_messages SET thread_id=id WHERE id=?", (cur.lastrowid,))
+    items = {t["tg_id"]: t for t in client.get("/api/messages").json()["items"]}
+    mine = items["662001"]
+    assert len(items) == 2 and [m["text"] for m in mine["messages"]] == ["Первое", "Второе, другое учреждение"] and mine["unread"] == 2
+    assert [m["facility"] for m in mine["messages"]] == ["ChatA", "ChatB"] and len(mine["places"]) == 2 and mine["facility"] == "ChatB"
+    # the answer goes into the latest dialogue of the person and marks the whole chat read, not the other person's
+    assert client.post(f"/api/messages/{mine['thread_id']}/reply", json={"text": "Принято"}).json()["delivered"] is True
+    items = {t["tg_id"]: t for t in client.get("/api/messages").json()["items"]}
+    assert items["662001"]["unread"] == 0 and items["662002"]["unread"] == 1 and [m["direction"] for m in items["662001"]["messages"]] == ["in", "in", "out"]
+    # «unread» on the chat marks every message of the person unread again
+    assert client.post(f"/api/messages/{mine['thread_id']}/read", json={"read": False}).status_code == 200
+    assert {t["tg_id"]: t["unread"] for t in client.get("/api/messages").json()["items"]} == {"662001": 2, "662002": 1}

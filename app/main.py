@@ -704,39 +704,50 @@ def api_broadcast_failures(request: Request, bid: int):
 
 @app.get("/api/messages")
 def api_messages(request: Request, unread: int = 0):
-    """The dialogues of the facilities with the Ministry: the first message, the Ministry's answers and the person's replies. Only the super administrator sees them
-    (not regional administrators, not viewers). A dialogue is unread while it has a message of the person that nobody has read."""
+    """The chats of the people with the Ministry: one chat per Telegram profile, whatever the facility and the report the message was written with. A chat holds the messages
+    of the person, the Ministry's answers and the person's replies in the order they came. Only the super administrator sees them (not regional administrators, not viewers).
+    A chat is unread while it has a message of the person that nobody has read. `thread_id` is the dialogue of the latest message: the answer goes into it."""
     need_super(request)
     c = connect()
     try:
         rows = c.execute("""SELECT m.id, m.thread_id, m.direction, m.text, m.created_at, m.read_at, m.error, m.sender, m.tg_id, m.report_date, COALESCE(st.name, st.login, '') AS staff_name,
-                                   f.name_ru AS facility, d.name_ru AS district, r.name_ru AS region
+                                   f.name_ru AS facility, d.name_ru AS district, r.name_ru AS region, r.id AS region_id,
+                                   tu.first_name, tu.last_name, tu.username
                             FROM ministry_messages m JOIN facilities f ON f.id=m.facility_id JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id
-                            LEFT JOIN staff st ON st.id=m.staff_id ORDER BY m.id""").fetchall()
-        threads: dict = {}
+                            LEFT JOIN staff st ON st.id=m.staff_id LEFT JOIN tg_users tu ON tu.tg_id=m.tg_id ORDER BY m.id""").fetchall()
+        chats: dict = {}
         for x in rows:
-            t = threads.setdefault(x["thread_id"] or x["id"], {"thread_id": x["thread_id"] or x["id"], "messages": [], "unread": 0})
-            if x["id"] == t["thread_id"]:
-                t.update(region=x["region"], facility=x["facility"], report_date=x["report_date"], sender=x["sender"], tg_id=x["tg_id"])
-            t["messages"].append({"id": x["id"], "direction": x["direction"], "text": x["text"], "at": x["created_at"], "error": x["error"], "by": x["staff_name"] if x["direction"] == "out" else x["sender"]})
+            t = chats.setdefault(x["tg_id"], {"tg_id": x["tg_id"], "messages": [], "unread": 0, "places": []})
+            t["thread_id"] = x["thread_id"] or x["id"]
+            t["username"] = x["username"] or ""
+            t["name"] = " ".join(v for v in (x["first_name"], x["last_name"]) if v) or x["sender"] or (("@" + x["username"]) if x["username"] else "")
+            t["sender"] = x["sender"] or t.get("sender", "")
+            t["region"], t["region_id"], t["facility"], t["report_date"] = x["region"], x["region_id"], x["facility"], x["report_date"]
+            place = {"region": x["region"], "district": x["district"], "facility": x["facility"]}
+            if place not in t["places"]:
+                t["places"].append(place)
+            t["messages"].append({"id": x["id"], "direction": x["direction"], "text": x["text"], "at": x["created_at"], "error": x["error"], "by": x["staff_name"] if x["direction"] == "out" else x["sender"],
+                                  "region": x["region"], "district": x["district"], "facility": x["facility"], "report_date": x["report_date"]})
             t["last_at"] = x["created_at"]
             if x["direction"] == "in" and not x["read_at"]:
                 t["unread"] += 1
-        items = [t for t in threads.values() if "facility" in t and not (unread and not t["unread"])]
+        items = [t for t in chats.values() if not (unread and not t["unread"])]
         items.sort(key=lambda t: t["last_at"], reverse=True)
-        return {"items": items[:300], "unread": sum(t["unread"] for t in threads.values())}
+        return {"items": items[:300], "unread": sum(t["unread"] for t in chats.values())}
     finally:
         c.close()
 
 
 @app.post("/api/messages/{tid}/read")
 async def api_message_read(request: Request, tid: int):
+    """Marks the whole chat of the person (every dialogue of that Telegram profile) as read, or as unread."""
     u = need_super(request)
     b = await jbody(request)
     with tx() as c:
-        if not c.execute("SELECT 1 FROM ministry_messages WHERE thread_id=?", (tid,)).fetchone():
+        row = c.execute("SELECT tg_id FROM ministry_messages WHERE thread_id=? OR id=? LIMIT 1", (tid, tid)).fetchone()
+        if not row:
             bad("Диалог не найден", 404)
-        c.execute("UPDATE ministry_messages SET read_at=?, read_by=? WHERE thread_id=? AND direction='in'", (now() if b.get("read", True) else "", u["id"] if b.get("read", True) else None, tid))
+        c.execute("UPDATE ministry_messages SET read_at=?, read_by=? WHERE tg_id=? AND direction='in'", (now() if b.get("read", True) else "", u["id"] if b.get("read", True) else None, row["tg_id"]))
     return {"ok": True}
 
 
@@ -757,7 +768,7 @@ async def api_message_reply(request: Request, tid: int):
                 bad("Диалог не найден", 404)
             cur = c.execute("INSERT INTO ministry_messages(facility_id, report_date, tg_id, sender, text, created_at, direction, thread_id, staff_id, read_at) VALUES (?,?,?,?,?,?, 'out', ?, ?, ?)",
                             (root["facility_id"], root["report_date"], root["tg_id"], "", text, now(), tid, u["id"], now()))
-            c.execute("UPDATE ministry_messages SET read_at=?, read_by=? WHERE thread_id=? AND direction='in' AND read_at=''", (now(), u["id"], tid))      # answering is reading
+            c.execute("UPDATE ministry_messages SET read_at=?, read_by=? WHERE tg_id=? AND direction='in' AND read_at=''", (now(), u["id"], root["tg_id"]))      # answering is reading: the whole chat of the person
             audit(c, "message.reply", "message", tid, {})
             mid = cur.lastrowid
         c = connect()

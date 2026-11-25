@@ -667,29 +667,94 @@ async function broadcastView() {
   list();
 }
 
-// ---------- confidential messages of the facilities for the Ministry: dialogues (the super administrator only)
+// ---------- confidential messages of the facilities for the Ministry: one chat per Telegram profile (the super administrator only)
+const MSG = { sel: null, q: "", only: false, region: "", drafts: {}, keepUnread: null };
 async function messagesView() {
   const nav = NAVID;
-  let only = false;
-  const draw = async () => {
-    let r; try { r = await api("/api/messages" + (only ? "?unread=1" : "")); } catch (e) { return fail(e); }
-    if (nav !== NAVID) return;
-    ME.messages_unread = r.unread; badgeMessages();
-    const bubble = m => `<div class="bub ${m.direction === "out" ? "out" : "in"}"><div class="bubmeta">${m.direction === "out" ? "Министерство" + (m.by ? " · " + esc(m.by) : "") : esc(m.by || "Учреждение")} · ${esc(m.at)}</div><div class="msgtext">${esc(m.text)}</div>${m.error ? `<div class="bubwarn">⚠️ В Telegram не доставлено: ${esc(m.error)}</div>` : ""}</div>`;
-    view.innerHTML = `<div class="card"><div class="row"><h2>Сообщения для Министерства</h2><span class="muted sm">🔒 конфиденциально: видны только главному администратору; областные администраторы и просмотр их не видят, в выгрузки они не попадают</span>
-      <div class="seg right"><button class="${only ? "" : "on"}" data-f="all">Все</button><button class="${only ? "on" : ""}" data-f="unread">Непрочитанные${r.unread ? ` (${r.unread})` : ""}</button></div></div>
-      ${r.items.length ? r.items.map(t => `<div class="msgcard${t.unread ? " unread" : ""}" data-t="${t.thread_id}"><div class="row"><b>${esc(t.region)} — ${esc(t.facility)}</b><span class="muted sm">отчёт за ${esc(t.report_date)} · Telegram ID ${esc(t.tg_id)}</span>${t.unread ? `<span class="pill critical">новых: ${t.unread}</span><button class="btn sm right" data-r="${t.thread_id}">Отметить прочитанным</button>` : ""}</div>
-        <div class="thread">${t.messages.map(bubble).join("")}</div>
-        <div class="replybox"><textarea rows="2" maxlength="1000" placeholder="Ответить: ${esc(t.sender || "учреждению")} получит ответ в Telegram с кнопкой «Ответить»" data-ta="${t.thread_id}"></textarea><button class="btn pri" data-send="${t.thread_id}">Ответить</button></div></div>`).join("")
-        : `<p class="muted">${only ? "Непрочитанных нет." : "Сообщений пока нет. Люди могут оставить его последним вопросом бота."}</p>`}</div>`;
-    view.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { only = b.dataset.f === "unread"; draw(); });
-    view.querySelectorAll("[data-r]").forEach(b => b.onclick = async () => { try { await api(`/api/messages/${b.dataset.r}/read`, { method: "POST", body: { read: true } }); draw(); } catch (e) { fail(e); } });
-    const send = async id => { const ta = view.querySelector(`[data-ta="${id}"]`), text = ta.value.trim(); if (!text) return toast("Напишите ответ");
-      try { const x = await api(`/api/messages/${id}/reply`, { method: "POST", body: { text } }); toast(x.delivered ? "Ответ отправлен" : "Ответ сохранён, но Telegram его не принял: " + x.error); draw(); } catch (e) { fail(e); } };
-    view.querySelectorAll("[data-send]").forEach(b => b.onclick = () => send(b.dataset.send));
-    view.querySelectorAll("[data-ta]").forEach(ta => ta.onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(ta.dataset.ta); } });
+  let items = [], unreadAll = 0;
+  const dt = at => new Date(String(at).replace(" ", "T")), pad = n => String(n).padStart(2, "0");
+  const hhmm = at => { const d = dt(at); return isNaN(d) ? "" : pad(d.getHours()) + ":" + pad(d.getMinutes()); };
+  const dayKey = at => String(at).slice(0, 10);
+  const dayLabel = at => { const k = dayKey(at), y = new Date(dt(ME.today + " 00:00").getTime() - 864e5), yk = `${y.getFullYear()}-${pad(y.getMonth() + 1)}-${pad(y.getDate())}`;
+    return k === ME.today ? "Сегодня" : k === yk ? "Вчера" : dt(at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" }); };
+  const listTime = at => dayKey(at) === ME.today ? hhmm(at) : dt(at).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+  const person = t => ({ tg_id: t.tg_id, first_name: t.name || "", last_name: "", username: t.username });
+  const placeText = m => `${m.region} — ${m.facility}` + (m.report_date ? ` · отчёт за ${m.report_date}` : "");
+  const cur = () => items.find(t => t.tg_id === MSG.sel);
+  const shown = () => {
+    const q = MSG.q.trim().toLowerCase();
+    return items.filter(t => (!MSG.only || t.unread) && (!MSG.region || String(t.region_id) === MSG.region)
+      && (!q || [t.name, t.username, t.tg_id, ...t.places.map(p => `${p.region} ${p.district} ${p.facility}`), ...t.messages.map(m => m.text)].join(" ").toLowerCase().includes(q)));
   };
-  await draw();
+  const setUnread = n => { ME.messages_unread = n; badgeMessages(); };
+  const markRead = async (t, read) => {
+    try { await api(`/api/messages/${t.thread_id}/read`, { method: "POST", body: { read } }); } catch (e) { return fail(e); }
+    const was = t.unread; t.unread = read ? 0 : t.messages.filter(m => m.direction === "in").length; unreadAll += t.unread - was; setUnread(unreadAll); drawList(); drawChat(false);
+  };
+  const itemHtml = t => { const last = t.messages[t.messages.length - 1];
+    return `<button class="mchat${t.tg_id === MSG.sel ? " on" : ""}${t.unread ? " unread" : ""}" data-c="${esc(t.tg_id)}">${tgAv(person(t))}
+      <span class="mc-txt"><span class="mc-top"><b>${esc(t.name || "Без имени")}</b><span class="mc-time">${esc(listTime(t.last_at))}</span></span>
+      <span class="mc-place">${esc(t.region)} · ${esc(t.facility)}${t.places.length > 1 ? ` <i>+${t.places.length - 1}</i>` : ""}</span>
+      <span class="mc-top"><span class="mc-last">${last.direction === "out" ? "Вы: " : ""}${esc(last.text.replace(/\s+/g, " "))}</span>${t.unread ? `<span class="pill critical">${t.unread}</span>` : ""}</span></span></button>`; };
+  function drawList() {
+    const box = $("#ml"); if (!box) return;
+    const list = shown(), top = box.scrollTop;
+    box.innerHTML = list.length ? list.map(itemHtml).join("") : `<p class="muted sm" style="padding:14px">${MSG.q || MSG.region || MSG.only ? "Ничего не найдено." : "Сообщений пока нет. Люди могут оставить его последним вопросом бота."}</p>`;
+    box.scrollTop = top; dropBrokenAvatars(box);
+    box.querySelectorAll("[data-c]").forEach(b => b.onclick = () => select(b.dataset.c));
+  }
+  const bubble = m => `<div class="bub ${m.direction === "out" ? "out" : "in"}"><div class="msgtext">${esc(m.text)}</div><div class="bubmeta">${m.direction === "out" ? "Министерство" + (m.by ? " · " + esc(m.by) : "") + " · " : ""}${esc(hhmm(m.at))}</div>${m.error ? `<div class="bubwarn">⚠️ В Telegram не доставлено: ${esc(m.error)}</div>` : ""}</div>`;
+  function drawChat(scroll = true) {
+    const box = $("#mc"); if (!box) return;
+    const t = cur(), wrap = $("#msgs");
+    wrap.classList.toggle("has-chat", !!t);
+    if (!t) { box.innerHTML = `<div class="mc-empty"><div style="font-size:42px">💬</div><p class="muted">Выберите чат слева</p></div>`; return; }
+    const keepDraft = MSG.drafts[t.tg_id] || "";
+    let html = "", day = "", ctx = "";
+    for (const m of t.messages) {
+      if (dayKey(m.at) !== day) { day = dayKey(m.at); html += `<div class="mdate"><span>${esc(dayLabel(m.at))}</span></div>`; }
+      const c = placeText(m); if (c !== ctx) { ctx = c; html += `<div class="mctx">📍 ${esc(c)}</div>`; }
+      html += bubble(m);
+    }
+    box.innerHTML = `<div class="mc-head"><button class="btn sm mc-back" id="m-back">←</button>${tgAv(person(t))}<div class="mc-who"><b>${esc(t.name || "Без имени")}</b><div class="muted sm">${t.username ? "@" + esc(t.username) + " · " : ""}ID ${esc(t.tg_id)}</div></div>
+        <div class="mc-act">${tgLink(person(t))}<button class="btn sm" id="m-unread">${t.unread ? "Отметить прочитанным" : "Отметить непрочитанным"}</button></div></div>
+      <div class="mc-places">${t.places.map(p => `<span class="chip-s" title="${esc(p.district)}">${esc(p.region)} — ${esc(p.facility)}</span>`).join("")}</div>
+      <div class="mc-body" id="m-body"><div class="thread">${html}</div></div>
+      <div class="replybox"><textarea rows="2" maxlength="1000" id="m-ta" placeholder="Ответ получит ${esc(t.name || "учреждение")} в Telegram с кнопкой «Ответить». Ctrl+Enter — отправить">${esc(keepDraft)}</textarea><button class="btn pri" id="m-send">Ответить</button></div>`;
+    dropBrokenAvatars(box);
+    const body = $("#m-body"); if (scroll) body.scrollTop = body.scrollHeight;
+    const ta = $("#m-ta");
+    ta.oninput = () => { MSG.drafts[t.tg_id] = ta.value; };
+    const send = async () => { const text = ta.value.trim(); if (!text) return toast("Напишите ответ");
+      try { const x = await api(`/api/messages/${t.thread_id}/reply`, { method: "POST", body: { text } }); MSG.drafts[t.tg_id] = ""; toast(x.delivered ? "Ответ отправлен" : "Ответ сохранён, но Telegram его не принял: " + x.error); await load(true); } catch (e) { fail(e); } };
+    $("#m-send").onclick = send;
+    ta.onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } };
+    $("#m-unread").onclick = () => { MSG.keepUnread = t.unread ? null : t.tg_id; markRead(t, !!t.unread); };
+    $("#m-back").onclick = () => { MSG.sel = null; drawList(); drawChat(); };
+  }
+  function select(id) {
+    MSG.sel = id; MSG.keepUnread = null; drawList(); drawChat();
+    const t = cur(); if (t && t.unread) markRead(t, true);
+  }
+  async function load(scroll) {
+    let r; try { r = await api("/api/messages"); } catch (e) { return fail(e); }
+    if (nav !== NAVID) return;
+    items = r.items; unreadAll = r.unread; setUnread(unreadAll);
+    if (MSG.sel && !cur()) MSG.sel = null;
+    if (!MSG.sel && window.innerWidth > 820 && items.length) MSG.sel = (shown().find(t => t.unread) || shown()[0] || items[0]).tg_id;
+    drawList(); drawChat(scroll);
+    const t = cur(); if (t && t.unread && MSG.keepUnread !== t.tg_id && !document.hidden) markRead(t, true);        // the chat is open: what arrived is read
+  }
+  view.innerHTML = `<div class="card msgcard-wrap"><div class="row"><h2>Сообщения для Министерства</h2><span class="muted sm">🔒 конфиденциально: видны только главному администратору; областные администраторы и просмотр их не видят, в выгрузки они не попадают</span></div>
+    <div class="msgs" id="msgs"><div class="ml-col"><div class="ml-head"><input type="search" id="m-q" placeholder="Поиск: имя, учреждение, текст…" value="${esc(MSG.q)}"><div class="row" style="gap:6px;flex-wrap:nowrap"><div class="seg" id="m-f"><button data-f="all">Все</button><button data-f="unread">Непрочитанные</button></div><select id="m-r" style="min-width:0;flex:1"><option value="">Все области</option></select></div></div><div class="ml" id="ml"></div></div>
+    <div class="mc" id="mc"></div></div></div>`;
+  const seg = () => view.querySelectorAll("#m-f button").forEach(b => b.classList.toggle("on", (b.dataset.f === "unread") === MSG.only));
+  seg();
+  view.querySelectorAll("#m-f button").forEach(b => b.onclick = () => { MSG.only = b.dataset.f === "unread"; seg(); drawList(); });
+  $("#m-q").oninput = e => { MSG.q = e.target.value; drawList(); };
+  $("#m-r").onchange = e => { MSG.region = e.target.value; drawList(); };
+  await load(true);
+  const sel = $("#m-r"); if (sel) { const seen = new Map(items.map(t => [String(t.region_id), t.region])); sel.innerHTML = `<option value="">Все области</option>` + [...seen].sort((a, b) => a[1].localeCompare(b[1], "ru")).map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join(""); sel.value = MSG.region; }
 }
 function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = "Сообщения" + (ME.messages_unread ? ` <span class="pill critical">${ME.messages_unread}</span>` : ""); }
 
