@@ -576,43 +576,43 @@ let BCPOLL = null;
 async function broadcastView() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   clearTimeout(BCPOLL);
-  const AUD = { all: "Все, у кого есть доступ", regions: "Выбранные регионы", unsent: "Не сдавшие сводку сегодня" };
+  const AUD = { all: T("Все, у кого есть доступ"), regions: T("Выбранные регионы"), unsent: T("Не сдавшие сводку сегодня") };
   const regs = (ME.regions === null ? META.regions : META.regions.filter(r => ME.regions.includes(r.id)));
   let mode = "all", chosen = new Set();
-  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>Рассылка</h2><span class="muted sm">сообщение придёт в Telegram тем, кто пользуется ботом</span></div>
-    <div class="lbl">Кому</div><div class="chips" id="bc-mode">${Object.entries(AUD).map(([k, l]) => `<button class="chip${k === mode ? " on" : ""}" data-m="${k}">${l}</button>`).join("")}</div>
-    <div class="chips" id="bc-regs" hidden>${regs.map(r => `<button class="chip" data-r="${r.id}">${esc(r.name_ru.replace("Республика ", "").replace(" область", "").replace("город ", "г. "))}</button>`).join("")}</div>
-    <div class="grid2"><label>Текст по-узбекски (O‘zbekcha)<textarea id="bc-uz" rows="6" maxlength="3500" placeholder="Xabar matni"></textarea><span class="muted sm" id="bc-uz-n">0 / 3500</span></label>
-    <label>Текст по-русски<textarea id="bc-ru" rows="6" maxlength="3500" placeholder="Текст сообщения"></textarea><span class="muted sm" id="bc-ru-n">0 / 3500</span></label></div>
-    <p class="muted sm">Каждый получит текст на своём языке бота. Если один язык оставить пустым, его получатели увидят текст на другом. Перед текстом бот добавит строку «📢 Объявление».</p>
-    <div class="row mt"><button class="btn pri" id="bc-go">Предпросмотр и отправка</button><button class="btn" id="bc-test">🧪 Тест себе</button><input id="bc-tid" placeholder="Telegram ID для теста (если не указан в профиле)" style="max-width:300px"></div></div>
-    <div class="card"><div class="row"><h2>История рассылок</h2></div><div id="bc-list" class="scroll-x"></div></div>`;
+  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>${T("Рассылка")}</h2><span class="muted sm">${T("сообщение придёт в Telegram тем, кто пользуется ботом")}</span></div>
+    <div class="lbl">${T("Кому")}</div><div class="chips" id="bc-mode">${Object.entries(AUD).map(([k, l]) => `<button class="chip${k === mode ? " on" : ""}" data-m="${k}">${l}</button>`).join("")}</div>
+    <div class="chips" id="bc-regs" hidden>${regs.map(r => `<button class="chip" data-r="${r.id}">${esc(LANG === "uz" ? nm(r) : r.name_ru.replace("Республика ", "").replace(" область", "").replace("город ", "г. "))}</button>`).join("")}</div>
+    <div class="grid2"><label>${T("Текст по-узбекски (O‘zbekcha)")}<textarea id="bc-uz" rows="6" maxlength="3500" placeholder="Xabar matni"></textarea><span class="muted sm" id="bc-uz-n">0 / 3500</span></label>
+    <label>${T("Текст по-русски")}<textarea id="bc-ru" rows="6" maxlength="3500" placeholder="${T("Текст сообщения")}"></textarea><span class="muted sm" id="bc-ru-n">0 / 3500</span></label></div>
+    <p class="muted sm">${T("Каждый получит текст на своём языке бота. Если один язык оставить пустым, его получатели увидят текст на другом. Перед текстом бот добавит строку «📢 Объявление».")}</p>
+    <div class="row mt"><button class="btn pri" id="bc-go">${T("Предпросмотр и отправка")}</button><button class="btn" id="bc-test">${T("🧪 Тест себе")}</button><input id="bc-tid" placeholder="${T("Telegram ID для теста (если не указан в профиле)")}" style="max-width:300px"></div></div>
+    <div class="card"><div class="row"><h2>${T("История рассылок")}</h2></div><div id="bc-list" class="scroll-x"></div></div>`;
   const spec = () => ({ mode, regions: [...chosen] });
   const body = () => ({ audience: spec(), text_ru: $("#bc-ru").value, text_uz: $("#bc-uz").value });
   ["uz", "ru"].forEach(l => $("#bc-" + l).oninput = () => { $("#bc-" + l + "-n").textContent = $("#bc-" + l).value.length + " / 3500"; });
   $("#bc-mode").onclick = e => { const b = e.target.closest("[data-m]"); if (!b) return; mode = b.dataset.m; $("#bc-mode").querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === b)); $("#bc-regs").hidden = mode !== "regions"; };
   $("#bc-regs").onclick = e => { const b = e.target.closest("[data-r]"); if (!b) return; const id = b.dataset.r; chosen.has(id) ? chosen.delete(id) : chosen.add(id); b.classList.toggle("on", chosen.has(id)); };
-  $("#bc-test").onclick = async () => { try { const r = await api("/api/broadcasts/test", { method: "POST", body: { ...body(), tg_id: $("#bc-tid").value.trim() } }); toast("Тест отправлен (Telegram ID " + r.sent_to + ")"); } catch (e) { fail(e); } };
+  $("#bc-test").onclick = async () => { try { const r = await api("/api/broadcasts/test", { method: "POST", body: { ...body(), tg_id: $("#bc-tid").value.trim() } }); toast(T("Тест отправлен (Telegram ID {id})", { id: r.sent_to })); } catch (e) { fail(e); } };
   $("#bc-go").onclick = async () => {
     let pv; try { pv = await api("/api/broadcasts/preview", { method: "POST", body: body() }); } catch (e) { return fail(e); }
-    modal(`<h2>📢 Проверьте рассылку</h2><p>Кому: <b>${esc(AUD[mode])}</b>${mode === "regions" ? ` (${chosen.size})` : ""} · получателей: <b>${pv.total}</b> (по-узбекски ${pv.uz}, по-русски ${pv.ru})</p>
-      ${pv.fallback ? `<div class="note">У ${pv.fallback} человек язык, на котором вы ничего не написали: они получат текст на другом языке.</div>` : ""}
-      ${pv.total ? `<div class="bcsample"><div class="muted sm">Так увидит человек с узбекским ботом:</div><div class="bcmsg">${pv.sample_uz.replace(/\n/g, "<br>")}</div><div class="muted sm">С русским:</div><div class="bcmsg">${pv.sample_ru.replace(/\n/g, "<br>")}</div></div>
-      <details><summary>Получатели (${pv.total})</summary><p class="sm">${pv.people.map(esc).join(", ")}${pv.total > pv.people.length ? "…" : ""}</p></details>` : `<div class="alert critical">Получателей нет.</div>`}
-      <div class="row mt"><button class="btn pri" id="bc-ok" ${pv.total ? "" : "disabled"}>Отправить ${pv.total || ""}</button><button class="btn right" data-close>Назад</button></div>`, true);
-    const ok = $("#bc-ok"); if (ok) ok.onclick = async () => { ok.disabled = true; try { await api("/api/broadcasts", { method: "POST", body: { ...body(), confirm: true } }); closeModal(); toast("Рассылка запущена"); $("#bc-ru").value = $("#bc-uz").value = ""; list(); } catch (e) { fail(e); ok.disabled = false; } };
+    modal(`<h2>${T("📢 Проверьте рассылку")}</h2><p>${T("Кому: <b>{aud}</b>{sel} · получателей: <b>{total}</b> (по-узбекски {uz}, по-русски {ru})", { aud: esc(AUD[mode]), sel: mode === "regions" ? ` (${chosen.size})` : "", total: pv.total, uz: pv.uz, ru: pv.ru })}</p>
+      ${pv.fallback ? `<div class="note">${T("У {n} человек язык, на котором вы ничего не написали: они получат текст на другом языке.", { n: pv.fallback })}</div>` : ""}
+      ${pv.total ? `<div class="bcsample"><div class="muted sm">${T("Так увидит человек с узбекским ботом:")}</div><div class="bcmsg">${pv.sample_uz.replace(/\n/g, "<br>")}</div><div class="muted sm">${T("С русским:")}</div><div class="bcmsg">${pv.sample_ru.replace(/\n/g, "<br>")}</div></div>
+      <details><summary>${T("Получатели ({n})", { n: pv.total })}</summary><p class="sm">${pv.people.map(esc).join(", ")}${pv.total > pv.people.length ? "…" : ""}</p></details>` : `<div class="alert critical">${T("Получателей нет.")}</div>`}
+      <div class="row mt"><button class="btn pri" id="bc-ok" ${pv.total ? "" : "disabled"}>${T("Отправить")} ${pv.total || ""}</button><button class="btn right" data-close>${T("Назад")}</button></div>`, true);
+    const ok = $("#bc-ok"); if (ok) ok.onclick = async () => { ok.disabled = true; try { await api("/api/broadcasts", { method: "POST", body: { ...body(), confirm: true } }); closeModal(); toast(T("Рассылка запущена")); $("#bc-ru").value = $("#bc-uz").value = ""; list(); } catch (e) { fail(e); ok.disabled = false; } };
   };
-  const STX = { sending: ["warning", "Отправляется"], done: ["sent", "Готово"], interrupted: ["critical", "Прервана"] };
+  const STX = { sending: ["warning", T("Отправляется")], done: ["sent", T("Готово")], interrupted: ["critical", T("Прервана")] };
   const list = async () => {
     clearTimeout(BCPOLL);
     let r; try { r = await api("/api/broadcasts"); } catch (e) { return fail(e); }
     if (!$("#bc-list")) return;
-    $("#bc-list").innerHTML = r.items.length ? `<table><tr><th>Когда</th><th>От кого</th><th>Текст</th><th>Кому</th><th>Итог</th><th></th></tr>${r.items.map(b => { const a = JSON.parse(b.audience || "{}"), [cls, lbl] = STX[b.status] || ["", b.status]; const pct = b.total ? Math.round(100 * (b.sent + b.failed) / b.total) : 0;
+    $("#bc-list").innerHTML = r.items.length ? `<table><tr><th>${T("Когда")}</th><th>${T("От кого")}</th><th>${T("Текст")}</th><th>${T("Кому")}</th><th>${T("Итог")}</th><th></th></tr>${r.items.map(b => { const a = JSON.parse(b.audience || "{}"), [cls, lbl] = STX[b.status] || ["", b.status]; const pct = b.total ? Math.round(100 * (b.sent + b.failed) / b.total) : 0;
       return `<tr><td>${esc(b.created_at)}</td><td>${esc(b.by_name)}</td><td class="sm" style="max-width:320px">${esc((b.text_uz || b.text_ru).slice(0, 110))}${(b.text_uz || b.text_ru).length > 110 ? "…" : ""}</td><td>${esc(AUD[a.mode || "all"] || "")}</td>
-        <td><span class="pill ${cls}">${lbl}</span> отправлено <b>${b.sent}</b> из ${b.total}${b.failed ? `, не доставлено <b>${b.failed}</b>` : ""}${b.status === "sending" ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}</td>
-        <td class="row">${b.failed ? `<button class="btn sm" data-fl="${b.id}">Кому не дошло</button>` : ""}${(b.status === "interrupted" || (b.status === "done" && b.failed)) ? `<button class="btn sm" data-rs="${b.id}">${b.status === "interrupted" ? "Продолжить" : "Повторить"}</button>` : ""}</td></tr>`; }).join("")}</table>` : `<p class="muted">Рассылок пока не было.</p>`;
+        <td><span class="pill ${cls}">${lbl}</span> ${T("отправлено <b>{sent}</b> из {total}", { sent: b.sent, total: b.total })}${b.failed ? `, ${T("не доставлено <b>{n}</b>", { n: b.failed })}` : ""}${b.status === "sending" ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}</td>
+        <td class="row">${b.failed ? `<button class="btn sm" data-fl="${b.id}">${T("Кому не дошло")}</button>` : ""}${(b.status === "interrupted" || (b.status === "done" && b.failed)) ? `<button class="btn sm" data-rs="${b.id}">${b.status === "interrupted" ? T("Продолжить") : T("Повторить")}</button>` : ""}</td></tr>`; }).join("")}</table>` : `<p class="muted">${T("Рассылок пока не было.")}</p>`;
     $("#bc-list").querySelectorAll("[data-rs]").forEach(b => b.onclick = async () => { try { await api(`/api/broadcasts/${b.dataset.rs}/resume`, { method: "POST", body: {} }); list(); } catch (e) { fail(e); } });
-    $("#bc-list").querySelectorAll("[data-fl]").forEach(b => b.onclick = async () => { try { const f = await api(`/api/broadcasts/${b.dataset.fl}/failures`); modal(`<h2>Не доставлено</h2><p class="muted sm">Обычно человек остановил или заблокировал бота.</p><div class="scroll-x"><table><tr><th>Кто</th><th>Причина</th></tr>${f.items.map(x => `<tr><td>${esc(x.name || x.username || x.tg_id)} <span class="muted">${esc(x.tg_id)}</span></td><td class="sm">${esc(x.error)}</td></tr>`).join("")}</table></div><div class="row mt"><button class="btn right" data-close>Закрыть</button></div>`); } catch (e) { fail(e); } });
+    $("#bc-list").querySelectorAll("[data-fl]").forEach(b => b.onclick = async () => { try { const f = await api(`/api/broadcasts/${b.dataset.fl}/failures`); modal(`<h2>${T("Не доставлено")}</h2><p class="muted sm">${T("Обычно человек остановил или заблокировал бота.")}</p><div class="scroll-x"><table><tr><th>${T("Кто")}</th><th>${T("Причина")}</th></tr>${f.items.map(x => `<tr><td>${esc(x.name || x.username || x.tg_id)} <span class="muted">${esc(x.tg_id)}</span></td><td class="sm">${esc(x.error)}</td></tr>`).join("")}</table></div><div class="row mt"><button class="btn right" data-close>${T("Закрыть")}</button></div>`); } catch (e) { fail(e); } });
     if (r.items.some(b => b.status === "sending")) BCPOLL = setTimeout(() => { if (location.hash.startsWith("#/broadcast")) list(); }, 2000);
   };
   list();
@@ -620,6 +620,10 @@ async function broadcastView() {
 
 // ---------- confidential messages of the facilities for the Ministry: one chat per Telegram profile (the super administrator only)
 const MSG = { sel: null, q: "", only: false, region: "", drafts: {}, keepUnread: null };
+// a date in Uzbek by hand (browsers without the full locale data print «2026 M11 22»): «25-noyabr, 2026» or «25.11»
+const UZ_MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+const uzDate = (d, full) => isNaN(d) ? "" : full ? `${d.getDate()}-${UZ_MONTHS[d.getMonth()]}, ${d.getFullYear()}` : String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0");
+const roleLabel = s => ["Главный администратор", "Администратор", "Просмотр"].includes(s) ? T(s) : s;      // the role label that the server gives as the name of an account without a name
 async function messagesView() {
   const nav = NAVID;
   let items = [], unreadAll = 0;
@@ -627,15 +631,15 @@ async function messagesView() {
   const hhmm = at => { const d = dt(at); return isNaN(d) ? "" : pad(d.getHours()) + ":" + pad(d.getMinutes()); };
   const dayKey = at => String(at).slice(0, 10);
   const dayLabel = at => { const k = dayKey(at), y = new Date(dt(ME.today + " 00:00").getTime() - 864e5), yk = `${y.getFullYear()}-${pad(y.getMonth() + 1)}-${pad(y.getDate())}`;
-    return k === ME.today ? "Сегодня" : k === yk ? "Вчера" : dt(at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" }); };
-  const listTime = at => dayKey(at) === ME.today ? hhmm(at) : dt(at).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+    return k === ME.today ? T("Сегодня") : k === yk ? T("Вчера") : LANG === "uz" ? uzDate(dt(at), true) : dt(at).toLocaleDateString(LOCALE, { day: "numeric", month: "long", year: "numeric" }); };
+  const listTime = at => dayKey(at) === ME.today ? hhmm(at) : LANG === "uz" ? uzDate(dt(at), false) : dt(at).toLocaleDateString(LOCALE, { day: "2-digit", month: "2-digit" });
   const person = t => ({ tg_id: t.tg_id, first_name: t.name || "", last_name: "", username: t.username });
-  const placeText = m => `${m.region} — ${m.facility}` + (m.report_date ? ` · отчёт за ${m.report_date}` : "");
+  const placeText = m => `${rname(m.region)} — ${m.facility}` + (m.report_date ? ` · ${T("отчёт за {d}", { d: m.report_date })}` : "");
   const cur = () => items.find(t => t.tg_id === MSG.sel);
   const shown = () => {
     const q = MSG.q.trim().toLowerCase();
     return items.filter(t => (!MSG.only || t.unread) && (!MSG.region || String(t.region_id) === MSG.region)
-      && (!q || [t.name, t.username, t.tg_id, ...t.places.map(p => `${p.region} ${p.district} ${p.facility}`), ...t.messages.map(m => m.text)].join(" ").toLowerCase().includes(q)));
+      && (!q || [t.name, t.username, t.tg_id, ...t.places.map(p => `${p.region} ${rname(p.region)} ${p.district} ${p.facility}`), ...t.messages.map(m => m.text)].join(" ").toLowerCase().includes(q)));
   };
   const setUnread = n => { ME.messages_unread = n; badgeMessages(); };
   const markRead = async (t, read) => {
@@ -644,22 +648,22 @@ async function messagesView() {
   };
   const itemHtml = t => { const last = t.messages[t.messages.length - 1];
     return `<button class="mchat${t.tg_id === MSG.sel ? " on" : ""}${t.unread ? " unread" : ""}" data-c="${esc(t.tg_id)}">${tgAv(person(t))}
-      <span class="mc-txt"><span class="mc-top"><b>${esc(t.name || "Без имени")}</b><span class="mc-time">${esc(listTime(t.last_at))}</span></span>
-      <span class="mc-place">${esc(t.region)} · ${esc(t.facility)}${t.places.length > 1 ? ` <i>+${t.places.length - 1}</i>` : ""}</span>
-      <span class="mc-top"><span class="mc-last">${last.direction === "out" ? "Вы: " : ""}${esc(last.text.replace(/\s+/g, " "))}</span>${t.unread ? `<span class="pill critical">${t.unread}</span>` : ""}</span></span></button>`; };
+      <span class="mc-txt"><span class="mc-top"><b>${esc(t.name || T("Без имени"))}</b><span class="mc-time">${esc(listTime(t.last_at))}</span></span>
+      <span class="mc-place">${esc(rname(t.region))} · ${esc(t.facility)}${t.places.length > 1 ? ` <i>+${t.places.length - 1}</i>` : ""}</span>
+      <span class="mc-top"><span class="mc-last">${last.direction === "out" ? T("Вы: ") : ""}${esc(last.text.replace(/\s+/g, " "))}</span>${t.unread ? `<span class="pill critical">${t.unread}</span>` : ""}</span></span></button>`; };
   function drawList() {
     const box = $("#ml"); if (!box) return;
     const list = shown(), top = box.scrollTop;
-    box.innerHTML = list.length ? list.map(itemHtml).join("") : `<p class="muted sm" style="padding:14px">${MSG.q || MSG.region || MSG.only ? "Ничего не найдено." : "Сообщений пока нет. Люди могут оставить его последним вопросом бота."}</p>`;
+    box.innerHTML = list.length ? list.map(itemHtml).join("") : `<p class="muted sm" style="padding:14px">${MSG.q || MSG.region || MSG.only ? T("Ничего не найдено.") : T("Сообщений пока нет. Люди могут оставить его последним вопросом бота.")}</p>`;
     box.scrollTop = top; dropBrokenAvatars(box);
     box.querySelectorAll("[data-c]").forEach(b => b.onclick = () => select(b.dataset.c));
   }
-  const bubble = m => `<div class="bub ${m.direction === "out" ? "out" : "in"}"><div class="msgtext">${esc(m.text)}</div><div class="bubmeta">${m.direction === "out" ? "Министерство" + (m.by ? " · " + esc(m.by) : "") + " · " : ""}${esc(hhmm(m.at))}</div>${m.error ? `<div class="bubwarn">⚠️ В Telegram не доставлено: ${esc(m.error)}</div>` : ""}</div>`;
+  const bubble = m => `<div class="bub ${m.direction === "out" ? "out" : "in"}"><div class="msgtext">${esc(m.text)}</div><div class="bubmeta">${m.direction === "out" ? T("Министерство") + (m.by ? " · " + esc(roleLabel(m.by)) : "") + " · " : ""}${esc(hhmm(m.at))}</div>${m.error ? `<div class="bubwarn">${T("⚠️ В Telegram не доставлено: {err}", { err: esc(TS(m.error)) })}</div>` : ""}</div>`;
   function drawChat(scroll = true) {
     const box = $("#mc"); if (!box) return;
     const t = cur(), wrap = $("#msgs");
     wrap.classList.toggle("has-chat", !!t);
-    if (!t) { box.innerHTML = `<div class="mc-empty"><div style="font-size:42px">💬</div><p class="muted">Выберите чат слева</p></div>`; return; }
+    if (!t) { box.innerHTML = `<div class="mc-empty"><div style="font-size:42px">💬</div><p class="muted">${T("Выберите чат слева")}</p></div>`; return; }
     const keepDraft = MSG.drafts[t.tg_id] || "";
     let html = "", day = "", ctx = "";
     for (const m of t.messages) {
@@ -667,17 +671,17 @@ async function messagesView() {
       const c = placeText(m); if (c !== ctx) { ctx = c; html += `<div class="mctx">📍 ${esc(c)}</div>`; }
       html += bubble(m);
     }
-    box.innerHTML = `<div class="mc-head"><button class="btn sm mc-back" id="m-back">←</button>${tgAv(person(t))}<div class="mc-who"><b>${esc(t.name || "Без имени")}</b><div class="muted sm">${t.username ? "@" + esc(t.username) + " · " : ""}ID ${esc(t.tg_id)}</div></div>
-        <div class="mc-act">${tgLink(person(t))}<button class="btn sm" id="m-unread">${t.unread ? "Отметить прочитанным" : "Отметить непрочитанным"}</button></div></div>
-      <div class="mc-places">${t.places.map(p => `<span class="chip-s" title="${esc(p.district)}">${esc(p.region)} — ${esc(p.facility)}</span>`).join("")}</div>
+    box.innerHTML = `<div class="mc-head"><button class="btn sm mc-back" id="m-back">←</button>${tgAv(person(t))}<div class="mc-who"><b>${esc(t.name || T("Без имени"))}</b><div class="muted sm">${t.username ? "@" + esc(t.username) + " · " : ""}ID ${esc(t.tg_id)}</div></div>
+        <div class="mc-act">${tgLink(person(t))}<button class="btn sm" id="m-unread">${t.unread ? T("Отметить прочитанным") : T("Отметить непрочитанным")}</button></div></div>
+      <div class="mc-places">${t.places.map(p => `<span class="chip-s" title="${esc(p.district)}">${esc(rname(p.region))} — ${esc(p.facility)}</span>`).join("")}</div>
       <div class="mc-body" id="m-body"><div class="thread">${html}</div></div>
-      <div class="replybox"><textarea rows="2" maxlength="1000" id="m-ta" placeholder="Ответ получит ${esc(t.name || "учреждение")} в Telegram с кнопкой «Ответить». Ctrl+Enter — отправить">${esc(keepDraft)}</textarea><button class="btn pri" id="m-send">Ответить</button></div>`;
+      <div class="replybox"><textarea rows="2" maxlength="1000" id="m-ta" placeholder="${T("Ответ получит {who} в Telegram с кнопкой «Ответить». Ctrl+Enter — отправить", { who: esc(t.name || T("учреждение")) })}">${esc(keepDraft)}</textarea><button class="btn pri" id="m-send">${T("Ответить")}</button></div>`;
     dropBrokenAvatars(box);
     const body = $("#m-body"); if (scroll) body.scrollTop = body.scrollHeight;
     const ta = $("#m-ta");
     ta.oninput = () => { MSG.drafts[t.tg_id] = ta.value; };
-    const send = async () => { const text = ta.value.trim(); if (!text) return toast("Напишите ответ");
-      try { const x = await api(`/api/messages/${t.thread_id}/reply`, { method: "POST", body: { text } }); MSG.drafts[t.tg_id] = ""; toast(x.delivered ? "Ответ отправлен" : "Ответ сохранён, но Telegram его не принял: " + x.error); await load(true); } catch (e) { fail(e); } };
+    const send = async () => { const text = ta.value.trim(); if (!text) return toast(T("Напишите ответ"));
+      try { const x = await api(`/api/messages/${t.thread_id}/reply`, { method: "POST", body: { text } }); MSG.drafts[t.tg_id] = ""; toast(x.delivered ? T("Ответ отправлен") : T("Ответ сохранён, но Telegram его не принял: {err}", { err: TS(x.error) })); await load(true); } catch (e) { fail(e); } };
     $("#m-send").onclick = send;
     ta.onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } };
     $("#m-unread").onclick = () => { MSG.keepUnread = t.unread ? null : t.tg_id; markRead(t, !!t.unread); };
@@ -696,8 +700,8 @@ async function messagesView() {
     drawList(); drawChat(scroll);
     const t = cur(); if (t && t.unread && MSG.keepUnread !== t.tg_id && !document.hidden) markRead(t, true);        // the chat is open: what arrived is read
   }
-  view.innerHTML = `<div class="card msgcard-wrap"><div class="row"><h2>Сообщения для Министерства</h2><span class="muted sm">🔒 конфиденциально: видны только главному администратору; областные администраторы и просмотр их не видят, в выгрузки они не попадают</span></div>
-    <div class="msgs" id="msgs"><div class="ml-col"><div class="ml-head"><input type="search" id="m-q" placeholder="Поиск: имя, учреждение, текст…" value="${esc(MSG.q)}"><div class="row" style="gap:6px;flex-wrap:nowrap"><div class="seg" id="m-f"><button data-f="all">Все</button><button data-f="unread">Непрочитанные</button></div><select id="m-r" style="min-width:0;flex:1"><option value="">Все области</option></select></div></div><div class="ml" id="ml"></div></div>
+  view.innerHTML = `<div class="card msgcard-wrap"><div class="row"><h2>${T("Сообщения для Министерства")}</h2><span class="muted sm">${T("🔒 конфиденциально: видны только главному администратору; областные администраторы и просмотр их не видят, в выгрузки они не попадают")}</span></div>
+    <div class="msgs" id="msgs"><div class="ml-col"><div class="ml-head"><input type="search" id="m-q" placeholder="${T("Поиск: имя, учреждение, текст…")}" value="${esc(MSG.q)}"><div class="row" style="gap:6px;flex-wrap:nowrap"><div class="seg" id="m-f"><button data-f="all">${T("Все")}</button><button data-f="unread">${T("Непрочитанные")}</button></div><select id="m-r" style="min-width:0;flex:1"><option value="">${T("Все области")}</option></select></div></div><div class="ml" id="ml"></div></div>
     <div class="mc" id="mc"></div></div></div>`;
   const seg = () => view.querySelectorAll("#m-f button").forEach(b => b.classList.toggle("on", (b.dataset.f === "unread") === MSG.only));
   seg();
@@ -705,16 +709,16 @@ async function messagesView() {
   $("#m-q").oninput = e => { MSG.q = e.target.value; drawList(); };
   $("#m-r").onchange = e => { MSG.region = e.target.value; drawList(); };
   await load(true);
-  const sel = $("#m-r"); if (sel) { const seen = new Map(items.map(t => [String(t.region_id), t.region])); sel.innerHTML = `<option value="">Все области</option>` + [...seen].sort((a, b) => a[1].localeCompare(b[1], "ru")).map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join(""); sel.value = MSG.region; }
+  const sel = $("#m-r"); if (sel) { const seen = new Map(items.map(t => [String(t.region_id), t.region])); sel.innerHTML = `<option value="">${T("Все области")}</option>` + [...seen].sort((a, b) => rname(a[1]).localeCompare(rname(b[1]), LANG)).map(([id, n]) => `<option value="${id}">${esc(rname(n))}</option>`).join(""); sel.value = MSG.region; }
 }
-function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = "Сообщения" + (ME.messages_unread ? ` <span class="pill critical blink">${ME.messages_unread}</span>` : ""); }
+function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = T("Сообщения") + (ME.messages_unread ? ` <span class="pill critical blink">${ME.messages_unread}</span>` : ""); }
 
 // ---------- shell
 // [name, label, page, right, group]: the pages of a group share one tab of the menu and a row of sub-tabs under it (SUBTABS lists them in the order of the row)
-const TABS = [["dashboard", "Панель", dashboard, null], ["messages", "Сообщения", messagesView, "s"], ["forecast", "Прогноз", forecastView, null], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
-  ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "t"], ["broadcast", "Рассылка", broadcastView, "u"],
-  ["settings", "Настройки", settings, "s", "settings"], ["control", "Контроль", control, "w", "settings"], ["indicators", "Показатели", indicators, "s", "settings"], ["audit", "Журнал", audit, "s"]];
-const SUBTABS = { settings: [["settings", "Общие"], ["control", "Контроль"], ["indicators", "Показатели"]] };
+const TABS = [["dashboard", T("Панель"), dashboard, null], ["messages", T("Сообщения"), messagesView, "s"], ["forecast", T("Прогноз"), forecastView, null], ["reports", T("Отчёты"), reportsView, "w"], ["people", T("Доступы"), people, "u"],
+  ["export", T("Выгрузка"), exportView, null], ["territories", T("Территории"), territories, "t"], ["broadcast", T("Рассылка"), broadcastView, "u"],
+  ["settings", T("Настройки"), settings, "s", "settings"], ["control", T("Контроль"), control, "w", "settings"], ["indicators", T("Показатели"), indicators, "s", "settings"], ["audit", T("Журнал"), audit, "s"]];
+const SUBTABS = { settings: [["settings", T("Общие")], ["control", T("Контроль")], ["indicators", T("Показатели")]] };
 function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users) || (t[3] === "t" && ME.can_manage_territories); }
 const tabOf = name => TABS.find(t => t[0] === name);
 // the menu: a group is one tab (its label is its first page's) that leads to the first page of the group the person may open
@@ -732,11 +736,11 @@ function route() {
   drawSubtabs(tab);
   Promise.resolve(tab[2]()).catch(fail);
 }
-$("#pwbtn").onclick = () => { modal(`<h2>Смена пароля</h2><label>Текущий пароль<input type="password" id="o"></label><label>Новый пароль (от 8 знаков)<input type="password" id="n"></label><div class="row mt"><button class="btn pri" id="ok">Сменить</button><button class="btn right" data-close>Отмена</button></div>`);
-  $("#ok").onclick = async () => { try { await api("/api/me/password", { method: "POST", body: { old: $("#o").value, new: $("#n").value } }); closeModal(); toast("Пароль изменён"); } catch (e) { fail(e); } }; };
+$("#pwbtn").onclick = () => { modal(`<h2>${T("Смена пароля")}</h2><label>${T("Текущий пароль")}<input type="password" id="o"></label><label>${T("Новый пароль (от 8 знаков)")}<input type="password" id="n"></label><div class="row mt"><button class="btn pri" id="ok">${T("Сменить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
+  $("#ok").onclick = async () => { try { await api("/api/me/password", { method: "POST", body: { old: $("#o").value, new: $("#n").value } }); closeModal(); toast(T("Пароль изменён")); } catch (e) { fail(e); } }; };
 (async () => {
   try { ME = await api("/api/me"); META = await api("/api/meta"); } catch (e) { return; }
-  $("#who").textContent = `${ME.name && ME.name !== ME.role_label ? ME.name : ME.login} · ${ME.role_label}`;
+  $("#who").textContent = `${ME.name && ME.name !== ME.role_label ? ME.name : ME.login} · ${roleLabel(ME.role_label)}`;
   $("#tabs").innerHTML = menuTabs().map(t => `<a href="#/${t.href}" data-t="${t.name}">${t.label}</a>`).join("");
   window.addEventListener("hashchange", route); route(); badgeMessages();
   livePulse();
@@ -763,7 +767,7 @@ function livePulse() {
         if (LIVE.includes(name) && idle()) {
           view.style.minHeight = view.offsetHeight + "px";   // keep the scroll position while the page is redrawn
           if (name === "dashboard") dashboard(true).catch(fail); else route();            // the dashboard is patched in place, the other pages are drawn again
-          toast("Данные обновлены: получена новая сводка"); setTimeout(() => view.style.minHeight = "", 2500);
+          toast(T("Данные обновлены: получена новая сводка")); setTimeout(() => view.style.minHeight = "", 2500);
           last = t;
         }   // otherwise try again at the next beat: `last` stays old
       } else last = t;
