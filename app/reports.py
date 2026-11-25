@@ -244,10 +244,11 @@ def restore_version(c, report_id: int, version: int, reason: str, by: dict, lang
 
 
 # ---------------------------------------------------------------- the control table (§6.3)
-def control(c, user, d: str, region_id=None, district_id=None, facility_id=None, st: dict | None = None) -> dict:
+def control(c, user, d: str, region_id=None, district_id=None, facility_id=None, st: dict | None = None, lang: str = "ru") -> dict:
     """Every active facility with the state of its report for the date: sent / sent late / corrected / returned / not sent / overdue."""
     from . import auth
     st = st or all_settings(c)
+    uz = lang == "uz"
     dd = parse_date(d)
     where, args = ["f.active=1", "d.active=1", "r.active=1"], []
     sql, a = auth.region_filter_sql(user, "r.id")
@@ -264,11 +265,11 @@ def control(c, user, d: str, region_id=None, district_id=None, facility_id=None,
     reg_resp: dict[int, list] = {}
     for a_ in c.execute("""SELECT ra.region_id, ra.kind, ra.fio, u.first_name, u.last_name, u.username, ra.tg_id FROM region_access ra JOIN tg_users u ON u.tg_id=ra.tg_id
                            WHERE ra.active=1 AND u.active=1"""):
-        reg_resp.setdefault(a_["region_id"], []).append((a_["fio"] or " ".join(x for x in (a_["first_name"], a_["last_name"]) if x) or a_["username"] or a_["tg_id"]) + (" (регион, резерв)" if a_["kind"] == "reserve" else " (регион)"))
+        reg_resp.setdefault(a_["region_id"], []).append((a_["fio"] or " ".join(x for x in (a_["first_name"], a_["last_name"]) if x) or a_["username"] or a_["tg_id"]) + ((" (viloyat, zaxira)" if uz else " (регион, резерв)") if a_["kind"] == "reserve" else (" (viloyat)" if uz else " (регион)")))
     resp: dict[int, list] = {}
     for a_ in c.execute("""SELECT a.facility_id, a.kind, a.fio, u.first_name, u.last_name, u.username, a.tg_id FROM assignments a JOIN tg_users u ON u.tg_id=a.tg_id
                            WHERE a.active=1 AND u.active=1"""):
-        resp.setdefault(a_["facility_id"], []).append((a_["fio"] or " ".join(x for x in (a_["first_name"], a_["last_name"]) if x) or a_["username"] or a_["tg_id"]) + (" (резерв)" if a_["kind"] == "reserve" else ""))
+        resp.setdefault(a_["facility_id"], []).append((a_["fio"] or " ".join(x for x in (a_["first_name"], a_["last_name"]) if x) or a_["username"] or a_["tg_id"]) + ((" (zaxira)" if uz else " (резерв)") if a_["kind"] == "reserve" else ""))
     overdue = now_dt() > deadline(st, dd)
     out, counts = [], {"total": 0, "sent": 0, "not_sent": 0, "overdue": 0, "corrected": 0, "returned": 0, "no_responsible": 0}
     for r in rows:
