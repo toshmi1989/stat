@@ -7,6 +7,8 @@ import ast
 import operator
 from datetime import date, timedelta
 
+from .translit import lat
+
 CMP = {ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge, ast.Eq: operator.eq, ast.NotEq: operator.ne}
 BIN = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
 
@@ -97,18 +99,18 @@ def validate(c, values: dict, lang: str = "ru", facility_id: int | None = None, 
     """{'errors': [...], 'warnings': [...], 'fields': {code: message}} for the entered figures."""
     ind = c.execute("SELECT code, name_ru, name_uz FROM indicators WHERE active=1 ORDER BY sort").fetchall()
     errors, warnings, fields = [], [], {}
-    msg = (lambda r, k: (r[f"{k}_uz"] if lang == "uz" and r[f"{k}_uz"] else r[f"{k}_ru"]))
+    msg = (lambda r, k: (lat(r[f"{k}_uz"]) if lang == "uz" and r[f"{k}_uz"] else r[f"{k}_ru"]))     # Uzbek is written in Latin
     for i in ind:
         v = values.get(i["code"])
         name = msg(i, "name")
         if v is None and partial:
             continue   # an import may carry only part of the figures; the rules below skip what is absent
         if v is None:
-            text = f"Не заполнено: {name}" if lang != "uz" else f"Тўлдирилмаган: {name}"
+            text = f"Не заполнено: {name}" if lang != "uz" else f"To‘ldirilmagan: {name}"
         elif isinstance(v, bool) or not isinstance(v, int):
-            text = f"Нужно целое число: {name}" if lang != "uz" else f"Бутун сон керак: {name}"
+            text = f"Нужно целое число: {name}" if lang != "uz" else f"Butun son kerak: {name}"
         elif v < 0:
-            text = f"Отрицательные значения запрещены: {name}" if lang != "uz" else f"Манфий қийматлар тақиқланади: {name}"
+            text = f"Отрицательные значения запрещены: {name}" if lang != "uz" else f"Manfiy qiymatlar taqiqlanadi: {name}"
         else:
             continue
         errors.append(text)
@@ -138,11 +140,11 @@ def history_warnings(c, facility_id: int, report_date: str, values: dict, lang: 
         return []
     old = {r["code"]: r["value"] for r in c.execute("SELECT code, value FROM report_values WHERE report_id=?", (prev["id"],))}
     out, uz = [], lang == "uz"
-    for code, floor, ru, uzt in (("visits", 20, "Обращений", "Мурожаатлар"), ("hosp", 10, "Госпитализаций", "Ётқизилганлар")):
+    for code, floor, ru, uzt in (("visits", 20, "Обращений", "Murojaatlar"), ("hosp", 10, "Госпитализаций", "Yotqizilganlar")):
         a, b = values.get(code), old.get(code)
         if a is not None and b and a >= 3 * b and a >= floor:
-            out.append(f"{uzt} аввалги ҳисоботдан 3 баравар кўп ({b} → {a}). Текширинг." if uz else f"{ru} в 3 и более раз больше, чем в прошлом отчёте ({b} → {a}). Проверьте.")
+            out.append(f"{uzt} avvalgi hisobotdan 3 baravar ko‘p ({b} → {a}). Tekshiring." if uz else f"{ru} в 3 и более раз больше, чем в прошлом отчёте ({b} → {a}). Проверьте.")
     a, b = values.get("beds_total"), old.get("beds_total")
     if a is not None and b and abs(a - b) > 0.3 * b:
-        out.append(f"Жами ўринлар сони кескин ўзгарган ({b} → {a}). Текширинг." if uz else f"Общее число коек резко изменилось ({b} → {a}). Проверьте.")
+        out.append(f"Jami o‘rinlar soni keskin o‘zgargan ({b} → {a}). Tekshiring." if uz else f"Общее число коек резко изменилось ({b} → {a}). Проверьте.")
     return out

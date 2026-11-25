@@ -1,6 +1,8 @@
 // Small SVG charts without libraries: line (with optional dashed forecast) and grouped bars.
 const COLORS = ["#1f6feb", "#d64545", "#1a9d5c", "#d9922b", "#8957e5", "#0e8a96"];
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+// short name of a region for tiles, chips and map labels (the Uzbek one; the Russian shortenings stay where they were)
+const uzShort = n => rname(n).replace(" viloyati", "").replace(" Respublikasi", "").replace(" shahri", " sh.");
 function niceMax(v) { if (v <= 0) return 1; const p = 10 ** Math.floor(Math.log10(v)); const m = v / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; }
 function frame(W, H, ml, mt, mr, mb, max, labels) {
   let s = `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" preserveAspectRatio="none">`;

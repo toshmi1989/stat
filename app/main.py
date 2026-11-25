@@ -95,6 +95,12 @@ def me(request: Request) -> dict:
     return request.state.user
 
 
+def web_lang(request: Request) -> str:
+    """The language of the web interface: the cookie `lang` (uz | ru, set by the switch), Uzbek when there is none."""
+    v = request.cookies.get("lang")
+    return v if v in ("uz", "ru") else "uz"
+
+
 def bad(message: str, status: int = 400):
     raise HTTPException(status, message)
 
@@ -206,27 +212,31 @@ def index():
 LOGIN_HTML = open(os.path.join(STATIC, "login.html"), encoding="utf-8").read()
 
 
-def login_page(error: str = "", status: int = 200, login: str = ""):
+LOGIN_TEXT = {"too_many": ("Слишком много попыток. Подождите 15 минут.", "Urinishlar juda ko‘p. 15 daqiqadan so‘ng qayta urinib ko‘ring."),
+              "wrong": ("Неверный логин или пароль.", "Login yoki parol noto‘g‘ri.")}
+
+
+def login_page(error: str = "", status: int = 200, login: str = "", lang: str = "uz"):
     import html
-    return HTMLResponse(LOGIN_HTML.replace("{{error}}", html.escape(error)).replace("{{login}}", html.escape(login[:60])), status, headers={"Cache-Control": "no-store"})
+    return HTMLResponse(LOGIN_HTML.replace("{{error}}", html.escape(error)).replace("{{login}}", html.escape(login[:60])).replace("{{lang}}", lang), status, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_get(request: Request):
-    return RedirectResponse("/", 303) if request.state.user else login_page()
+    return RedirectResponse("/", 303) if request.state.user else login_page(lang=web_lang(request))
 
 
 @app.post("/login")
 def login_post(request: Request, login: str = Form(...), password: str = Form(...)):
     ip = client_ip(request)
     if auth.too_many_fails(ip):
-        return login_page("Слишком много попыток. Подождите 15 минут.", 429, login)
+        return login_page(LOGIN_TEXT["too_many"][web_lang(request) == "uz"], 429, login, web_lang(request))
     res = auth.login(login, password)
     if not res:
         auth.record_fail(ip)
         with tx() as c:
             audit(c, "login.fail", "staff", "", {"login": login[:60]}, actor="—")
-        return login_page("Неверный логин или пароль.", 401, login)
+        return login_page(LOGIN_TEXT["wrong"][web_lang(request) == "uz"], 401, login, web_lang(request))
     auth.clear_fails(ip)
     with tx() as c:
         audit(c, "login.ok", "staff", res["staff_id"], {}, actor=login[:60])
@@ -328,7 +338,7 @@ def api_dashboard(request: Request, fallback: int = 1):
                 d1 = d2 = latest   # nothing yet for the chosen day: show the latest day that has data, and say so
                 used = True
         k = stats.kpis(c, u, d1, d2, **f)
-        ctl = reports.control(c, u, asked, f["region_id"], f["district_id"], f["facility_id"]) if auth.can_write(u) and (d1 == d2 or used) else None
+        ctl = reports.control(c, u, asked, f["region_id"], f["district_id"], f["facility_id"], lang=web_lang(request)) if auth.can_write(u) and (d1 == d2 or used) else None
         return {"kpis": k, "used_date": d2, "fallback": used, "requested": request.query_params.get("date") or d2, "latest": latest, "control": ctl["counts"] if ctl else None}
     finally:
         c.close()
@@ -418,9 +428,10 @@ def api_alerts(request: Request, ref: str | None = None):
     u = me(request)
     c = connect()
     try:
-        out = forecast.alerts(c, u, ref)
+        lang = web_lang(request)
+        out = forecast.alerts(c, u, ref, lang)
         if auth.can_write(u):
-            out += forecast.missing_reports_alerts(c, u, ref or today().isoformat())
+            out += forecast.missing_reports_alerts(c, u, ref or today().isoformat(), lang=lang)
         return {"items": out}
     finally:
         c.close()
@@ -434,7 +445,7 @@ def api_control(request: Request, date_: str | None = None):
     d = request.query_params.get("date") or today().isoformat()
     c = connect()
     try:
-        return reports.control(c, u, d, **f)
+        return reports.control(c, u, d, lang=web_lang(request), **f)
     finally:
         c.close()
 
@@ -507,7 +518,7 @@ async def api_report_save(request: Request):
         if not fi:
             bad("Учреждение не найдено", 404)
         check_region(u, fi["region_id"])
-        out = reports.admin_save(c, fid, str(b.get("date") or ""), {k: v for k, v in vals.items()}, str(b.get("reason") or ""), reports.by_staff(u))
+        out = reports.admin_save(c, fid, str(b.get("date") or ""), {k: v for k, v in vals.items()}, str(b.get("reason") or ""), reports.by_staff(u), web_lang(request))
     return out
 
 
@@ -562,7 +573,7 @@ async def api_report_restore(request: Request, report_id: int):
     b = await jbody(request)
     with tx() as c:
         scope_check_report(c, u, report_id)
-        return reports.restore_version(c, report_id, int(b.get("version") or 0), str(b.get("reason") or ""), reports.by_staff(u))
+        return reports.restore_version(c, report_id, int(b.get("version") or 0), str(b.get("reason") or ""), reports.by_staff(u), web_lang(request))
 
 
 @app.post("/api/validate")
@@ -572,7 +583,7 @@ async def api_validate(request: Request):
     b = await jbody(request)
     c = connect()
     try:
-        return rules.validate(c, b.get("values") or {}, "ru", b.get("facility_id"), b.get("date"))
+        return rules.validate(c, b.get("values") or {}, web_lang(request), b.get("facility_id"), b.get("date"))
     finally:
         c.close()
 
@@ -1055,7 +1066,7 @@ async def api_import_reports(request: Request, file: UploadFile = File(...), dry
     for d in (d_prev, d_today):
         reports.parse_date(d)
     with tx() as c:
-        return xlsx_import.load(c, data, d_prev, d_today, bool(dry), reports.by_staff(u))
+        return xlsx_import.load(c, data, d_prev, d_today, bool(dry), reports.by_staff(u), web_lang(request))
 
 
 # ---------------------------------------------------------------- staff accounts (super administrator)
@@ -1435,12 +1446,14 @@ def api_coverage_xlsx(request: Request, d1: str = "", d2: str = ""):
     a, b = _cov_period(d1, d2)
     c = connect()
     try:
-        data = coverage.build(c, u, a, b)
+        lang = web_lang(request)
+        data = coverage.build(c, u, a, b, lang)
         audit(c, "export", "coverage", "xlsx", {"d1": a, "d2": b})
         c.commit()
     finally:
         c.close()
-    return Response(coverage.xlsx(data), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="coverage_{a}_{b}.xlsx"'})
+    name = f"{'qamrov' if lang == 'uz' else 'coverage'}_{a}_{b}.xlsx"
+    return Response(coverage.xlsx(data, lang), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @app.get("/api/export")
@@ -1449,19 +1462,20 @@ def api_export(request: Request, fmt: str = "xlsx", kind: str = "custom"):
     f = filters(request)
     check_scope_filters(u, f)
     d1, d2 = period(request)
+    lang = web_lang(request)
     c = connect()
     try:
         if fmt == "xlsx":
-            data, mime = exports.xlsx(c, u, d1, d2, kind=kind, **f), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            data, mime = exports.xlsx(c, u, d1, d2, kind=kind, lang=lang, **f), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         elif fmt == "pdf":
-            data, mime = exports.pdf(c, u, d1, d2, kind=kind, **f), "application/pdf"
+            data, mime = exports.pdf(c, u, d1, d2, kind=kind, lang=lang, **f), "application/pdf"
         elif fmt == "csv":
-            data, mime = exports.csv_bytes(c, u, d1, d2, **f), "text/csv; charset=utf-8"
+            data, mime = exports.csv_bytes(c, u, d1, d2, lang=lang, **f), "text/csv; charset=utf-8"
         else:
             bad("Формат: xlsx, pdf или csv")
         audit(c, "export", "export", fmt, {"d1": d1, "d2": d2, **f})
         c.commit()
     finally:
         c.close()
-    name = f"flu_{d1}" + ("" if d1 == d2 else f"_{d2}") + "." + fmt
+    name = exports.filename(lang, d1, d2, fmt)
     return Response(data, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{name}"'})

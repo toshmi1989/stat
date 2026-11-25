@@ -610,8 +610,8 @@ def deliver_download(c, user, chat, scope: str, d: str, fmt: str) -> None:
     if not n:
         return tg.send(chat, t(lang, "dl_none", date=d, scope=esc(title)))
     tg.send(chat, t(lang, "dl_wait"))
-    data = exports.xlsx(c, pseudo, d, d, kind="daily", **flt) if fmt == "xlsx" else exports.pdf(c, pseudo, d, d, kind="daily", **flt)
-    ok, err = tg.send_document(chat, data, f"flu_{d}.{fmt}", t(lang, "dl_caption", scope=esc(title), date=d, n=n))
+    data = exports.xlsx(c, pseudo, d, d, kind="daily", lang=lang, **flt) if fmt == "xlsx" else exports.pdf(c, pseudo, d, d, kind="daily", lang=lang, **flt)
+    ok, err = tg.send_document(chat, data, exports.filename(lang, d, d, fmt), t(lang, "dl_caption", scope=esc(title), date=d, n=n))
     if not ok:
         tg.send(chat, t(lang, "dl_fail", why=esc(err)))
     else:

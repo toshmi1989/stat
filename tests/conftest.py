@@ -32,6 +32,7 @@ def client(env):
     from fastapi.testclient import TestClient
     from app.main import app
     with TestClient(app, base_url="http://testserver") as c:
+        c.cookies.set("lang", "ru")      # the web defaults to Uzbek; the tests were written for the Russian texts (Uzbek is tested in test_uz.py)
         r = c.post("/login", data={"login": "admin", "password": "secret123"}, follow_redirects=False)
         assert r.status_code == 303
         yield c

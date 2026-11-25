@@ -68,7 +68,7 @@ def parse(data: bytes) -> list[dict]:
     return out
 
 
-def load(c, data: bytes, d_prev: str, d_today: str, dry: bool, by: dict) -> dict:
+def load(c, data: bytes, d_prev: str, d_today: str, dry: bool, by: dict, lang: str = "ru") -> dict:
     rows = parse(data)
     if not rows:
         raise reports.ReportError("В файле не нашлось листов областей с таблицей учреждений")
@@ -97,7 +97,7 @@ def load(c, data: bytes, d_prev: str, d_today: str, dry: bool, by: dict) -> dict
             if not vals:
                 continue
             try:
-                reports.admin_save(c, fid, d, vals, "Импорт из Excel", by, partial=True)
+                reports.admin_save(c, fid, d, vals, "Импорт из Excel", by, lang, partial=True)
                 saved += 1
             except reports.ReportError as e:
                 errors.append(f"{r['name']} ({d}): {e.message}")
