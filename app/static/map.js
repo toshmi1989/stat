@@ -31,22 +31,33 @@ function mapStates(rows, m, th) {
     return { r, v, st, k };
   });
 }
+// where the labels of the small regions stand: ids -> {ax: the vertical leader, ty: the baseline of the label}. Leaders keep 26 apart; the order is by x, and of two dots
+// above each other the lower one goes first, so that the leader of the upper one does not pass through its dot.
+function uzCallouts(M, ids, y0 = 478, step = 27, gap = 26) {
+  const out = {}; let prev = -1e9;
+  ids.slice().sort((a, b) => (M.r[a].c[0] - M.r[a].c[1] * 0.1) - (M.r[b].c[0] - M.r[b].c[1] * 0.1)).forEach((id, i) => {
+    prev = Math.max(M.r[id].c[0], prev + gap); out[id] = { ax: Math.round(prev), ty: y0 + i * step };
+  });
+  return out;
+}
 function uzMap(rows, m, th, sel) {
   const M = window.UZMAP; if (!M) return "";
   const S = mapStates(rows, m, th), unit = MAP_METRICS.find(x => x[0] === m)[2], fmt = v => v == null ? "—" : (m === "occupancy" ? Math.round(v) : Math.round(v)).toLocaleString("ru-RU") + unit;
   const by = Object.fromEntries(S.map(s => [s.r.id, s])), ids = Object.keys(M.r);
   const order = ids.slice().sort((a, b) => (id => id == 14 ? 1 : 0)(a) - (id => id == 14 ? 1 : 0)(b));   // the city of Tashkent lies inside the region: draw it last
   const dur = s => (s.st === "critical" ? 1.9 - 1.1 * s.k : 3.2).toFixed(2);     // the higher the figure, the faster the pulse
-  const CALL = [10, 14, 11, 7, 12, 2], CX = 745, CY = 478;   // small regions of the Fergana valley and Tashkent: the label stands in a free corner of the map on a leader line
+  // small regions of the Fergana valley and Tashkent: the label stands below the map on a leader line. The leaders go straight down (from the dot, sideways first where two dots
+  // are one above the other) and the labels form a staircase, the farther right the lower, with the text ending at its leader: so no leader crosses another leader or a label.
+  const CALL = uzCallouts(M, [10, 14, 11, 7, 12, 2]);
   const g = id => {
-    const s = by[id] || { r: { id, name: "—", reported: 0, facilities: 0, values: {} }, v: null, st: "off", k: 0 }, p = M.r[id], [cx, cy] = p.c, alive = s.st === "critical" || s.st === "warning", city = +id === 14, ci = CALL.indexOf(+id);
-    const ty = CY + ci * 27, lab = ci < 0
+    const s = by[id] || { r: { id, name: "—", reported: 0, facilities: 0, values: {} }, v: null, st: "off", k: 0 }, p = M.r[id], [cx, cy] = p.c, alive = s.st === "critical" || s.st === "warning", city = +id === 14, co = CALL[id];
+    const lab = !co
       ? `<text class="lb" x="${cx}" y="${cy - 11}" text-anchor="middle"><tspan class="ln1">${esc(mapShort(s.r.name))}</tspan><tspan class="ln2" x="${cx}" dy="15">${fmt(s.v)}</tspan></text>`
-      : `<polyline class="lead" points="${cx},${cy} ${CX - 2},${ty - 5}"/><text class="lb call" x="${CX + 4}" y="${ty}"><tspan class="ln1">${esc(mapShort(s.r.name))} </tspan><tspan class="ln2">${fmt(s.v)}</tspan></text>`;
+      : `<polyline class="lead" points="${cx},${cy} ${co.ax},${cy} ${co.ax},${co.ty - 4}"/><text class="lb call" x="${co.ax - 7}" y="${co.ty}" text-anchor="end"><tspan class="ln1">${esc(mapShort(s.r.name))} </tspan><tspan class="ln2">${fmt(s.v)}</tspan></text>`;
     return `<g class="rg st-${s.st}${String(sel) === String(id) ? " sel" : ""}" data-rid="${id}" tabindex="0" role="button" aria-label="${esc(s.r.name)}: ${fmt(s.v)}" style="--dur:${dur(s)}s">
       <path class="fl" d="${p.d}"/>${alive ? `<path class="gl" d="${p.d}"/>` : ""}<path class="ln" d="${p.d}"/>
       ${alive ? `<circle class="ring" cx="${cx}" cy="${cy}" r="${city ? 7 : 16}"/><circle class="ring r2" cx="${cx}" cy="${cy}" r="${city ? 7 : 16}"/>` : ""}
-      <circle class="dot" cx="${cx}" cy="${cy}" r="${ci >= 0 ? 4 : 5.5}"/>${lab}</g>`;
+      <circle class="dot" cx="${cx}" cy="${cy}" r="${co ? 4 : 5.5}"/>${lab}</g>`;
   };
   const shadows = `<g class="shs">${ids.map(id => `<path d="${M.r[id].d}"/>`).join("")}</g>`;
   return `<svg class="uzmap" viewBox="0 0 ${M.w} ${M.h}" role="group" aria-label="Карта Узбекистана по регионам">${shadows}${order.map(g).join("")}</svg>`;
