@@ -16,8 +16,9 @@ if (process.argv.includes("--ts")) {
   const err = m => { bad++; console.log("ERROR", m); };
   for (const [k, v] of Object.entries(win.UZ)) if (CYR.test(v)) err("Cyrillic in the Uzbek text of " + JSON.stringify(k));
   win.UZP.forEach((p, i) => {
-    if (!Array.isArray(p) || Object.prototype.toString.call(p[0]) !== "[object RegExp]" || typeof p[1] !== "string") return err("UZP[" + i + "] is not [RegExp, string]");
+    if (!Array.isArray(p) || Object.prototype.toString.call(p[0]) !== "[object RegExp]" || !["string", "function"].includes(typeof p[1])) return err("UZP[" + i + "] is not [RegExp, string or function]");
     if (p[0].global || p[0].sticky) err("UZP[" + i + "] " + p[0] + " has the flag g or y: test() would keep its position between calls");
+    if (typeof p[1] === "function") return;      // a replacement function (for example one that turns a region name into its Uzbek form): nothing to check statically
     const groups = new RegExp(p[0].source + "|").exec("").length - 1;
     for (const m of p[1].matchAll(/\$(\d)/g)) if (+m[1] < 1 || +m[1] > groups) err("UZP[" + i + "] " + p[0] + ": $" + m[1] + " but the expression has " + groups + " group(s)");
     if (CYR.test(p[1])) err("UZP[" + i + "] Cyrillic in the Uzbek text " + JSON.stringify(p[1]));

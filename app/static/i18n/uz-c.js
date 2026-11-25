@@ -142,7 +142,7 @@ Object.assign(window.UZ, {
   "учреждений в файле {f}, новых {n}, отчётов {r}. Даты: {d}.": "fayldagi muassasalar: {f}, yangilari: {n}, hisobotlar: {r}. Sanalar: {d}.",
   "Новые учреждения ({n})": "Yangi muassasalar ({n})",
   "Загружено": "Yuklandi",
-  "Столбцы: Регион, Район, Учреждение (+ необязательно «Район (узб)», «Учреждение (узб)»). Сначала предпросмотр.": "Ustunlar: «Регион» (viloyat), «Район» (tuman), «Учреждение» (muassasa) (+ ixtiyoriy «Район (узб)», «Учреждение (узб)»). Avval oldindan ko‘rib chiqing.",
+  "Столбцы: Регион, Район, Учреждение (+ необязательно «Район (узб)», «Учреждение (узб)»). Сначала предпросмотр.": "Ustunlar: Viloyat, Tuman, Muassasa (+ ixtiyoriy «Tuman (uz)», «Muassasa (uz)»). Avval oldindan ko‘rib chiqing.",
   "Показатели": "Ko‘rsatkichlar",
   "+ Показатель": "+ Ko‘rsatkich",
   "«Способ сложения»: sum — потоки (обращения), last — состояние на последний день (койки), max — максимум за период.": "«Jamlash usuli»: sum — oqimlar (murojaatlar), last — oxirgi kundagi holat (o‘rinlar), max — davr davomidagi eng yuqori qiymat.",

@@ -5,7 +5,8 @@
 window.UZ = window.UZ || {};
 window.UZP = window.UZP || [];
 window.LANG = (document.cookie.match(/(?:^|; )lang=(ru|uz)/) || [])[1] || "uz";
-window.LOCALE = LANG === "uz" ? "uz-Latn-UZ" : "ru-RU";
+// numbers in both languages: «1 234,5» (the Uzbek style too). Browsers without Uzbek locale data would print «1,234.5» for uz, so ru-RU is used; Uzbek month names are written out in the code (MONTHS, uzDate)
+window.LOCALE = "ru-RU";
 window.MISSING = window.MISSING || new Set();
 function T(ru, p) {
   let s = ru;
