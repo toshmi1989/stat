@@ -264,24 +264,24 @@ async function loadBeds(d1, d2, silent) {
 async function forecastView() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const fb = await filterBar(forecastView, { noPeriod: true });
-  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div id="fc" class="card">Загрузка…</div><div id="al" class="card"></div>`; fb.bind();
+  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div id="fc" class="card">${T("Загрузка…")}</div><div id="al" class="card"></div>`; fb.bind();
   try {
     const [fc, al] = await Promise.all([api("/api/forecast?" + qs({ region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id })), api("/api/alerts")]);
     const rel = { low: "critical", medium: "warning", high: "normal" };
-    let h = `<h2>Прогноз на 3 и 7 дней</h2><p class="note">Это инструмент оперативного планирования, а не эпидемиологический вывод. Метод: ${esc(Object.values(fc.metrics)[0]?.method || "")}. Серая зона — 90% интервал.</p>`;
+    let h = `<h2>${T("Прогноз на 3 и 7 дней")}</h2><p class="note">${T("Это инструмент оперативного планирования, а не эпидемиологический вывод. Метод: {method}. Серая зона — 90% интервал.", { method: esc(TS(Object.values(fc.metrics)[0]?.method || "")) })}</p>`;
     for (const [code, m] of Object.entries(fc.metrics)) {
-      h += `<h3>${NAMES[code]}</h3>`;
-      if (!m.ok) { h += `<p class="muted">${esc(m.reliability_text)}</p>`; continue; }
-      h += `<p>Последнее значение ${num(m.current)} (${m.current_date}). Через 3 дня: <b>${num(m.days[2].value)}</b> (${num(m.days[2].low)}–${num(m.days[2].high)}); через 7 дней: <b>${num(m.days[6].value)}</b> (${num(m.days[6].low)}–${num(m.days[6].high)}). Надёжность: <span class="pill ${rel[m.reliability]}">${esc(m.reliability_text)}</span></p>`;
+      h += `<h3>${T(NAMES[code])}</h3>`;
+      if (!m.ok) { h += `<p class="muted">${esc(TS(m.reliability_text))}</p>`; continue; }
+      h += `<p>${T("Последнее значение {cur} ({date}). Через 3 дня: <b>{v3}</b> ({l3}–{h3}); через 7 дней: <b>{v7}</b> ({l7}–{h7}). Надёжность: {rel}", { cur: num(m.current), date: m.current_date, v3: num(m.days[2].value), l3: num(m.days[2].low), h3: num(m.days[2].high), v7: num(m.days[6].value), l7: num(m.days[6].low), h7: num(m.days[6].high), rel: `<span class="pill ${rel[m.reliability]}">${esc(TS(m.reliability_text))}</span>` })}</p>`;
     }
     if (fc.beds) {
       const b = fc.beds;
-      h += `<h3>Прогноз загрузки коек</h3><p>Сейчас занято ${num(b.occupied)} из ${num(b.beds_flu)} (${b.current_date}). Надёжность: <span class="pill ${rel[b.reliability]}">${esc(b.reliability_text)}</span></p><p class="muted sm">${esc(b.method)}</p>` +
-        lineChart(b.days.map(d => d.date), [{ name: "Занято коек", points: b.days.map(d => d.occupied), dashed: true }, { name: "Коек для гриппа и ОРВИ", points: b.days.map(() => b.beds_flu), color: "#d64545" }]) +
-        `<table><tr><th>Дата</th><th class="n">Занято</th><th class="n">Свободно</th><th class="n">Загрузка</th><th class="n">Дефицит</th></tr>${b.days.map(d => `<tr><td>${d.date}</td><td class="n">${num(d.occupied)}</td><td class="n">${num(d.free)}</td><td class="n">${num(d.occupancy)}%</td><td class="n">${d.deficit ? `<span class="pill critical">${num(d.deficit)}</span>` : "—"}</td></tr>`).join("")}</table>`;
-    } else h += `<p class="muted">Прогноз коек недоступен: нужны данные о госпитализациях, выписках и коечном фонде.</p>`;
+      h += `<h3>${T("Прогноз загрузки коек")}</h3><p>${T("Сейчас занято {occ} из {flu} ({date}). Надёжность: {rel}", { occ: num(b.occupied), flu: num(b.beds_flu), date: b.current_date, rel: `<span class="pill ${rel[b.reliability]}">${esc(TS(b.reliability_text))}</span>` })}</p><p class="muted sm">${esc(TS(b.method))}</p>` +
+        lineChart(b.days.map(d => d.date), [{ name: T("Занято коек"), points: b.days.map(d => d.occupied), dashed: true }, { name: T("Коек для гриппа и ОРВИ"), points: b.days.map(() => b.beds_flu), color: "#d64545" }]) +
+        `<table><tr><th>${T("Дата")}</th><th class="n">${T("Занято")}</th><th class="n">${T("Свободно")}</th><th class="n">${T("Загрузка")}</th><th class="n">${T("Дефицит")}</th></tr>${b.days.map(d => `<tr><td>${d.date}</td><td class="n">${num(d.occupied)}</td><td class="n">${num(d.free)}</td><td class="n">${num(d.occupancy)}%</td><td class="n">${d.deficit ? `<span class="pill critical">${num(d.deficit)}</span>` : "—"}</td></tr>`).join("")}</table>`;
+    } else h += `<p class="muted">${T("Прогноз коек недоступен: нужны данные о госпитализациях, выписках и коечном фонде.")}</p>`;
     $("#fc").innerHTML = h;
-    $("#al").innerHTML = `<h2>Предупреждения</h2>` + (al.items.length ? al.items.map(x => `<div class="alert ${x.level}">${esc(x.text)}</div>`).join("") : `<p class="muted">Предупреждений нет.</p>`);
+    $("#al").innerHTML = `<h2>${T("Предупреждения")}</h2>` + (al.items.length ? al.items.map(x => `<div class="alert ${x.level}">${esc(TS(x.text))}</div>`).join("") : `<p class="muted">${T("Предупреждений нет.")}</p>`);
   } catch (e) { fail(e); }
 }
 
@@ -289,7 +289,7 @@ async function forecastView() {
 async function control() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const fb = await filterBar(control, { noPeriod: true });
-  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div class="row"><label>Дата <input type="date" id="c-d" value="${F.d1 || ME.today}"></label><div class="seg" id="c-f"></div><button class="btn warn right" id="c-rem">🔔 Напомнить не сдавшим</button></div><div id="ct" class="card">Загрузка…</div>`; fb.bind();
+  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div class="row"><label>${T("Дата")} <input type="date" id="c-d" value="${F.d1 || ME.today}"></label><div class="seg" id="c-f"></div><button class="btn warn right" id="c-rem">${T("🔔 Напомнить не сдавшим")}</button></div><div id="ct" class="card">${T("Загрузка…")}</div>`; fb.bind();
   $("#c-rem").onclick = () => remindDlg(F.d1 || ME.today);
   $("#c-d").onchange = e => { F.d1 = e.target.value; control(); };
   try {
@@ -297,11 +297,11 @@ async function control() {
     let filt = control.filter || "";
     const draw = () => {
       const rows = r.rows.filter(x => !filt || (filt === "noresp" ? !x.has_responsible : x.state === filt));
-      $("#ct").innerHTML = `<p>Срок сдачи: <b>${r.deadline}</b>. Всего ${c.total}; сдали ${c.sent} (из них исправлено ${c.corrected}); возвращено ${c.returned}; не сдали ${c.not_sent + c.overdue}; без ответственного: ${c.no_responsible}.</p>
-      <div class="scroll-x"><table><tr><th>Регион</th><th>Район</th><th>Учреждение</th><th>Ответственный</th><th>Статус</th><th>Время</th></tr>${rows.map(x => `<tr ${x.report_id ? `class="link" data-rep="${x.report_id}"` : ""}><td>${esc(x.region)}</td><td>${esc(x.district)}</td><td>${esc(x.facility)}</td><td>${x.has_responsible ? esc(x.responsible) : '<span class="muted">не назначен</span>'}</td><td>${pill(x.state)}${x.late ? ' <span class="pill warning">поздно</span>' : ""}</td><td>${x.time}</td></tr>`).join("")}</table></div>`;
+      $("#ct").innerHTML = `<p>${T("Срок сдачи: <b>{deadline}</b>. Всего {total}; сдали {sent} (из них исправлено {corrected}); возвращено {returned}; не сдали {notsent}; без ответственного: {noresp}.", { deadline: r.deadline, total: c.total, sent: c.sent, corrected: c.corrected, returned: c.returned, notsent: c.not_sent + c.overdue, noresp: c.no_responsible })}</p>
+      <div class="scroll-x"><table><tr><th>${T("Регион")}</th><th>${T("Район")}</th><th>${T("Учреждение")}</th><th>${T("Ответственный")}</th><th>${T("Статус")}</th><th>${T("Время")}</th></tr>${rows.map(x => `<tr ${x.report_id ? `class="link" data-rep="${x.report_id}"` : ""}><td>${esc(rname(x.region))}</td><td>${esc(x.district)}</td><td>${esc(x.facility)}</td><td>${x.has_responsible ? esc(x.responsible) : `<span class="muted">${T("не назначен")}</span>`}</td><td>${pill(x.state)}${x.late ? ` <span class="pill warning">${T("поздно")}</span>` : ""}</td><td>${x.time}</td></tr>`).join("")}</table></div>`;
       document.querySelectorAll("#ct tr[data-rep]").forEach(tr => tr.onclick = () => openReport(+tr.dataset.rep));
     };
-    $("#c-f").innerHTML = [["", "Все"], ["sent", "Сдали"], ["corrected", "Исправлены"], ["returned", "Возвращены"], ["not_sent", "Не сдали"], ["overdue", "Просрочены"], ["noresp", "Без ответственного"]].map(([k, l]) => `<button data-v="${k}" class="${filt === k ? "on" : ""}">${l}</button>`).join("");
+    $("#c-f").innerHTML = [["", "Все"], ["sent", "Сдали"], ["corrected", "Исправлены"], ["returned", "Возвращены"], ["not_sent", "Не сдали"], ["overdue", "Просрочены"], ["noresp", "Без ответственного"]].map(([k, l]) => `<button data-v="${k}" class="${filt === k ? "on" : ""}">${T(l)}</button>`).join("");
     document.querySelectorAll("#c-f button").forEach(b => b.onclick = () => { control.filter = b.dataset.v; filt = b.dataset.v; document.querySelectorAll("#c-f button").forEach(x => x.classList.toggle("on", x === b)); draw(); });
     draw();
   } catch (e) { fail(e); }
@@ -312,17 +312,17 @@ async function reportsView() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   if (F.preset === "day" && !F.d1) F.preset = "week";   // a single empty day is a useless first view of the list
   const fb = await filterBar(reportsView);
-  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div class="card"><div class="row"><h2>Отчёты</h2><select id="r-st"><option value="">Все</option><option value="sent">Отправленные</option><option value="returned">Возвращённые</option><option value="corrected">Исправленные</option><option value="late">С опозданием</option></select><input id="r-q" placeholder="Поиск по учреждению">${ME.role === "super_admin" ? '<button class="btn bad right" id="r-del" hidden>🗑 Удалить выбранные</button>' : ""}<button class="btn pri ${ME.role === "super_admin" ? "" : "right"}" id="r-new">+ Внести отчёт</button></div><div id="rl" class="scroll-x"></div></div>`; fb.bind();
+  if (nav !== NAVID) return; view.innerHTML = fb.html + `<div class="card"><div class="row"><h2>${T("Отчёты")}</h2><select id="r-st"><option value="">${T("Все")}</option><option value="sent">${T("Отправленные")}</option><option value="returned">${T("Возвращённые")}</option><option value="corrected">${T("Исправленные")}</option><option value="late">${T("С опозданием")}</option></select><input id="r-q" placeholder="${T("Поиск по учреждению")}">${ME.role === "super_admin" ? `<button class="btn bad right" id="r-del" hidden>${T("🗑 Удалить выбранные")}</button>` : ""}<button class="btn pri ${ME.role === "super_admin" ? "" : "right"}" id="r-new">${T("+ Внести отчёт")}</button></div><div id="rl" class="scroll-x"></div></div>`; fb.bind();
   $("#r-new").onclick = () => editReport(null);
   if (!ME.can_edit_reports) $("#r-new").hidden = true;
   const SU = ME.role === "super_admin";
   const load = async () => {
     try {
       const r = await api("/api/reports?" + scopeQ() + "&" + qs({ status: $("#r-st").value, q: $("#r-q").value, size: 200 }));
-      $("#rl").innerHTML = `<p class="muted sm">Найдено: ${r.total}</p><table><tr>${SU ? '<th><input type="checkbox" id="r-all" title="Выбрать все"></th>' : ""}<th>Дата</th><th>Регион</th><th>Район</th><th>Учреждение</th><th>Статус</th><th>Версия</th><th>Кто</th></tr>${r.items.map(x => `<tr class="link" data-id="${x.id}">${SU ? `<td><input type="checkbox" class="r-one" data-rid="${x.id}"></td>` : ""}<td>${x.report_date}</td><td>${esc(x.region)}</td><td>${esc(x.district)}</td><td>${esc(x.facility)}</td><td>${pill(x.status === "returned" ? "returned" : x.corrected ? "corrected" : "sent")}${x.late ? ' <span class="pill warning">поздно</span>' : ""}${x.locked ? " 🔒" : ""}</td><td>${x.version}</td><td>${esc(x.submitted_by)}</td></tr>`).join("")}</table>`;
+      $("#rl").innerHTML = `<p class="muted sm">${T("Найдено: {n}", { n: r.total })}</p><table><tr>${SU ? `<th><input type="checkbox" id="r-all" title="${T("Выбрать все")}"></th>` : ""}<th>${T("Дата")}</th><th>${T("Регион")}</th><th>${T("Район")}</th><th>${T("Учреждение")}</th><th>${T("Статус")}</th><th>${T("Версия")}</th><th>${T("Кто")}</th></tr>${r.items.map(x => `<tr class="link" data-id="${x.id}">${SU ? `<td><input type="checkbox" class="r-one" data-rid="${x.id}"></td>` : ""}<td>${x.report_date}</td><td>${esc(rname(x.region))}</td><td>${esc(x.district)}</td><td>${esc(x.facility)}</td><td>${pill(x.status === "returned" ? "returned" : x.corrected ? "corrected" : "sent")}${x.late ? ` <span class="pill warning">${T("поздно")}</span>` : ""}${x.locked ? " 🔒" : ""}</td><td>${x.version}</td><td>${esc(x.submitted_by)}</td></tr>`).join("")}</table>`;
       document.querySelectorAll("#rl tr[data-id]").forEach(tr => tr.onclick = ev => { if (ev.target.type === "checkbox") return; openReport(+tr.dataset.id); });
       const chosen = () => [...document.querySelectorAll(".r-one:checked")].map(x => +x.dataset.rid);
-      const sync = () => { const b = $("#r-del"); if (b) { const n = chosen().length; b.hidden = !n; b.textContent = "🗑 Удалить выбранные (" + n + ")"; } };
+      const sync = () => { const b = $("#r-del"); if (b) { const n = chosen().length; b.hidden = !n; b.textContent = T("🗑 Удалить выбранные ({n})", { n }); } };
       document.querySelectorAll(".r-one").forEach(x => x.onchange = sync);
       const all = $("#r-all"); if (all) all.onchange = () => { document.querySelectorAll(".r-one").forEach(x => x.checked = all.checked); sync(); };
       const del = $("#r-del"); if (del) del.onclick = () => deleteReportsDlg(chosen(), load);
@@ -332,39 +332,39 @@ async function reportsView() {
   $("#r-st").onchange = load; $("#r-q").oninput = () => { clearTimeout(DEB); DEB = setTimeout(load, 300); }; load();
 }
 function deleteReportsDlg(ids, done) {
-  confirmDlg("🗑 Удалить отчёты", `<p>Будет удалено отчётов: <b>${ids.length}</b> вместе с историей версий. Это нельзя отменить. В журнале действий останется запись о каждом удалённом отчёте (учреждение, дата, цифры, причина).</p><p class="muted sm">Учреждение снова будет считаться не сдавшим за эту дату, отчёт можно внести заново.</p>`, "Удалить безвозвратно", async reason => {
-    const r = await api("/api/reports/delete", { method: "POST", body: { ids, reason } }); closeModal(); toast("Удалено отчётов: " + r.deleted); done();
+  confirmDlg(T("🗑 Удалить отчёты"), `<p>${T("Будет удалено отчётов: <b>{n}</b> вместе с историей версий. Это нельзя отменить. В журнале действий останется запись о каждом удалённом отчёте (учреждение, дата, цифры, причина).", { n: ids.length })}</p><p class="muted sm">${T("Учреждение снова будет считаться не сдавшим за эту дату, отчёт можно внести заново.")}</p>`, T("Удалить безвозвратно"), async reason => {
+    const r = await api("/api/reports/delete", { method: "POST", body: { ids, reason } }); closeModal(); toast(T("Удалено отчётов: {n}", { n: r.deleted })); done();
   }, true);
 }
 async function openReport(id) {
   let r; try { r = await api("/api/reports/" + id); } catch (e) { return fail(e); }
   const ind = META.indicators.filter(i => i.active);
-  modal(`<h2>${esc(r.facility)}</h2><p class="muted">${esc(r.region)}, ${esc(r.district)} · за ${r.report_date} · версия ${r.version} · ${pill(r.status === "returned" ? "returned" : r.corrected ? "corrected" : "sent")}${r.late ? " поздно" : ""}${r.locked_now ? " 🔒 закрыт" : ""}</p>
-  ${r.return_reason ? `<div class="note">Возвращён: ${esc(r.return_reason)}</div>` : ""}
-  <table>${ind.map(i => `<tr><td>${esc(i.name_ru)}</td><td class="n"><b>${num(r.values[i.code])}</b></td></tr>`).join("")}</table>
-  <div class="row mt">${ME.can_edit_reports ? '<button class="btn pri" id="m-ed">Исправить</button><button class="btn" id="m-ret">Вернуть на исправление</button>' : ""}<button class="btn" id="m-lock">${r.locked ? "Открыть" : "Закрыть"} для правок</button>${ME.role === "super_admin" ? '<button class="btn bad" id="m-del">🗑 Удалить отчёт</button>' : ""}<button class="btn right" data-close>Закрыть окно</button></div>
-  <h3 class="mt">История версий</h3><div class="scroll-x"><table><tr><th>Версия</th><th>Когда</th><th>Кто</th><th>Действие</th><th>Причина</th><th>Что изменено</th><th></th></tr>${r.versions.map(v => `<tr><td>${v.version}</td><td>${esc(v.at || v.created_at || "")}</td><td>${esc(v.by_name || v.by || "")}</td><td>${esc(v.action)}</td><td>${esc(v.reason || "")}</td><td class="sm">${Object.entries(v.changes || {}).map(([k, c]) => `${esc(k)}: ${c[0] ?? "—"} → ${c[1] ?? "—"}`).join("<br>")}</td><td>${ME.can_edit_reports && v.version !== r.version ? `<button class="btn sm" data-restore="${v.version}">Вернуть</button>` : ""}</td></tr>`).join("")}</table></div>`, true);
+  modal(`<h2>${esc(r.facility)}</h2><p class="muted">${esc(rname(r.region))}, ${esc(r.district)} · ${T("за {date}", { date: r.report_date })} · ${T("версия {n}", { n: r.version })} · ${pill(r.status === "returned" ? "returned" : r.corrected ? "corrected" : "sent")}${r.late ? " " + T("поздно") : ""}${r.locked_now ? " 🔒 " + T("закрыт") : ""}</p>
+  ${r.return_reason ? `<div class="note">${T("Возвращён: {reason}", { reason: esc(r.return_reason) })}</div>` : ""}
+  <table>${ind.map(i => `<tr><td>${esc(nm(i))}</td><td class="n"><b>${num(r.values[i.code])}</b></td></tr>`).join("")}</table>
+  <div class="row mt">${ME.can_edit_reports ? `<button class="btn pri" id="m-ed">${T("Исправить")}</button><button class="btn" id="m-ret">${T("Вернуть на исправление")}</button>` : ""}<button class="btn" id="m-lock">${r.locked ? T("Открыть для правок") : T("Закрыть для правок")}</button>${ME.role === "super_admin" ? `<button class="btn bad" id="m-del">${T("🗑 Удалить отчёт")}</button>` : ""}<button class="btn right" data-close>${T("Закрыть окно")}</button></div>
+  <h3 class="mt">${T("История версий")}</h3><div class="scroll-x"><table><tr><th>${T("Версия")}</th><th>${T("Когда")}</th><th>${T("Кто")}</th><th>${T("Действие")}</th><th>${T("Причина")}</th><th>${T("Что изменено")}</th><th></th></tr>${r.versions.map(v => `<tr><td>${v.version}</td><td>${esc(v.at || v.created_at || "")}</td><td>${esc(v.by_name || v.by || "")}</td><td>${esc(v.action)}</td><td>${esc(v.reason || "")}</td><td class="sm">${Object.entries(v.changes || {}).map(([k, c]) => `${esc(k)}: ${c[0] ?? "—"} → ${c[1] ?? "—"}`).join("<br>")}</td><td>${ME.can_edit_reports && v.version !== r.version ? `<button class="btn sm" data-restore="${v.version}">${T("Вернуть")}</button>` : ""}</td></tr>`).join("")}</table></div>`, true);
   const ed = $("#m-ed"); if (ed) ed.onclick = () => editReport(r);
   const dl = $("#m-del"); if (dl) dl.onclick = () => deleteReportsDlg([id], route);
-  const rt = $("#m-ret"); if (rt) rt.onclick = async () => { const reason = prompt("Причина возврата:"); if (!reason) return; try { await api(`/api/reports/${id}/return`, { method: "POST", body: { reason } }); toast("Отчёт возвращён"); closeModal(); route(); } catch (e) { fail(e); } };
-  $("#m-lock").onclick = async () => { try { await api(`/api/reports/${id}/lock`, { method: "POST", body: { locked: !r.locked } }); toast("Готово"); openReport(id); } catch (e) { fail(e); } };
-  document.querySelectorAll("[data-restore]").forEach(b => b.onclick = async () => { const reason = prompt("Причина восстановления версии " + b.dataset.restore + ":"); if (!reason) return; try { await api(`/api/reports/${id}/restore`, { method: "POST", body: { version: +b.dataset.restore, reason } }); toast("Версия восстановлена (создана новая)"); openReport(id); } catch (e) { fail(e); } });
+  const rt = $("#m-ret"); if (rt) rt.onclick = async () => { const reason = prompt(T("Причина возврата:")); if (!reason) return; try { await api(`/api/reports/${id}/return`, { method: "POST", body: { reason } }); toast(T("Отчёт возвращён")); closeModal(); route(); } catch (e) { fail(e); } };
+  $("#m-lock").onclick = async () => { try { await api(`/api/reports/${id}/lock`, { method: "POST", body: { locked: !r.locked } }); toast(T("Готово")); openReport(id); } catch (e) { fail(e); } };
+  document.querySelectorAll("[data-restore]").forEach(b => b.onclick = async () => { const reason = prompt(T("Причина восстановления версии {n}:", { n: b.dataset.restore })); if (!reason) return; try { await api(`/api/reports/${id}/restore`, { method: "POST", body: { version: +b.dataset.restore, reason } }); toast(T("Версия восстановлена (создана новая)")); openReport(id); } catch (e) { fail(e); } });
 }
 async function editReport(r) {
   const ind = META.indicators.filter(i => i.active);
   let facs = [];
   if (!r) { try { facs = (await api("/api/facilities?" + qs({ region_id: F.region_id, district_id: F.district_id, size: 200 }))).items; } catch (e) { return fail(e); } }
-  modal(`<h2>${r ? "Исправление отчёта" : "Внести отчёт"}</h2>
-  ${r ? "" : `<label>Учреждение<select id="e-f">${facs.map(f => `<option value="${f.id}">${esc(f.region)} — ${esc(f.district)} — ${esc(f.name_ru)}</option>`).join("")}</select></label><label>Дата<input type="date" id="e-d" value="${ME.today}"></label>`}
-  <div class="fields">${ind.map(i => `<label>${esc(i.name_ru)}<input type="number" min="0" step="1" data-code="${i.code}" value="${r ? (r.values[i.code] ?? "") : ""}"></label>`).join("")}</div>
-  <label>Причина изменения (обязательно для журнала)<textarea id="e-reason" rows="2"></textarea></label><div id="e-msg"></div>
-  <div class="row mt"><button class="btn pri" id="e-save">Сохранить</button><button class="btn" id="e-chk">Проверить</button><button class="btn right" data-close>Отмена</button></div>`, true);
+  modal(`<h2>${r ? T("Исправление отчёта") : T("Внести отчёт")}</h2>
+  ${r ? "" : `<label>${T("Учреждение")}<select id="e-f">${facs.map(f => `<option value="${f.id}">${esc(rname(f.region))} — ${esc(f.district)} — ${esc(nm(f))}</option>`).join("")}</select></label><label>${T("Дата")}<input type="date" id="e-d" value="${ME.today}"></label>`}
+  <div class="fields">${ind.map(i => `<label>${esc(nm(i))}<input type="number" min="0" step="1" data-code="${i.code}" value="${r ? (r.values[i.code] ?? "") : ""}"></label>`).join("")}</div>
+  <label>${T("Причина изменения (обязательно для журнала)")}<textarea id="e-reason" rows="2"></textarea></label><div id="e-msg"></div>
+  <div class="row mt"><button class="btn pri" id="e-save">${T("Сохранить")}</button><button class="btn" id="e-chk">${T("Проверить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`, true);
   const vals = () => Object.fromEntries([...document.querySelectorAll("[data-code]")].filter(i => i.value !== "").map(i => [i.dataset.code, +i.value]));
   const ctx = () => ({ facility_id: r ? r.facility_id : +$("#e-f").value, date: r ? r.report_date : $("#e-d").value });
-  const show = v => $("#e-msg").innerHTML = v.errors.map(x => `<div class="alert critical">${esc(x)}</div>`).join("") + v.warnings.map(x => `<div class="alert">${esc(x)}</div>`).join("");
+  const show = v => $("#e-msg").innerHTML = v.errors.map(x => `<div class="alert critical">${esc(TS(x))}</div>`).join("") + v.warnings.map(x => `<div class="alert">${esc(TS(x))}</div>`).join("");
   $("#e-chk").onclick = async () => { try { show(await api("/api/validate", { method: "POST", body: { values: vals(), ...ctx() } })); } catch (e) { fail(e); } };
   $("#e-save").onclick = async () => {
-    try { await api("/api/reports", { method: "PUT", body: { values: vals(), reason: $("#e-reason").value, ...ctx() } }); toast("Сохранено"); closeModal(); route(); }
+    try { await api("/api/reports", { method: "PUT", body: { values: vals(), reason: $("#e-reason").value, ...ctx() } }); toast(T("Сохранено")); closeModal(); route(); }
     catch (e) { if (e.details) show({ errors: e.details.errors || [], warnings: e.details.warnings || [] }); fail(e); }
   };
 }
