@@ -377,6 +377,7 @@ const tgWho = u => `<div class="tgwho">${tgAv(u)}<div><b>${esc(tgName(u))}</b>${
 const tgLink = u => u.username ? `<a class="btn sm" href="https://t.me/${esc(u.username)}" target="_blank" rel="noopener noreferrer">✈ ${T("Профиль в Telegram")}</a>`
   : `<a class="btn sm" href="tg://user?id=${esc(u.tg_id)}" title="${T("У человека нет @username: профиль откроется, только если он уже есть в ваших чатах Telegram")}">✈ ${T("Профиль в Telegram")}</a>`;
 const dropBrokenAvatars = root => root.querySelectorAll(".tgav img").forEach(im => { const rm = () => im.remove(); im.addEventListener("error", rm, { once: true }); if (im.complete && im.naturalWidth === 0) rm(); });
+const PROP = { all: false };      // the proposals of the bot on the page «Территории»: only the new ones or all
 const OPENRG = new Set();           // regions whose group of people is open (kept while the page is reloaded after an action)
 async function people() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
@@ -456,7 +457,7 @@ async function staffBox() {
 async function territories() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const SUP = ME.role === "super_admin";
-  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>${T("Территории")}</h2>${SUP ? `<button class="btn right" id="t-rep">${T("Загрузить данные из Excel (учреждения и показатели за 2 дня)")}</button><button class="btn" id="t-imp">${T("Импорт территорий")}</button><button class="btn pri" id="t-add">${T("+ Регион")}</button>` : ""}</div><p class="muted sm">${SUP ? T("Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять.") : T("Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять (только в ваших регионах).")}</p><div id="tt"></div></div>`;
+  if (nav !== NAVID) return; view.innerHTML = `<div class="card" id="tprop"><p class="muted">${T("Загрузка…")}</p></div><div class="card"><div class="row"><h2>${T("Территории")}</h2>${SUP ? `<button class="btn right" id="t-rep">${T("Загрузить данные из Excel (учреждения и показатели за 2 дня)")}</button><button class="btn" id="t-imp">${T("Импорт территорий")}</button><button class="btn pri" id="t-add">${T("+ Регион")}</button>` : ""}</div><p class="muted sm">${SUP ? T("Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять.") : T("Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять (только в ваших регионах).")}</p><div id="tt"></div></div>`;
   let cur = null;
   const load = async () => {
     META = await api("/api/meta");
@@ -483,13 +484,43 @@ async function territories() {
     document.querySelectorAll("[data-df]").forEach(b => b.onclick = () => { const x = f.items.find(y => y.id === +b.dataset.df);
       confirmDlg(T("Удалить учреждение"), `<p>${T("Учреждение {name} ({district}) будет удалено.", { name: `<b>${esc(nm(x))}</b>`, district: esc(x.district) })}</p><ul class="sm"><li>${T("Отчётов, которые удалятся вместе с ним: {n}", { n: `<b>${x.reports}</b>` })}</li><li>${T("Ответственных, у которых пропадёт привязка: {n} (в боте они останутся)", { n: `<b>${x.assignments.length}</b>` })}</li></ul><p class="muted sm">${T("Если нужно только скрыть учреждение из отчётности, используйте «Изменить» и снимите «Активно»: данные сохранятся.")}</p>`, T("Удалить безвозвратно"), async () => { await api("/api/facilities/" + x.id + "?force=1", { method: "DELETE" }); closeModal(); toast(T("Учреждение удалено")); again(); }); });
   };
+  // the proposals of the people of the bot: add / remove a facility; the person with the section decides here (adds or removes it with the usual dialogs, or refuses)
+  const loadProps = async () => {
+    let r; try { r = await api("/api/facility-proposals?status=" + (PROP.all ? "all" : "new")); } catch (e) { return fail(e); }
+    const box = $("#tprop"); if (!box) return;
+    ME.proposals_new = r.new; badgeProposals();
+    const who = p => `${esc(p.who)}${p.username ? ` (@${esc(p.username)})` : ""}`;
+    const row = p => `<div class="prop ${p.status}"><div class="prop-h"><span class="pill ${p.kind === "add" ? "normal" : "critical"}">${p.kind === "add" ? T("Добавить") : T("Удалить")}</span> <b>${esc(p.kind === "remove" && p.facility ? nm({ name_ru: p.facility, name_uz: p.facility_uz }) : p.name)}</b>
+        <span class="muted sm">${esc(rname(p.region))}${p.kind === "remove" && p.district ? " · " + esc(p.district) : ""}</span>
+        ${p.status === "done" ? `<span class="pill sent">${T("Выполнено")}</span>` : p.status === "rejected" ? `<span class="pill">${T("Отклонено")}</span>` : ""}</div>
+      ${p.comment ? `<div class="prop-c">${esc(p.comment)}</div>` : ""}
+      <div class="muted sm">${T("От {who} · {at}", { who: who(p), at: esc(p.at) })}${p.status !== "new" ? ` · ${T("Решил(а): {name}, {at}", { name: esc(p.handled_by || "—"), at: esc(p.handled_at) })}${p.handled_comment ? ` · ${esc(p.handled_comment)}` : ""}` : ""}</div>
+      ${p.status === "new" ? `<div class="row mt"><button class="btn sm pri" data-pa="${p.id}">${p.kind === "add" ? T("Добавить учреждение") : p.facility_id ? T("Удалить учреждение") : T("Учреждения уже нет: закрыть")}</button><button class="btn sm" data-pr="${p.id}">${T("Отклонить")}</button></div>` : ""}</div>`;
+    box.innerHTML = `<div class="row"><h2>${T("Предложения от пользователей бота")}</h2>${r.new ? `<span class="pill warning">${T("новых: {n}", { n: r.new })}</span>` : ""}<div class="seg right"><button data-pf="new" class="${PROP.all ? "" : "on"}">${T("Новые")}</button><button data-pf="all" class="${PROP.all ? "on" : ""}">${T("Все")}</button></div></div>
+      <p class="muted sm">${T("Люди с доступом к региону предлагают в боте добавить или удалить учреждение. Само по себе предложение ничего не меняет: добавьте или удалите учреждение здесь, либо отклоните предложение.")}</p>
+      ${r.items.length ? r.items.map(row).join("") : `<p class="muted">${PROP.all ? T("Предложений пока нет.") : T("Новых предложений нет.")}</p>`}`;
+    box.querySelectorAll("[data-pf]").forEach(b => b.onclick = () => { PROP.all = b.dataset.pf === "all"; loadProps(); });
+    const finish = async (p, body, msgText) => { await api(`/api/facility-proposals/${p.id}/resolve`, { method: "POST", body }); toast(msgText); await loadProps(); if (cur) regionView(cur); };
+    box.querySelectorAll("[data-pr]").forEach(b => b.onclick = () => { const p = r.items.find(x => x.id === +b.dataset.pr);
+      confirmDlg(T("Отклонить предложение"), `<p>${esc(p.name)} (${esc(rname(p.region))})</p>`, T("Отклонить"), async reason => { await finish(p, { status: "rejected", comment: reason }, T("Предложение отклонено")); closeModal(); }, true); });
+    box.querySelectorAll("[data-pa]").forEach(b => b.onclick = async () => { const p = r.items.find(x => x.id === +b.dataset.pa);
+      if (p.kind === "add") {
+        let d; try { d = await api("/api/districts?region_id=" + p.region_id); } catch (e) { return fail(e); }
+        return facAddDlg(d.items.filter(x => x.active), "", id => finish(p, { status: "done", facility_id: id }, T("Учреждение добавлено, предложение закрыто")).catch(fail), p.name);
+      }
+      if (!p.facility_id) return finish(p, { status: "done", comment: T("Учреждения уже нет") }, T("Предложение закрыто")).catch(fail);
+      confirmDlg(T("Удалить учреждение"), `<p>${T("Учреждение {name} ({district}) будет удалено.", { name: `<b>${esc(nm({ name_ru: p.facility, name_uz: p.facility_uz }))}</b>`, district: esc(p.district) })}</p><ul class="sm"><li>${T("Отчётов, которые удалятся вместе с ним: {n}", { n: `<b>${p.reports}</b>` })}</li></ul><p class="muted sm">${T("Если нужно только скрыть учреждение из отчётности, используйте «Изменить» и снимите «Активно»: данные сохранятся.")}</p>`, T("Удалить безвозвратно"), async () => {
+        await api("/api/facilities/" + p.facility_id + "?force=1", { method: "DELETE" }); await finish(p, { status: "done" }, T("Учреждение удалено, предложение закрыто")); closeModal(); });
+    });
+  };
+  loadProps();
   if (SUP) { $("#t-add").onclick = () => nameDlg("regions", {}, load, true); $("#t-imp").onclick = () => importDlg(load); $("#t-rep").onclick = () => reportImportDlg(load); }
   load();
 }
-function facAddDlg(districts, did, done) {
+function facAddDlg(districts, did, done, prefill = "") {
   if (!districts.length) { toast(T("Сначала добавьте район")); return; }
-  modal(`<h2>${T("Добавить учреждение")}</h2><label>${T("Район")}<select id="fa-d">${districts.map(x => `<option value="${x.id}" ${String(x.id) === String(did) ? "selected" : ""}>${esc(nm(x))}</option>`).join("")}</select></label><label>${T("Название (рус.)")}<input id="fa-ru"></label><label>${T("Название (узб.)")}<input id="fa-uz"></label><div id="fa-err" class="err"></div><div class="row mt"><button class="btn pri" id="fa-ok">${T("Добавить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
-  $("#fa-ok").onclick = async () => { try { await api("/api/facilities", { method: "POST", body: { district_id: +$("#fa-d").value, name_ru: $("#fa-ru").value, name_uz: $("#fa-uz").value } }); closeModal(); toast(T("Учреждение добавлено")); done(); } catch (e) { $("#fa-err").textContent = e.message; } };
+  modal(`<h2>${T("Добавить учреждение")}</h2><label>${T("Район")}<select id="fa-d">${districts.map(x => `<option value="${x.id}" ${String(x.id) === String(did) ? "selected" : ""}>${esc(nm(x))}</option>`).join("")}</select></label><label>${T("Название (рус.)")}<input id="fa-ru" value="${esc(prefill)}"></label><label>${T("Название (узб.)")}<input id="fa-uz"></label><div id="fa-err" class="err"></div><div class="row mt"><button class="btn pri" id="fa-ok">${T("Добавить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
+  $("#fa-ok").onclick = async () => { try { const x = await api("/api/facilities", { method: "POST", body: { district_id: +$("#fa-d").value, name_ru: $("#fa-ru").value, name_uz: $("#fa-uz").value } }); closeModal(); toast(T("Учреждение добавлено")); done(x.id); } catch (e) { $("#fa-err").textContent = e.message; } };
 }
 function nameDlg(kind, o, done, isNew) {
   modal(`<h2>${isNew ? T("Добавить") : T("Изменить")}</h2><label>${T("Название (рус.)")}<input id="n-ru" value="${esc(o.name_ru || "")}"></label><label>${T("Название (узб.)")}<input id="n-uz" value="${esc(o.name_uz || "")}"></label>
@@ -712,6 +743,7 @@ async function messagesView() {
   await load(true);
   const sel = $("#m-r"); if (sel) { const seen = new Map(items.map(t => [String(t.region_id), t.region])); sel.innerHTML = `<option value="">${T("Все области")}</option>` + [...seen].sort((a, b) => rname(a[1]).localeCompare(rname(b[1]), LANG)).map(([id, n]) => `<option value="${id}">${esc(rname(n))}</option>`).join(""); sel.value = MSG.region; }
 }
+function badgeProposals() { const a = document.querySelector('#tabs a[data-t="territories"]'); if (a) a.innerHTML = T("Территории") + (ME.proposals_new ? ` <span class="pill warning">${ME.proposals_new}</span>` : ""); }
 function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = T("Сообщения") + (ME.messages_unread ? ` <span class="pill critical blink">${ME.messages_unread}</span>` : ""); }
 
 // ---------- shell
@@ -743,7 +775,7 @@ $("#pwbtn").onclick = () => { modal(`<h2>${T("Смена пароля")}</h2><la
   try { ME = await api("/api/me"); META = await api("/api/meta"); } catch (e) { return; }
   $("#who").textContent = `${ME.name && ME.name !== ME.role_label ? ME.name : ME.login} · ${roleLabel(ME.role_label)}`;
   $("#tabs").innerHTML = menuTabs().map(t => `<a href="#/${t.href}" data-t="${t.name}">${t.label}</a>`).join("");
-  window.addEventListener("hashchange", route); route(); badgeMessages();
+  window.addEventListener("hashchange", route); route(); badgeMessages(); badgeProposals();
   livePulse();
 })();
 // the data refreshes itself: when a report arrives (from the bot or another person) the open page reloads in place
@@ -763,6 +795,7 @@ function livePulse() {
     try {
       const pl = await api("/api/pulse"), t = pl.token;
       if (pl.unread !== undefined && ME.messages_unread !== pl.unread) { ME.messages_unread = pl.unread; badgeMessages(); }
+      if (pl.proposals !== undefined && ME.proposals_new !== pl.proposals) { ME.proposals_new = pl.proposals; badgeProposals(); }
       if (last !== null && t !== last) {
         const name = (location.hash.slice(2) || "dashboard").split("?")[0];
         if (LIVE.includes(name) && idle()) {

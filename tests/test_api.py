@@ -591,3 +591,39 @@ def test_messages_of_one_telegram_profile_are_one_chat(client, monkeypatch):
     # «unread» on the chat marks every message of the person unread again
     assert client.post(f"/api/messages/{mine['thread_id']}/read", json={"read": False}).status_code == 200
     assert {t["tg_id"]: t["unread"] for t in client.get("/api/messages").json()["items"]} == {"662001": 2, "662002": 1}
+
+
+def test_facility_proposals_are_seen_and_decided_by_the_territory_managers_of_the_region(client):
+    from app.db import connect, tx
+    f1 = make_facility(region=1, district="Район П", fac="Больница П1")
+    with tx() as c:
+        for rid, kind, name, fid, tg in ((1, "add", "Новая больница", None, "777001"), (1, "remove", "Больница П1", f1, "777002"), (2, "add", "Чужая новая", None, "777003")):
+            c.execute("INSERT INTO facility_proposals(region_id, kind, name, facility_id, comment, tg_id, created_at) VALUES (?,?,?,?,?,?,datetime('now'))", (rid, kind, name, fid, "комм", tg))
+    # the super administrator sees all, the pulse and /me count the new ones
+    items = client.get("/api/facility-proposals").json()
+    assert items["new"] == 3 and {p["name"] for p in items["items"]} == {"Новая больница", "Больница П1", "Чужая новая"}
+    assert client.get("/api/me").json()["proposals_new"] == 3 and client.get("/api/pulse").json()["proposals"] == 3
+    rm = next(p for p in items["items"] if p["kind"] == "remove")
+    assert rm["facility_id"] == f1 and rm["facility"] == "Больница П1" and rm["district"] == "Район П"
+    # an administrator sees them only with the section «Территории» and only in his own regions
+    a = mk_staff(client, "prop_adm", "admin", [1])
+    assert a.get("/api/facility-proposals").status_code == 403 and a.get("/api/me").json()["proposals_new"] == 0
+    sid = [x for x in client.get("/api/staff").json()["items"] if x["login"] == "prop_adm"][0]["id"]
+    assert client.patch(f"/api/staff/{sid}", json={"can_manage_territories": True}).status_code == 200
+    mine = a.get("/api/facility-proposals").json()
+    assert mine["new"] == 2 and {p["name"] for p in mine["items"]} == {"Новая больница", "Больница П1"} and a.get("/api/pulse").json()["proposals"] == 2
+    foreign = next(p for p in items["items"] if p["name"] == "Чужая новая")
+    assert a.post(f"/api/facility-proposals/{foreign['id']}/resolve", json={"status": "rejected"}).status_code == 403
+    # deciding: the facility is added / removed by the person with the usual buttons, then the proposal is closed with a note
+    add = next(p for p in mine["items"] if p["kind"] == "add")
+    did = connect().execute("SELECT id FROM districts WHERE region_id=1 AND name_ru='Район П'").fetchone()[0]
+    nf = a.post("/api/facilities", json={"district_id": did, "name_ru": "Новая больница"}).json()["id"]
+    assert a.post(f"/api/facility-proposals/{add['id']}/resolve", json={"status": "done", "facility_id": nf, "comment": "добавлено"}).status_code == 200
+    assert a.post(f"/api/facility-proposals/{add['id']}/resolve", json={"status": "done"}).status_code == 409           # only once
+    assert a.post(f"/api/facility-proposals/{rm['id']}/resolve", json={"status": "bogus"}).status_code == 400
+    assert a.post(f"/api/facility-proposals/{rm['id']}/resolve", json={"status": "rejected", "comment": "нужна"}).status_code == 200
+    assert client.post("/api/facility-proposals/99999/resolve", json={"status": "done"}).status_code == 404
+    assert a.get("/api/facility-proposals").json()["new"] == 0 and client.get("/api/facility-proposals").json()["new"] == 1
+    done = {p["name"]: p for p in client.get("/api/facility-proposals?status=handled").json()["items"]}
+    assert done["Новая больница"]["status"] == "done" and done["Новая больница"]["facility_id"] == nf and done["Новая больница"]["handled_by"] and done["Больница П1"]["status"] == "rejected"
+    assert done["Больница П1"]["handled_comment"] == "нужна"

@@ -112,18 +112,28 @@ T["uz"].update({
 })
 
 T["ru"].update({
-    "pick_fac_region": "Регион: <b>{region}</b>\nВыберите <b>учреждение</b> кнопкой или напишите его название. Нет в списке — нажмите «➕ Добавить новое».",
-    "no_fac_region": "В регионе <b>{region}</b> пока нет учреждений. Добавьте своё — нажмите кнопку ниже.", "add_new": "➕ Добавить новое учреждение",
-    "ask_new_name": "Напишите <b>название нового учреждения</b> (как оно называется официально).", "bad_name": "⚠️ Название слишком короткое или длинное (от 3 до 120 знаков). Напишите ещё раз.",
-    "fac_exists": "Такое учреждение уже есть в списке — выбрано оно.", "fac_added": "✅ Учреждение <b>{name}</b> добавлено в регион <b>{region}</b>.",
-    "fac_limit": "⚠️ За сутки можно добавить не больше {n} учреждений. Обратитесь к администратору.",
+    "pick_fac_region": "Регион: <b>{region}</b>\nВыберите <b>учреждение</b> кнопкой или напишите его название. Нет в списке или нужно убрать — нажмите «✍️ Предложить…» внизу.",
+    "no_fac_region": "В регионе <b>{region}</b> пока нет учреждений. Предложите добавить своё — нажмите кнопку ниже.", "add_new": "✍️ Предложить добавить или удалить учреждение",
+    "bad_name": "⚠️ Название слишком короткое или длинное (от 3 до 200 знаков). Напишите ещё раз.",
+    "sug_kind": "Что вы хотите предложить?", "sug_add": "➕ Добавить учреждение", "sug_del": "➖ Удалить учреждение", "sug_skip": "⏭ Пропустить",
+    "sug_add_name": "Напишите <b>название учреждения</b>, которое нужно добавить (как оно называется официально), и район, если знаете.",
+    "sug_del_pick": "Выберите учреждение, которое нужно удалить:",
+    "sug_del_reason": "Напишите, <b>почему</b> учреждение «{name}» нужно удалить, или нажмите «Пропустить».",
+    "sug_sent": "✅ Спасибо! Предложение отправлено администратору: оно появится в разделе «Территории».",
+    "sug_exists": "Такое учреждение уже есть в списке региона.", "sug_dup": "Такое предложение уже отправлено и ждёт решения.",
+    "sug_limit": "⚠️ За сутки можно отправить не больше {n} предложений. Обратитесь к администратору.",
 })
 T["uz"].update({
-    "pick_fac_region": "Вилоят: <b>{region}</b>\n<b>Муассасани</b> тугма билан танланг ёки номини ёзинг. Рўйхатда йўқ бўлса — «➕ Янгисини қўшиш» тугмасини босинг.",
-    "no_fac_region": "<b>{region}</b> вилоятида ҳозирча муассасалар йўқ. Ўзингизникини қўшинг — пастдаги тугмани босинг.", "add_new": "➕ Янги муассаса қўшиш",
-    "ask_new_name": "<b>Янги муассаса номини</b> ёзинг (расмий номи билан).", "bad_name": "⚠️ Ном жуда қисқа ёки узун (3 дан 120 белгигача). Яна ёзинг.",
-    "fac_exists": "Бундай муассаса рўйхатда бор — шу танланди.", "fac_added": "✅ <b>{name}</b> муассасаси <b>{region}</b> вилоятига қўшилди.",
-    "fac_limit": "⚠️ Бир кунда {n} тадан ортиқ муассаса қўшиб бўлмайди. Администраторга мурожаат қилинг.",
+    "pick_fac_region": "Вилоят: <b>{region}</b>\n<b>Муассасани</b> тугма билан танланг ёки номини ёзинг. Рўйхатда йўқ бўлса ёки олиб ташлаш керак бўлса — пастдаги «✍️ Таклиф қилиш…» тугмасини босинг.",
+    "no_fac_region": "<b>{region}</b> вилоятида ҳозирча муассасалар йўқ. Ўзингизникини қўшишни таклиф қилинг — пастдаги тугмани босинг.", "add_new": "✍️ Муассаса қўшиш ёки ўчиришни таклиф қилиш",
+    "bad_name": "⚠️ Ном жуда қисқа ёки узун (3 дан 200 белгигача). Яна ёзинг.",
+    "sug_kind": "Нимани таклиф қилмоқчисиз?", "sug_add": "➕ Муассаса қўшиш", "sug_del": "➖ Муассасани ўчириш", "sug_skip": "⏭ Ўтказиб юбориш",
+    "sug_add_name": "Қўшиш керак бўлган <b>муассаса номини</b> (расмий номи билан) ва билсангиз, туманини ёзинг.",
+    "sug_del_pick": "Ўчириш керак бўлган муассасани танланг:",
+    "sug_del_reason": "«{name}» муассасасини <b>нима учун</b> ўчириш кераклигини ёзинг ёки «Ўтказиб юбориш»ни босинг.",
+    "sug_sent": "✅ Раҳмат! Таклиф администраторга юборилди: у «Ҳудудлар» бўлимида кўринади.",
+    "sug_exists": "Бундай муассаса вилоят рўйхатида бор.", "sug_dup": "Бундай таклиф аллақачон юборилган ва қарорни кутмоқда.",
+    "sug_limit": "⚠️ Бир кунда {n} тадан ортиқ таклиф юбориб бўлмайди. Администраторга мурожаат қилинг.",
 })
 
 T["ru"].update({
@@ -273,7 +283,7 @@ def handle_update(u: dict) -> None:
             return mreply_input(c, user, chat["id"], st, text, has)
         if st["state"] in ("form", "edit_field", "note"):
             return form_input(c, user, chat["id"], st, text, has)
-        if st["state"] in ("pick_district", "pick_facility", "pick_date_text", "pick_region_fac", "add_facility", "dl_date"):
+        if st["state"] in ("pick_district", "pick_facility", "pick_date_text", "pick_region_fac", "suggest_add", "suggest_reason", "dl_date"):
             return pick_text(c, user, chat["id"], st, text, has)
         tg.send(chat["id"], t(lang, "pick"), main_kb(lang, has))
 
@@ -473,35 +483,59 @@ def pick_district_to_submit(c, user, chat, region_id: int, page: int) -> None:
     pick_region_facility(c, user, chat, region_id, page)
 
 
-def add_facility(c, user, chat, region_id: int, name: str) -> None:
+SUGGEST_PER_DAY = 10
+
+
+def suggest_menu(c, user, chat, region_id: int) -> None:
+    """The button under the list of facilities: the person proposes to add or to remove a facility. Nothing is changed here: the proposal waits in the section «Территории»
+    of the site, where the administrators of the region add / remove / refuse."""
+    lang = user["lang"]
+    if not any(r["id"] == region_id for r in reports.user_regions(c, user["tg_id"])):
+        return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
+    tg.send(chat, t(lang, "sug_kind"), ik([[btn(t(lang, "sug_add"), f"sa:{region_id}:add")], [btn(t(lang, "sug_del"), f"sa:{region_id}:del")]]))
+
+
+def suggest_delete_list(c, user, chat, region_id: int, page: int) -> None:
+    lang = user["lang"]
+    items = region_facilities(c, region_id)
+    chunk = items[page * 10:(page + 1) * 10]
+    rows = [[btn(nm(i, lang)[:60], f"pz:{i['id']}")] for i in chunk]
+    nav = ([btn(t(lang, "prev"), f"sy:{region_id}:{page - 1}")] if page > 0 else []) + ([btn(t(lang, "next"), f"sy:{region_id}:{page + 1}")] if (page + 1) * 10 < len(items) else [])
+    if nav:
+        rows.append(nav)
+    tg.send(chat, t(lang, "sug_del_pick") if items else t(lang, "no_fac_region", region=esc(nm(c.execute("SELECT * FROM regions WHERE id=?", (region_id,)).fetchone(), lang))), ik(rows) if rows else None)
+
+
+def suggest_save(c, user, chat, region_id: int, kind: str, name: str, comment: str = "", facility_id=None) -> None:
+    """One proposal of a person; at most SUGGEST_PER_DAY a day, the same open one is not repeated."""
     from . import xlsx_import
     lang = user["lang"]
     if not any(r["id"] == region_id for r in reports.user_regions(c, user["tg_id"])):
         return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
     name = " ".join(name.split())
-    if not 3 <= len(name) <= 120 or name.isdigit():
+    comment = " ".join(comment.split())[:500]
+    if not 3 <= len(name) <= 200 or name.isdigit():
         return tg.send(chat, t(lang, "bad_name"))
-    actor = "telegram " + user["tg_id"]
-    r = c.execute("SELECT * FROM regions WHERE id=?", (region_id,)).fetchone()
-    existing = [f for f in region_facilities(c, region_id) if xlsx_import.fold(f["name_ru"]) == xlsx_import.fold(name)]
-    if existing:
-        tg.send(chat, t(lang, "fac_exists"))
-        return pick_facility(c, user, chat, existing[0]["id"])
-    limit = 10
-    today_n = c.execute("SELECT COUNT(*) FROM audit WHERE action='facility.create' AND actor=? AND at >= ?", (actor, today().isoformat())).fetchone()[0]
-    if today_n >= limit:
-        return tg.send(chat, t(lang, "fac_limit", n=limit))
-    fid, _ = xlsx_import.find_or_create_facility(c, region_id, name, actor)
-    tg.send(chat, t(lang, "fac_added", name=esc(name), region=esc(nm(r, lang))))
-    notify_admins_new_facility(c, user, r, name)
-    pick_facility(c, user, chat, fid)
+    if kind == "add" and any(xlsx_import.fold(f["name_ru"]) == xlsx_import.fold(name) or xlsx_import.fold(f["name_uz"] or "") == xlsx_import.fold(name) for f in region_facilities(c, region_id)):
+        return tg.send(chat, t(lang, "sug_exists"))
+    if c.execute("SELECT COUNT(*) FROM facility_proposals WHERE tg_id=? AND created_at >= ?", (user["tg_id"], today().isoformat())).fetchone()[0] >= SUGGEST_PER_DAY:
+        return tg.send(chat, t(lang, "sug_limit", n=SUGGEST_PER_DAY))
+    if any(xlsx_import.fold(x["name"]) == xlsx_import.fold(name) for x in c.execute("SELECT name FROM facility_proposals WHERE status='new' AND region_id=? AND kind=? AND (facility_id IS ?)", (region_id, kind, facility_id))):
+        return tg.send(chat, t(lang, "sug_dup"))
+    c.execute("INSERT INTO facility_proposals(region_id, kind, name, facility_id, comment, tg_id, created_at) VALUES (?,?,?,?,?,?,?)", (region_id, kind, name, facility_id, comment, user["tg_id"], now()))
+    set_state(c, user["tg_id"])
+    tg.send(chat, t(lang, "sug_sent"), main_kb(lang, True))
+    notify_admins_new_proposal(c, user, region_id, kind, name, comment)
 
 
-def notify_admins_new_facility(c, user, region, name: str) -> None:
+def notify_admins_new_proposal(c, user, region_id: int, kind: str, name: str, comment: str) -> None:
+    """The people who may manage the territories of that region (the super administrators and the administrators with the section «Территории» of that region)."""
+    r = c.execute("SELECT name_ru FROM regions WHERE id=?", (region_id,)).fetchone()
     who = " ".join(x for x in (user["first_name"], user["last_name"]) if x) or user["username"] or user["tg_id"]
-    text = f"🏥 <b>Добавлено новое учреждение</b>\n{esc(region['name_ru'])} / <b>{esc(name)}</b>\nДобавил: {esc(who)} (Telegram ID {user['tg_id']}). Проверьте название в разделе «Территории»."
-    for s in c.execute("SELECT * FROM staff WHERE active=1 AND tg_id != '' AND (role='super_admin' OR (role='admin' AND can_manage_users=1))").fetchall():
-        if s["role"] == "admin" and not c.execute("SELECT 1 FROM staff_scope WHERE staff_id=? AND region_id=?", (s["id"], region["id"])).fetchone():
+    text = (f"📝 <b>Предложение: {'добавить' if kind == 'add' else 'удалить'} учреждение</b>\n{esc(r['name_ru'])} / <b>{esc(name)}</b>\n" + (f"Комментарий: {esc(comment)}\n" if comment else "")
+            + f"От: {esc(who)} (Telegram ID {user['tg_id']}). Решите в разделе «Территории» на сайте.")
+    for s in c.execute("SELECT * FROM staff WHERE active=1 AND tg_id != '' AND (role='super_admin' OR (role='admin' AND can_manage_territories=1))").fetchall():
+        if s["role"] == "admin" and not c.execute("SELECT 1 FROM staff_scope WHERE staff_id=? AND region_id=?", (s["id"], region_id)).fetchone():
             continue
         tg.send(s["tg_id"], text)
 
@@ -638,8 +672,11 @@ def pick_text(c, user, chat, st: dict, text: str, has: bool) -> None:
         if d > today():
             return tg.send(chat, t(lang, "date_future"))
         return pick_date(c, user, chat, data["fid"], d.isoformat())
-    if st["state"] == "add_facility":
-        return add_facility(c, user, chat, data["rid"], text)
+    if st["state"] == "suggest_add":
+        return suggest_save(c, user, chat, data["rid"], "add", text)
+    if st["state"] == "suggest_reason":
+        skip = text == t(lang, "sug_skip")
+        return suggest_save(c, user, chat, data["rid"], "remove", data["name"], "" if skip else text, data["fid"])
     if st["state"] == "pick_region_fac":
         found = find_named(region_facilities(c, data["rid"]), text)
         if not found:
@@ -894,10 +931,24 @@ def handle_callback(cq: dict) -> None:
         if k == "dx":
             return deliver_download(c, user, chat, p[1], p[2], p[3])
         if k == "sn":
+            return suggest_menu(c, user, chat, int(p[1]))
+        if k == "sa":
             if not any(r["id"] == int(p[1]) for r in reports.user_regions(c, user["tg_id"])):
                 return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
-            set_state(c, user["tg_id"], "add_facility", {"rid": int(p[1])})
-            return tg.send(chat, t(lang, "ask_new_name"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
+            if p[2] == "del":
+                return suggest_delete_list(c, user, chat, int(p[1]), 0)
+            set_state(c, user["tg_id"], "suggest_add", {"rid": int(p[1])})
+            return tg.send(chat, t(lang, "sug_add_name"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
+        if k == "sy":
+            if not any(r["id"] == int(p[1]) for r in reports.user_regions(c, user["tg_id"])):
+                return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
+            return suggest_delete_list(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
+        if k == "pz":
+            f = c.execute("SELECT f.id, f.name_ru, f.name_uz, d.region_id FROM facilities f JOIN districts d ON d.id=f.district_id WHERE f.id=? AND f.active=1", (int(p[1]),)).fetchone()
+            if not f or not any(r["id"] == f["region_id"] for r in reports.user_regions(c, user["tg_id"])):
+                return tg.send(chat, t(lang, "fail", msg="У вас нет прав на это учреждение"))
+            set_state(c, user["tg_id"], "suggest_reason", {"rid": f["region_id"], "fid": f["id"], "name": f["name_ru"]})
+            return tg.send(chat, t(lang, "sug_del_reason", name=esc(nm(f, lang))), {"keyboard": [[{"text": t(lang, "sug_skip")}], [{"text": t(lang, "cancel")}]], "resize_keyboard": True})
         if k == "sr":
             return pick_region_facility(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
         if k == "sg":

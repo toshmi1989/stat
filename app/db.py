@@ -114,6 +114,18 @@ CREATE TABLE IF NOT EXISTS ministry_messages (
     read_at TEXT NOT NULL DEFAULT '', read_by INTEGER,
     thread_id INTEGER, direction TEXT NOT NULL DEFAULT 'in', staff_id INTEGER, error TEXT NOT NULL DEFAULT ''
 );
+-- proposals of the people of the bot to add or to remove a facility; nothing changes until a person with the section «Территории» of that region decides on the site
+CREATE TABLE IF NOT EXISTS facility_proposals (
+    id INTEGER PRIMARY KEY,
+    region_id INTEGER NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,                                       -- add | remove
+    name TEXT NOT NULL,                                       -- the proposed name (add) or the name of the facility when it was proposed (remove)
+    facility_id INTEGER,                                      -- remove: the facility; add: the facility created when the proposal was accepted
+    comment TEXT NOT NULL DEFAULT '',
+    tg_id TEXT NOT NULL, created_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'new',                       -- new | done | rejected
+    handled_by INTEGER, handled_at TEXT NOT NULL DEFAULT '', handled_comment TEXT NOT NULL DEFAULT ''
+);
 -- broadcasts written on the site and sent to the people of the bot; one log row per recipient
 CREATE TABLE IF NOT EXISTS broadcasts (
     id INTEGER PRIMARY KEY, created_by INTEGER, created_at TEXT NOT NULL,

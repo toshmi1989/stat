@@ -197,32 +197,54 @@ def region_user(uid, region=1):
         people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, str(uid), region)
 
 
-def test_empty_region_offers_to_add_first_facility(bot):
+def test_empty_region_offers_to_propose_a_facility_and_adds_nothing(bot):
     from app.db import connect
     region_user(700700)
     msg(bot, 700700, "/submit")
     assert "пока нет учреждений" in last(700700).lower() and "sn:1" in kb_of(700700)
-    cb(bot, 700700, "sn:1")
+    cb(bot, 700700, "sn:1")                                                          # the button now asks what to propose: add or remove
+    assert {"sa:1:add", "sa:1:del"} <= set(kb_of(700700))
+    cb(bot, 700700, "sa:1:add")
     msg(bot, 700700, "аб")                                # too short
     assert "слишком" in last(700700).lower()
     msg(bot, 700700, "  Городская   больница №3 ")
     c = connect()
-    f = c.execute("SELECT f.id, f.name_ru, d.name_ru AS d FROM facilities f JOIN districts d ON d.id=f.district_id").fetchall()
-    assert len(f) == 1 and f[0]["name_ru"] == "Городская больница №3" and f[0]["d"] == "Без района"
-    assert any(f"sd:{f[0]['id']}:2026-02-10" == x for x in kb_of(700700))   # straight on to the date
-    assert c.execute("SELECT COUNT(*) FROM audit WHERE action='facility.create'").fetchone()[0] == 1
-    # the same name again does not duplicate
-    cb(bot, 700700, "sn:1"); msg(bot, 700700, "городская больница №3")
-    assert connect().execute("SELECT COUNT(*) FROM facilities").fetchone()[0] == 1
+    assert c.execute("SELECT COUNT(*) FROM facilities").fetchone()[0] == 0           # the bot creates nothing any more
+    p = c.execute("SELECT * FROM facility_proposals").fetchall()
+    assert len(p) == 1 and p[0]["kind"] == "add" and p[0]["name"] == "Городская больница №3" and p[0]["region_id"] == 1 and p[0]["status"] == "new" and p[0]["tg_id"] == "700700"
+    assert "отправлено администратору" in last(700700)
+    # the same proposal again is not repeated
+    cb(bot, 700700, "sn:1"); cb(bot, 700700, "sa:1:add"); msg(bot, 700700, "городская больница №3")
+    assert "уже отправлено" in last(700700) and connect().execute("SELECT COUNT(*) FROM facility_proposals").fetchone()[0] == 1
 
 
-def test_add_facility_daily_limit_and_other_region(bot):
+def test_propose_to_remove_a_facility_with_a_reason(bot):
+    from app.db import connect
+    f = make_facility(1, "Район А", "Больница №7")
+    region_user(700703)
+    cb(bot, 700703, "sa:1:del")
+    assert f"pz:{f}" in kb_of(700703)
+    cb(bot, 700703, f"pz:{f}")
+    msg(bot, 700703, "Закрыта, объединена с другой")
+    p = connect().execute("SELECT * FROM facility_proposals").fetchall()
+    assert len(p) == 1 and p[0]["kind"] == "remove" and p[0]["facility_id"] == f and p[0]["name"] == "Больница №7" and "объединена" in p[0]["comment"]
+    assert connect().execute("SELECT active FROM facilities WHERE id=?", (f,)).fetchone()[0] == 1       # nothing is removed by the bot
+    SENT.clear(); cb(bot, 700703, f"pz:{f}"); msg(bot, 700703, "⏭ Пропустить")                         # the same facility again: already waiting
+    assert "уже отправлено" in last(700703)
+    other = make_facility(2, "Район В", "Чужая")
+    SENT.clear(); cb(bot, 700703, f"pz:{other}")                                                        # a facility of another region is refused, even with a forged callback
+    assert "нет прав" in last(700703).lower() and connect().execute("SELECT COUNT(*) FROM facility_proposals").fetchone()[0] == 1
+
+
+def test_proposals_daily_limit_and_other_region(bot):
     from app.db import connect
     region_user(700710)
     for i in range(10):
-        cb(bot, 700710, "sn:1"); msg(bot, 700710, f"Больница номер {i}")
-    cb(bot, 700710, "sn:1"); msg(bot, 700710, "Одиннадцатая больница")
-    assert "не больше" in last(700710) and connect().execute("SELECT COUNT(*) FROM facilities").fetchone()[0] == 10
+        cb(bot, 700710, "sa:1:add"); msg(bot, 700710, f"Больница номер {i}")
+    cb(bot, 700710, "sa:1:add"); msg(bot, 700710, "Одиннадцатая больница")
+    assert "не больше" in last(700710) and connect().execute("SELECT COUNT(*) FROM facility_proposals").fetchone()[0] == 10
+    cb(bot, 700710, "sa:2:add")
+    assert "нет доступа" in last(700710).lower()
 
 
 def test_facility_by_typed_name_in_region(bot):
