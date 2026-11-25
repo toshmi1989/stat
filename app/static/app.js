@@ -5,8 +5,8 @@ let ME = null, META = null, DEB = null;
 // the names from the database: a region by its Russian name or an object with name_ru / name_uz, in the language of the interface (the Uzbek one when there is one)
 const rname = s => LANG === "uz" && META && (META.regions || []).some(r => r.name_ru === s && r.name_uz) ? META.regions.find(r => r.name_ru === s).name_uz : s;
 const nm = o => (LANG === "uz" && o.name_uz) || o.name_ru || o.name || "";
-const NAMES = { beds_total: "Всего коек", occ_pregnant: "Занято: беременные", occ_children: "Занято: дети", extreme_pregnant: "Крайне тяжёлые: беременные", extreme_children: "Крайне тяжёлые: дети", visits: "Обращения", severe: "Тяжёлые", extreme: "Крайне тяжёлые", hosp: "Госпитализации", disch: "Выписки", beds_occupied: "Занято коек", occupancy: "Загрузка, %", beds_free: "Свободно коек", beds_flu: "Коек для гриппа и ОРВИ" };
-const STATE = { sent: "Отправлен", corrected: "Исправлен", returned: "Возвращён", not_sent: "Не отправлен", overdue: "Просрочен", normal: "Норма", elevated: "Повышенная", critical: "Критическая", none: "—" };
+const NAMES = { beds_total: T("Всего коек"), occ_pregnant: T("Занято: беременные"), occ_children: T("Занято: дети"), extreme_pregnant: T("Крайне тяжёлые: беременные"), extreme_children: T("Крайне тяжёлые: дети"), visits: T("Обращения"), severe: T("Тяжёлые"), extreme: T("Крайне тяжёлые"), hosp: T("Госпитализации"), disch: T("Выписки"), beds_occupied: T("Занято коек"), occupancy: T("Загрузка, %"), beds_free: T("Свободно коек"), beds_flu: T("Коек для гриппа и ОРВИ") };
+const STATE = { sent: T("Отправлен"), corrected: T("Исправлен"), returned: T("Возвращён"), not_sent: T("Не отправлен"), overdue: T("Просрочен"), normal: T("Норма"), elevated: T("Повышенная"), critical: T("Критическая"), none: "—" };
 
 async function api(path, opt = {}) {
   const o = { method: opt.method || "GET", headers: {} };
@@ -30,10 +30,10 @@ function modal(html, wide) { $("#modal").innerHTML = `<div class="modal${wide ? 
 document.addEventListener("click", e => { if (e.target.closest("[data-close]")) closeModal(); });
 // a confirmation with an optional required reason; onOk(reason) runs on "ok"
 function confirmDlg(title, html, okLabel, onOk, needReason) {
-  modal(`<h2>${title}</h2>${html}${needReason ? `<label>Причина (попадёт в журнал)<textarea id="cf-reason" rows="2"></textarea></label>` : ""}<div id="cf-err" class="err"></div><div class="row mt"><button class="btn bad" id="cf-ok">${okLabel}</button><button class="btn right" data-close>Отмена</button></div>`);
+  modal(`<h2>${title}</h2>${html}${needReason ? `<label>${T("Причина (попадёт в журнал)")}<textarea id="cf-reason" rows="2"></textarea></label>` : ""}<div id="cf-err" class="err"></div><div class="row mt"><button class="btn bad" id="cf-ok">${okLabel}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
   $("#cf-ok").onclick = async () => {
     const reason = needReason ? $("#cf-reason").value.trim() : "";
-    if (needReason && !reason) { $("#cf-err").textContent = "Укажите причину"; return; }
+    if (needReason && !reason) { $("#cf-err").textContent = T("Укажите причину"); return; }
     $("#cf-ok").disabled = true;
     try { await onOk(reason); } catch (e) { $("#cf-err").textContent = e.message; $("#cf-ok").disabled = false; }
   };
@@ -71,7 +71,7 @@ const put = (el, html, silent) => { if (silent && el.firstChild) morph(el, html)
 const H = (el, silent) => ({ set innerHTML(v) { put(el, v, silent); } });
 function closeModal() { $("#modal").innerHTML = ""; }
 function pill(state) { return `<span class="pill ${state}">${STATE[state] || state}</span>`; }
-function opts(items, val, all) { return (all ? `<option value="">${all}</option>` : "") + items.map(i => `<option value="${i.id}" ${String(i.id) === String(val) ? "selected" : ""}>${esc(i.name_ru || i.name)}</option>`).join(""); }
+function opts(items, val, all) { return (all ? `<option value="">${all}</option>` : "") + items.map(i => `<option value="${i.id}" ${String(i.id) === String(val) ? "selected" : ""}>${esc(nm(i))}</option>`).join(""); }
 const iso = d => d.toISOString().slice(0, 10);
 const addDays = (s, n) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
 
@@ -90,13 +90,13 @@ async function filterBar(onChange, opt = {}) {
   const fac = F.district_id ? (await api("/api/facilities?" + qs({ district_id: F.district_id, size: 200 }))).items : [];
   const [d1, d2] = periodOf();
   const html = `<div class="filters card">
-  ${opt.noPeriod ? "" : `<label>Период<div class="seg" id="f-pre">${[["day", "День"], ["week", "7 дней"], ["month", "30 дней"], ["custom", "Свой"]].map(([k, l]) => `<button data-v="${k}" class="${F.preset === k ? "on" : ""}">${l}</button>`).join("")}</div></label>
-  <label>С<input type="date" id="f-d1" value="${d1}" ${F.preset === "week" || F.preset === "month" ? "disabled" : ""}></label>
-  <label ${F.preset === "custom" ? "" : 'hidden'}>По<input type="date" id="f-d2" value="${d2}"></label>`}
-  <label>Регион<select id="f-r">${opts(regs, F.region_id, "Все регионы")}</select></label>
-  <label>Район<select id="f-d" ${F.region_id ? "" : "disabled"}>${opts(dist, F.district_id, "Все районы")}</select></label>
-  <label>Учреждение<select id="f-f" ${F.district_id ? "" : "disabled"}>${opts(fac, F.facility_id, "Все учреждения")}</select></label>
-  <button class="btn" id="f-reset">Сбросить</button></div>`;
+  ${opt.noPeriod ? "" : `<label>${T("Период")}<div class="seg" id="f-pre">${[["day", T("День")], ["week", T("7 дней")], ["month", T("30 дней")], ["custom", T("Свой")]].map(([k, l]) => `<button data-v="${k}" class="${F.preset === k ? "on" : ""}">${l}</button>`).join("")}</div></label>
+  <label>${T("С")}<input type="date" id="f-d1" value="${d1}" ${F.preset === "week" || F.preset === "month" ? "disabled" : ""}></label>
+  <label ${F.preset === "custom" ? "" : 'hidden'}>${T("По")}<input type="date" id="f-d2" value="${d2}"></label>`}
+  <label>${T("Регион")}<select id="f-r">${opts(regs, F.region_id, T("Все регионы"))}</select></label>
+  <label>${T("Район")}<select id="f-d" ${F.region_id ? "" : "disabled"}>${opts(dist, F.district_id, T("Все районы"))}</select></label>
+  <label>${T("Учреждение")}<select id="f-f" ${F.district_id ? "" : "disabled"}>${opts(fac, F.facility_id, T("Все учреждения"))}</select></label>
+  <button class="btn" id="f-reset">${T("Сбросить")}</button></div>`;
   return { html, bind() {
     const ch = () => onChange();
     document.querySelectorAll("#f-pre button").forEach(b => b.onclick = () => { F.preset = b.dataset.v; if (F.preset !== "day" && F.preset !== "custom") F.d1 = F.d2 = ""; ch(); });
@@ -112,17 +112,17 @@ async function filterBar(onChange, opt = {}) {
 
 // ---------- dashboard
 // only what no other card shows: the beds are in the gauge, admitted/discharged in the flow card, who has not reported follows from "сдали отчёт"
-const KPI = [["reported", "Сдали отчёт", "✅", "ok"], ["visits", "Обращения", "🚶", "pri"], ["severe", "Тяжёлые", "🩺", "warn"], ["extreme", "Крайне тяжёлые", "🚨", "bad"],
-  ["occ_pc", "Занято коек: беременные / дети", "🤰", "pur"], ["ext_pc", "Крайне тяжёлые: беременные / дети", "👶", "pur"]];
+const KPI = [["reported", T("Сдали отчёт"), "✅", "ok"], ["visits", T("Обращения"), "🚶", "pri"], ["severe", T("Тяжёлые"), "🩺", "warn"], ["extreme", T("Крайне тяжёлые"), "🚨", "bad"],
+  ["occ_pc", T("Занято коек: беременные / дети"), "🤰", "pur"], ["ext_pc", T("Крайне тяжёлые: беременные / дети"), "👶", "pur"]];
 // the exact wording of the questions (Uzbek) behind a card: shown on hover
 const KPI_CODES = { visits: ["visits"], severe: ["severe"], extreme: ["extreme"], occ_pc: ["occ_pregnant", "occ_children"], ext_pc: ["extreme_pregnant", "extreme_children"] };
 const askedAs = key => (KPI_CODES[key] || []).map(code => { const i = (META.indicators || []).find(x => x.code === code); return i ? `${META.indicators.filter(x => x.active).findIndex(x => x.code === code) + 1}. ${i.name_uz || i.name_ru}` : ""; }).filter(Boolean).join(" · ");
 const SORT = { key: "visits", asc: false }, DRILL = [];
-const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
-const longDate = d => { const [y, m, dd] = d.split("-"); return `${+dd} ${MONTHS[+m - 1]} ${y}`; };
+const MONTHS = LANG === "uz" ? ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"] : ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+const longDate = d => { const [y, m, dd] = d.split("-"); return LANG === "uz" ? `${y}-yil ${+dd}-${MONTHS[+m - 1]}` : `${+dd} ${MONTHS[+m - 1]} ${y}`; };
 function kpiValue(key, k) {
   const t = k.totals;
-  if (key === "reported") return `<span data-count="${k.reported}">${k.reported}</span><small class="muted"> из ${k.facilities}</small>`;
+  if (key === "reported") return `<span data-count="${k.reported}">${k.reported}</span><small class="muted"> ${T("из {n}", { n: k.facilities })}</small>`;
   if (key === "not_reported") return `<span data-count="${k.not_reported}">${k.not_reported}</span>`;
   if (key === "occ_pc") return `${num(t.occ_pregnant)} / ${num(t.occ_children)}`;
   if (key === "ext_pc") return `${num(t.extreme_pregnant)} / ${num(t.extreme_children)}`;
@@ -142,24 +142,24 @@ async function dashboard(silent) {
   const isToday = F.preset === "day" && dash.requested === ME.today;
   const canWrite = ME.role !== "viewer";
   const owe = dash.control ? dash.control.not_sent + dash.control.overdue : 0;   // those who still owe today's report (also when nobody has reported yet)
-  H($("#dash"), silent).innerHTML = `<div class="hero"><div><h1>${F.preset === "day" ? "Сводка за " + longDate(dash.used_date) : "Сводка за период " + d1 + " — " + d2}</h1><div class="sub">${ME.org ? esc(ME.org) + " · " : ""}по ${k.reported} из ${k.facilities} учреждений${dash.fallback ? " · данных за выбранный день нет, показан последний день с данными" : ""}</div></div>
-    <div class="acts"><a class="btn" href="#/export">⬇ Выгрузка</a></div></div>
-    ${canWrite && isToday && owe > 0 ? `<div class="cta"><span style="font-size:22px">⏰</span><div><b>${owe} учреждений ещё не сдали сводку за сегодня</b><div class="sub muted">Бот напомнит ответственным одним сообщением с кнопкой отправки</div></div><div class="acts"><button class="btn warn" id="remind">🔔 Отправить уведомление не сдавшим</button></div></div>` : ""}
+  H($("#dash"), silent).innerHTML = `<div class="hero"><div><h1>${F.preset === "day" ? T("Сводка за {date}", { date: longDate(dash.used_date) }) : T("Сводка за период {d1} — {d2}", { d1, d2 })}</h1><div class="sub">${ME.org ? esc(ME.org) + " · " : ""}${T("по {a} из {b} учреждений", { a: k.reported, b: k.facilities })}${dash.fallback ? " · " + T("данных за выбранный день нет, показан последний день с данными") : ""}</div></div>
+    <div class="acts"><a class="btn" href="#/export">${T("⬇ Выгрузка")}</a></div></div>
+    ${canWrite && isToday && owe > 0 ? `<div class="cta"><span style="font-size:22px">⏰</span><div><b>${T("{n} учреждений ещё не сдали сводку за сегодня", { n: owe })}</b><div class="sub muted">${T("Бот напомнит ответственным одним сообщением с кнопкой отправки")}</div></div><div class="acts"><button class="btn warn" id="remind">${T("🔔 Отправить уведомление не сдавшим")}</button></div></div>` : ""}
     <div class="kpis">${KPI.map(([key, label, ic, tone], i) => `<div class="kpi tilt" data-t="${tone}" style="--i:${i}" title="${esc(askedAs(key))}"><div class="ic">${ic}</div><div class="v">${kpiValue(key, k)}</div><div class="l">${label}</div></div>`).join("")}</div>
     <div class="topgrid">${mapCard()}<div class="sidecol">
-      <div class="card vcard"><h3>Загрузка коек</h3>${gaugeChart(t.occupancy, th)}<div class="cap">Занято <b>${num(t.beds_occupied)}</b> из <b>${num(t.beds_flu)}</b> выделенных · свободно <b>${num(t.beds_free)}</b><br>Всего коек в учреждениях: <b>${num(t.beds_total)}</b></div></div>
-      <div class="card vcard"><h3>Поступили и выписаны</h3>${flowCard(t.hosp, t.disch)}</div></div></div>
+      <div class="card vcard"><h3>${T("Загрузка коек")}</h3>${gaugeChart(t.occupancy, th)}<div class="cap">${T("Занято <b>{a}</b> из <b>{b}</b> выделенных · свободно <b>{c}</b>", { a: num(t.beds_occupied), b: num(t.beds_flu), c: num(t.beds_free) })}<br>${T("Всего коек в учреждениях: <b>{n}</b>", { n: num(t.beds_total) })}</div></div>
+      <div class="card vcard"><h3>${T("Поступили и выписаны")}</h3>${flowCard(t.hosp, t.disch)}</div></div></div>
     <div id="alerts" data-keep></div>
-    <div class="grid2"><div class="card"><h2>Нагрузка по регионам</h2><div id="tiles" data-keep>…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>норма до ${th.elevated}%</span><span><i style="background:var(--warn)"></i>повышенная до ${th.critical}%</span><span><i style="background:var(--bad)"></i>критическая от ${th.critical}%</span></div></div>
-      <div class="card"><div class="row"><h2>Лидеры по обращениям</h2></div><div id="rank" data-keep>…</div></div></div>
-    <div class="card"><div class="row"><h2>Регионы</h2><input id="rt-q" placeholder="Поиск" class="right"></div><div class="scroll-x" id="rt" data-keep></div></div>
-    <div class="grid2"><div class="card"><h3>Динамика</h3><div class="lbl">Показатель</div><div class="chips" id="dyn-m" data-keep></div><div class="lbl">Сравнить регионы <span class="muted">(до 5)</span></div><div class="chips" id="dyn-r" data-keep></div><div id="dyn" data-keep></div></div>
-    <div class="card"><h3>Госпитализации и выписки</h3><div id="hd" data-keep></div></div></div>
-    <div class="card"><h3>Баланс коек</h3><div class="scroll-x" id="beds" data-keep></div></div>`;
+    <div class="grid2"><div class="card"><h2>${T("Нагрузка по регионам")}</h2><div id="tiles" data-keep>…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>${T("норма до {n}%", { n: th.elevated })}</span><span><i style="background:var(--warn)"></i>${T("повышенная до {n}%", { n: th.critical })}</span><span><i style="background:var(--bad)"></i>${T("критическая от {n}%", { n: th.critical })}</span></div></div>
+      <div class="card"><div class="row"><h2>${T("Лидеры по обращениям")}</h2></div><div id="rank" data-keep>…</div></div></div>
+    <div class="card"><div class="row"><h2>${T("Регионы")}</h2><input id="rt-q" placeholder="${T("Поиск")}" class="right"></div><div class="scroll-x" id="rt" data-keep></div></div>
+    <div class="grid2"><div class="card"><h3>${T("Динамика")}</h3><div class="lbl">${T("Показатель")}</div><div class="chips" id="dyn-m" data-keep></div><div class="lbl">${T("Сравнить регионы")} <span class="muted">${T("(до 5)")}</span></div><div class="chips" id="dyn-r" data-keep></div><div id="dyn" data-keep></div></div>
+    <div class="card"><h3>${T("Госпитализации и выписки")}</h3><div id="hd" data-keep></div></div></div>
+    <div class="card"><h3>${T("Баланс коек")}</h3><div class="scroll-x" id="beds" data-keep></div></div>`;
   if (!silent) countUp($("#dash"));
   tilt($("#dash"));
   const rem = $("#remind"); if (rem) rem.onclick = () => remindDlg(dash.requested);
-  api("/api/alerts").then(a => $("#alerts") && ($("#alerts").innerHTML = a.items.slice(0, 6).map(x => `<div class="alert ${x.level}">${esc(x.text)}</div>`).join("") + (a.items.length > 6 ? `<p class="muted sm">Ещё предупреждений: ${a.items.length - 6} (раздел «Прогноз»)</p>` : ""))).catch(fail);
+  api("/api/alerts").then(a => $("#alerts") && ($("#alerts").innerHTML = a.items.slice(0, 6).map(x => `<div class="alert ${x.level}">${esc(TS(x.text))}</div>`).join("") + (a.items.length > 6 ? `<p class="muted sm">${T("Ещё предупреждений: {n} (раздел «Прогноз»)", { n: a.items.length - 6 })}</p>` : ""))).catch(fail);
   const [u1, u2] = dash.fallback ? [dash.used_date, dash.used_date] : [d1, d2];   // tables follow the day the KPI cards show
   loadTable(u1, u2, silent); loadDyn(silent); loadHD(silent); loadBeds(u1, u2, silent); loadViz(u1, u2, silent);
 }
@@ -178,21 +178,21 @@ async function loadViz(d1, d2, silent) {
 async function remindDlg(date) {
   let pre; try { pre = await api("/api/notify/remind", { method: "POST", body: { date, region_id: F.region_id || null, dry: true } }); } catch (e) { return fail(e); }
   const people = pre.items.filter(x => x.status === "would_send"), skipped = pre.items.filter(x => x.status === "skipped");
-  modal(`<h2>🔔 Напомнить не сдавшим</h2><p>За <b>${esc(longDate(date))}</b> не сдали сводку <b>${pre.missing}</b> учреждений.</p>
-    ${people.length ? `<p>Сообщение в Telegram получат <b>${people.length}</b> ответственных:</p><div class="scroll-x" style="max-height:220px;overflow:auto"><table>${people.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${x.facilities} уч.</td></tr>`).join("")}</table></div>` : `<div class="note">Некому отправлять: у всех не сдавших нет подключённого ответственного или им уже напоминали в последний час.</div>`}
-    ${skipped.length ? `<p class="muted sm">Пропущены (напоминали меньше часа назад): ${skipped.length}</p>` : ""}
-    ${pre.no_responsible_total ? `<div class="alert"><b>Нет ответственного у ${pre.no_responsible_total} учреждений</b> — им уведомление не уйдёт:<br><span class="sm">${pre.no_responsible.slice(0, 8).map(esc).join("<br>")}${pre.no_responsible_total > 8 ? "<br>…" : ""}</span></div>` : ""}
-    <div class="row mt"><button class="btn warn" id="rm-go" ${people.length ? "" : "disabled"}>Отправить ${people.length || ""}</button><button class="btn right" data-close>Закрыть</button></div>`);
+  modal(`<h2>${T("🔔 Напомнить не сдавшим")}</h2><p>${T("За <b>{date}</b> не сдали сводку <b>{n}</b> учреждений.", { date: esc(longDate(date)), n: pre.missing })}</p>
+    ${people.length ? `<p>${T("Сообщение в Telegram получат <b>{n}</b> ответственных:", { n: people.length })}</p><div class="scroll-x" style="max-height:220px;overflow:auto"><table>${people.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${T("{n} уч.", { n: x.facilities })}</td></tr>`).join("")}</table></div>` : `<div class="note">${T("Некому отправлять: у всех не сдавших нет подключённого ответственного или им уже напоминали в последний час.")}</div>`}
+    ${skipped.length ? `<p class="muted sm">${T("Пропущены (напоминали меньше часа назад): {n}", { n: skipped.length })}</p>` : ""}
+    ${pre.no_responsible_total ? `<div class="alert">${T("<b>Нет ответственного у {n} учреждений</b> — им уведомление не уйдёт:", { n: pre.no_responsible_total })}<br><span class="sm">${pre.no_responsible.slice(0, 8).map(x => esc(x.replace(/^(.*?) — /, (m, rg) => rname(rg) + " — "))).join("<br>")}${pre.no_responsible_total > 8 ? "<br>…" : ""}</span></div>` : ""}
+    <div class="row mt"><button class="btn warn" id="rm-go" ${people.length ? "" : "disabled"}>${T("Отправить {n}", { n: people.length || "" })}</button><button class="btn right" data-close>${T("Закрыть")}</button></div>`);
   const go = $("#rm-go"); if (go) go.onclick = async () => { go.disabled = true; try { const r = await api("/api/notify/remind", { method: "POST", body: { date, region_id: F.region_id || null, dry: false } });
-    modal(`<h2>${r.errors ? "⚠️" : "✅"} Готово</h2><p>Отправлено: <b>${r.sent}</b>${r.errors ? `, не доставлено: <b>${r.errors}</b> (человек мог заблокировать бота)` : ""}${r.skipped ? `, пропущено: ${r.skipped}` : ""}.</p><button class="btn pri" data-close>Закрыть</button>`); } catch (e) { fail(e); go.disabled = false; } };
+    modal(`<h2>${r.errors ? "⚠️" : "✅"} ${T("Готово")}</h2><p>${T("Отправлено: <b>{n}</b>", { n: r.sent })}${r.errors ? ", " + T("не доставлено: <b>{n}</b> (человек мог заблокировать бота)", { n: r.errors }) : ""}${r.skipped ? ", " + T("пропущено: {n}", { n: r.skipped }) : ""}.</p><button class="btn pri" data-close>${T("Закрыть")}</button>`); } catch (e) { fail(e); go.disabled = false; } };
 }
 let METRICS = ["visits"], REGSEL = [];
 function loadDyn(silent) {
   const mEl = $("#dyn-m"), rEl = $("#dyn-r"); if (!mEl || !rEl) return;
-  const short = n => n.replace("Республика ", "").replace(" область", "").replace("город ", "г. ");
+  const short = n => LANG === "uz" ? uzShort(n) : n.replace("Республика ", "").replace(" область", "").replace("город ", "г. ");
   const drawChips = () => {
     mEl.innerHTML = ["visits", "hosp", "disch", "beds_occupied", "occ_pregnant", "occ_children", "severe", "extreme"].map(m => `<button class="chip ${METRICS.includes(m) ? "on" : ""}" data-m="${m}">${NAMES[m]}</button>`).join("");
-    rEl.innerHTML = `<button class="chip ${REGSEL.length ? "" : "on"}" data-r="">Вся территория</button>` + META.regions.map(r => `<button class="chip ${REGSEL.includes(String(r.id)) ? "on" : ""}" data-r="${r.id}">${esc(short(r.name_ru))}</button>`).join("");
+    rEl.innerHTML = `<button class="chip ${REGSEL.length ? "" : "on"}" data-r="">${T("Вся территория")}</button>` + META.regions.map(r => `<button class="chip ${REGSEL.includes(String(r.id)) ? "on" : ""}" data-r="${r.id}">${esc(short(r.name_ru))}</button>`).join("");
     mEl.querySelectorAll("[data-m]").forEach(b => b.onclick = () => {
       const m = b.dataset.m;
       if (REGSEL.length >= 2) METRICS = [m];                       // regions are compared on one figure at a time
@@ -203,7 +203,7 @@ function loadDyn(silent) {
       const r = b.dataset.r;
       if (!r) REGSEL = [];
       else if (REGSEL.includes(r)) REGSEL = REGSEL.filter(x => x !== r);
-      else if (REGSEL.length >= 5) return toast("Сравнивать можно до 5 регионов");
+      else if (REGSEL.length >= 5) return toast(T("Сравнивать можно до 5 регионов"));
       else REGSEL = [...REGSEL, r];
       if (REGSEL.length >= 2 && METRICS.length > 1) METRICS = [METRICS[0]];
       drawChips(); draw();
@@ -214,8 +214,8 @@ function loadDyn(silent) {
     try {
       const r = await api("/api/dynamics?" + qs({ d1: a, d2, metrics: METRICS.join(","), regions: REGSEL.join(","), region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }));
       if (!$("#dyn")) return;
-      H($("#dyn"), sl).innerHTML = (REGSEL.length >= 2 ? `<p class="muted sm">Сравнение по показателю «${NAMES[METRICS[0]]}»</p>` : "") +
-        lineChart(r.dates, r.series.map(s => ({ name: REGSEL.length >= 2 ? s.name : REGSEL.length === 1 && METRICS.length > 1 ? s.name + " — " + NAMES[s.metric] : METRICS.length > 1 ? NAMES[s.metric] : s.name, points: s.points })));
+      H($("#dyn"), sl).innerHTML = (REGSEL.length >= 2 ? `<p class="muted sm">${T("Сравнение по показателю «{m}»", { m: NAMES[METRICS[0]] })}</p>` : "") +
+        lineChart(r.dates, r.series.map(s => { const sn = s.region_id ? rname(s.name) : T(s.name); return { name: REGSEL.length >= 2 ? sn : REGSEL.length === 1 && METRICS.length > 1 ? sn + " — " + NAMES[s.metric] : METRICS.length > 1 ? NAMES[s.metric] : sn, points: s.points }; }));
     } catch (e) { fail(e); }
   };
   if (!(silent && mEl.firstChild)) drawChips();               // the choice of figures and regions is the person's, a refresh keeps it
@@ -226,8 +226,8 @@ async function loadHD(silent) {
   try {
     const r = await api("/api/hosp-disch?" + qs({ d1: a, d2, region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }));
     if (!$("#hd")) return;
-    H($("#hd"), silent).innerHTML = barChart(r.rows.map(x => x.date), [{ name: "Госпитализации", values: r.rows.map(x => x.hosp) }, { name: "Выписки", values: r.rows.map(x => x.disch) }]) +
-      `<div class="scroll-x" style="max-height:200px;overflow:auto"><table><tr><th>Дата</th><th class="n">Госп.</th><th class="n">Выписки</th><th class="n">Разница</th><th class="n">Занято</th><th class="n">Изм.</th></tr>${r.rows.slice().reverse().map(x => `<tr><td>${x.date}</td><td class="n">${num(x.hosp)}</td><td class="n">${num(x.disch)}</td><td class="n">${num(x.diff)}</td><td class="n">${num(x.occupied)}</td><td class="n">${x.occ_change == null ? "—" : (x.occ_change > 0 ? "+" : "") + x.occ_change}</td></tr>`).join("")}</table></div>`;
+    H($("#hd"), silent).innerHTML = barChart(r.rows.map(x => x.date), [{ name: T("Госпитализации"), values: r.rows.map(x => x.hosp) }, { name: T("Выписки"), values: r.rows.map(x => x.disch) }]) +
+      `<div class="scroll-x" style="max-height:200px;overflow:auto"><table><tr><th>${T("Дата")}</th><th class="n">${T("Госп.")}</th><th class="n">${T("Выписки")}</th><th class="n">${T("Разница")}</th><th class="n">${T("Занято")}</th><th class="n">${T("Изм.")}</th></tr>${r.rows.slice().reverse().map(x => `<tr><td>${x.date}</td><td class="n">${num(x.hosp)}</td><td class="n">${num(x.disch)}</td><td class="n">${num(x.diff)}</td><td class="n">${num(x.occupied)}</td><td class="n">${x.occ_change == null ? "—" : (x.occ_change > 0 ? "+" : "") + x.occ_change}</td></tr>`).join("")}</table></div>`;
   } catch (e) { fail(e); }
 }
 async function loadTable(d1, d2, silent) {
@@ -235,14 +235,15 @@ async function loadTable(d1, d2, silent) {
   const pid = DRILL.length ? DRILL[DRILL.length - 1].id : "";
   let r; try { r = await api("/api/regions-table?" + qs({ d1, d2, level, parent_id: pid })); } catch (e) { return fail(e); }
   if (!$("#rt-q")) return;   // the person has already left the dashboard
-  const cols = [["name", "Название"], ["reported", "Отчётов"], ["visits", "Обращения"], ["hosp", "Госп."], ["disch", "Выписки"], ["beds_total", "Коек всего"], ["beds_flu", "Для гриппа и ОРВИ"], ["beds_occupied", "Занято"], ["occ_pregnant", "Берем."], ["occ_children", "Дети"], ["beds_free", "Своб."], ["occupancy", "Загрузка"], ["severe", "Тяжёлые"], ["extreme", "Крайне тяж."], ["extreme_pregnant", "Кр.тяж. берем."], ["extreme_children", "Кр.тяж. дети"]];
+  const cols = [["name", T("Название")], ["reported", T("Отчётов")], ["visits", T("Обращения")], ["hosp", T("Госп.")], ["disch", T("Выписки")], ["beds_total", T("Коек всего")], ["beds_flu", T("Для гриппа и ОРВИ")], ["beds_occupied", T("Занято")], ["occ_pregnant", T("Берем.")], ["occ_children", T("Дети")], ["beds_free", T("Своб.")], ["occupancy", T("Загрузка")], ["severe", T("Тяжёлые")], ["extreme", T("Крайне тяж.")], ["extreme_pregnant", T("Кр.тяж. берем.")], ["extreme_children", T("Кр.тяж. дети")]];
+  const dn = x => level === "region" ? rname(x.name) : x.name;      // a region is shown in the language of the interface; facilities are named as they are
   const draw = sl => {
     const q = ($("#rt-q").value || "").toLowerCase();
-    const val = (x, k) => k === "name" ? x.name : k === "reported" ? x.reported : x.values[k];
-    const rows = r.rows.filter(x => x.name.toLowerCase().includes(q)).sort((a, b) => { const A = val(a, SORT.key), B = val(b, SORT.key); const c = typeof A === "string" ? A.localeCompare(B, "ru") : (A ?? -1) - (B ?? -1); return SORT.asc ? c : -c; });
+    const val = (x, k) => k === "name" ? dn(x) : k === "reported" ? x.reported : x.values[k];
+    const rows = r.rows.filter(x => dn(x).toLowerCase().includes(q)).sort((a, b) => { const A = val(a, SORT.key), B = val(b, SORT.key); const c = typeof A === "string" ? A.localeCompare(B, LANG === "uz" ? "uz" : "ru") : (A ?? -1) - (B ?? -1); return SORT.asc ? c : -c; });
     const manyDistricts = new Set(r.rows.map(x => x.district)).size > 1;
-    const crumbs = `<p class="sm"><a href="#" id="up0">Республика</a>${DRILL.map((d, i) => ` › <a href="#" data-up="${i}">${esc(d.name)}</a>`).join("")}</p>`;
-    H($("#rt"), sl).innerHTML = crumbs + `<table><tr>${cols.map(([k, l]) => `<th data-s="${k}" class="${k !== "name" ? "n " : ""}${SORT.key === k ? "on" + (SORT.asc ? " asc" : "") : ""}">${l}</th>`).join("")}</tr>${rows.map(x => `<tr class="${level === "region" ? "link" : ""}" data-id="${x.id}" data-name="${esc(x.name)}"><td>${esc(x.name)}${level === "rfac" && manyDistricts ? `<div class="muted sm">${esc(x.district || "")}</div>` : ""}</td><td class="n">${x.reported}/${x.facilities}</td>${cols.slice(2).map(([k]) => k === "occupancy" ? `<td class="n">${x.values.occupancy == null ? "—" : `<span class="pill ${x.level_state === "none" ? "" : x.level_state}">${num(x.values.occupancy)}%</span>`}</td>` : `<td class="n">${num(x.values[k])}</td>`).join("")}</tr>`).join("")}</table>`;
+    const crumbs = `<p class="sm"><a href="#" id="up0">${T("Республика")}</a>${DRILL.map((d, i) => ` › <a href="#" data-up="${i}">${esc(rname(d.name))}</a>`).join("")}</p>`;
+    H($("#rt"), sl).innerHTML = crumbs + `<table><tr>${cols.map(([k, l]) => `<th data-s="${k}" class="${k !== "name" ? "n " : ""}${SORT.key === k ? "on" + (SORT.asc ? " asc" : "") : ""}">${l}</th>`).join("")}</tr>${rows.map(x => `<tr class="${level === "region" ? "link" : ""}" data-id="${x.id}" data-name="${esc(x.name)}"><td>${esc(dn(x))}${level === "rfac" && manyDistricts ? `<div class="muted sm">${esc(x.district || "")}</div>` : ""}</td><td class="n">${x.reported}/${x.facilities}</td>${cols.slice(2).map(([k]) => k === "occupancy" ? `<td class="n">${x.values.occupancy == null ? "—" : `<span class="pill ${x.level_state === "none" ? "" : x.level_state}">${num(x.values.occupancy)}%</span>`}</td>` : `<td class="n">${num(x.values[k])}</td>`).join("")}</tr>`).join("")}</table>`;
     document.querySelectorAll("#rt th[data-s]").forEach(th => th.onclick = () => { SORT.asc = SORT.key === th.dataset.s ? !SORT.asc : false; SORT.key = th.dataset.s; draw(); });
     document.querySelectorAll("#rt tr.link").forEach(tr => tr.onclick = () => { DRILL.push({ id: tr.dataset.id, name: tr.dataset.name }); loadTable(d1, d2); });
     $("#up0").onclick = e => { e.preventDefault(); DRILL.length = 0; loadTable(d1, d2); };
@@ -254,8 +255,8 @@ async function loadBeds(d1, d2, silent) {
   try {
     const r = await api("/api/beds?" + qs({ d1, d2 })); const th = r.thresholds;
     if (!$("#beds")) return;
-    H($("#beds"), silent).innerHTML = `<p class="muted sm">Пороги: повышенная нагрузка ≥ ${th.elevated}%, критическая ≥ ${th.critical}%, учреждение ≥ ${th.facility}%.</p><table><tr><th>Регион</th><th class="n">Коек для гриппа и ОРВИ</th><th class="n">Занято</th><th class="n">Свободно</th><th class="n">Загрузка</th><th>Состояние</th></tr>${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${num(x.beds_flu)}</td><td class="n">${num(x.occupied)}</td><td class="n">${num(x.free)}</td><td class="n">${x.occupancy == null ? "—" : num(x.occupancy) + "%"}</td><td>${pill(x.state)}</td></tr>`).join("")}</table>` +
-      (r.hot.length ? `<h3 class="mt">Учреждения с высокой загрузкой</h3><table><tr><th>Учреждение</th><th>Регион</th><th class="n">Загрузка</th><th class="n">Свободно</th></tr>${r.hot.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.region)}${x.district === "Без района" ? "" : ", " + esc(x.district)}</td><td class="n"><span class="pill critical">${num(x.occupancy)}%</span></td><td class="n">${num(x.free)}</td></tr>`).join("")}</table>` : "");
+    H($("#beds"), silent).innerHTML = `<p class="muted sm">${T("Пороги: повышенная нагрузка ≥ {a}%, критическая ≥ {b}%, учреждение ≥ {c}%.", { a: th.elevated, b: th.critical, c: th.facility })}</p><table><tr><th>${T("Регион")}</th><th class="n">${T("Коек для гриппа и ОРВИ")}</th><th class="n">${T("Занято")}</th><th class="n">${T("Свободно")}</th><th class="n">${T("Загрузка")}</th><th>${T("Состояние")}</th></tr>${r.rows.map(x => `<tr><td>${esc(rname(x.name))}</td><td class="n">${num(x.beds_flu)}</td><td class="n">${num(x.occupied)}</td><td class="n">${num(x.free)}</td><td class="n">${x.occupancy == null ? "—" : num(x.occupancy) + "%"}</td><td>${pill(x.state)}</td></tr>`).join("")}</table>` +
+      (r.hot.length ? `<h3 class="mt">${T("Учреждения с высокой загрузкой")}</h3><table><tr><th>${T("Учреждение")}</th><th>${T("Регион")}</th><th class="n">${T("Загрузка")}</th><th class="n">${T("Свободно")}</th></tr>${r.hot.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(rname(x.region))}${x.district === "Без района" ? "" : ", " + esc(x.district)}</td><td class="n"><span class="pill critical">${num(x.occupancy)}%</span></td><td class="n">${num(x.free)}</td></tr>`).join("")}</table>` : "");
   } catch (e) { fail(e); }
 }
 
