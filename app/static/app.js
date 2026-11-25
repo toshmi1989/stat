@@ -756,11 +756,11 @@ async function messagesView() {
   await load(true);
   const sel = $("#m-r"); if (sel) { const seen = new Map(items.map(t => [String(t.region_id), t.region])); sel.innerHTML = `<option value="">Все области</option>` + [...seen].sort((a, b) => a[1].localeCompare(b[1], "ru")).map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join(""); sel.value = MSG.region; }
 }
-function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = "Сообщения" + (ME.messages_unread ? ` <span class="pill critical">${ME.messages_unread}</span>` : ""); }
+function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = "Сообщения" + (ME.messages_unread ? ` <span class="pill critical blink">${ME.messages_unread}</span>` : ""); }
 
 // ---------- shell
-const TABS = [["dashboard", "Панель", dashboard, null], ["forecast", "Прогноз", forecastView, null], ["control", "Контроль", control, "w"], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
-  ["coverage", "Охват", coverageView, "w"], ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "t"], ["indicators", "Показатели", indicators, "s"], ["broadcast", "Рассылка", broadcastView, "u"], ["messages", "Сообщения", messagesView, "s"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
+const TABS = [["dashboard", "Панель", dashboard, null], ["messages", "Сообщения", messagesView, "s"], ["forecast", "Прогноз", forecastView, null], ["control", "Контроль", control, "w"], ["reports", "Отчёты", reportsView, "w"], ["people", "Доступы", people, "u"],
+  ["coverage", "Охват", coverageView, "w"], ["export", "Выгрузка", exportView, null], ["territories", "Территории", territories, "t"], ["indicators", "Показатели", indicators, "s"], ["broadcast", "Рассылка", broadcastView, "u"], ["settings", "Настройки", settings, "s"], ["audit", "Журнал", audit, "s"]];
 function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users) || (t[3] === "t" && ME.can_manage_territories); }
 let NAVID = 0;
 function route() {
