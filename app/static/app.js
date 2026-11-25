@@ -704,7 +704,7 @@ async function messagesView() {
   await load(true);
   const sel = $("#m-r"); if (sel) { const seen = new Map(items.map(t => [String(t.region_id), t.region])); sel.innerHTML = `<option value="">Все области</option>` + [...seen].sort((a, b) => a[1].localeCompare(b[1], "ru")).map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join(""); sel.value = MSG.region; }
 }
-function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = "Сообщения" + (ME.messages_unread ? ` <span class="pill critical">${ME.messages_unread}</span>` : ""); }
+function badgeMessages() { const a = document.querySelector('#tabs a[data-t="messages"]'); if (a) a.innerHTML = "Сообщения" + (ME.messages_unread ? ` <span class="pill critical blink">${ME.messages_unread}</span>` : ""); }
 
 // ---------- shell
 // [name, label, page, right, group]: the pages of a group share one tab of the menu and a row of sub-tabs under it (SUBTABS lists them in the order of the row)
