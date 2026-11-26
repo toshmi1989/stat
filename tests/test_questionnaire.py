@@ -80,3 +80,22 @@ def test_the_preview_shows_what_the_bot_sends(client):
     r = client.get("/api/questionnaire/preview?lang=ru").json()
     assert len(r["items"]) == 13 and r["items"][-1]["code"] != "__note" and "Все койки учреждения" in r["items"][0]["text"] and "Вопрос 1 из 13" in r["items"][0]["text"]
     assert client.get("/api/questionnaire/preview").status_code == 200
+
+
+def test_short_names_of_the_questions_head_the_columns(client):
+    from app.db import connect
+    items = {i["code"]: i for i in client.get("/api/indicators").json()["items"]}
+    assert items["visits_flu"]["short_uz"] == "Murojaat: gripp va ORVI" and items["occ_pregnant"]["short_ru"] == "Беременные"
+    assert all(i["short_ru"] for c, i in items.items() if i["core"])                       # every question of the Ministry has a short name
+    meta = {i["code"]: i for i in client.get("/api/meta").json()["indicators"]}
+    assert meta["hosp"]["short_ru"] == "Госпитализации" and meta["hosp_flu"]["parent_code"] == "hosp"   # the table is drawn from this
+    assert client.patch("/api/indicators/hosp", json={"short_ru": "Госп.", "short_uz": "Yotq."}).status_code == 200
+    r = client.post("/api/indicators", json={"name_ru": "Новый вопрос", "short_ru": "Новый", "agg": "sum"}).json()
+    row = connect().execute("SELECT short_ru, short_uz FROM indicators WHERE code=?", (r["code"],)).fetchone()
+    assert row["short_ru"] == "Новый" and row["short_uz"] == ""
+    assert connect().execute("SELECT short_ru FROM indicators WHERE code='hosp'").fetchone()["short_ru"] == "Госп."
+    from app.db import init_db, connect as cn, tx
+    with tx() as c:
+        c.execute("DELETE FROM settings WHERE key='questionnaire_short_v1'")
+    init_db()
+    assert cn().execute("SELECT short_ru FROM indicators WHERE code='hosp'").fetchone()["short_ru"] == "Госп."      # a name written on the site is not overwritten
