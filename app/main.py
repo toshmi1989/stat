@@ -722,9 +722,76 @@ async def api_broadcast_preview(request: Request):
     b = await jbody(request)
     c = connect()
     try:
-        return _bc(lambda: broadcast.preview(c, u, b.get("audience") or {}, b.get("text_ru"), b.get("text_uz")))
+        return _bc(lambda: broadcast.preview(c, u, b.get("audience") or {}, b.get("text_ru"), b.get("text_uz"), str(b.get("sample_tg_id") or "")))
     finally:
         c.close()
+
+
+@app.post("/api/broadcasts/audience")
+async def api_broadcast_audience(request: Request):
+    """How many people (and who) the chosen audience reaches: the counter that follows the choice on the page; no text is needed."""
+    u = need_users(request)
+    b = await jbody(request)
+    c = connect()
+    try:
+        return _bc(lambda: broadcast.audience(c, u, b.get("audience") or {}))
+    finally:
+        c.close()
+
+
+@app.get("/api/broadcast-templates")
+def api_broadcast_templates(request: Request):
+    u = need_users(request)
+    with tx() as c:
+        return {"items": broadcast.templates(c, u), "placeholders": broadcast.PLACEHOLDERS}
+
+
+@app.post("/api/broadcast-templates")
+async def api_broadcast_template_save(request: Request):
+    u = need_users(request)
+    b = await jbody(request)
+    with tx() as c:
+        return {"id": _bc(lambda: broadcast.template_save(c, u, b.get("name"), b.get("text_ru"), b.get("text_uz"), b.get("audience") or {}))}
+
+
+@app.delete("/api/broadcast-templates/{tid}")
+def api_broadcast_template_delete(request: Request, tid: int):
+    u = need_users(request)
+    with tx() as c:
+        _bc(lambda: broadcast.template_delete(c, u, tid))
+    return {"ok": True}
+
+
+@app.get("/api/broadcast-schedules")
+def api_broadcast_schedules(request: Request):
+    u = need_users(request)
+    with tx() as c:
+        return {"items": broadcast.schedules(c, u)}
+
+
+@app.post("/api/broadcast-schedules")
+async def api_broadcast_schedule_save(request: Request):
+    u = need_users(request)
+    b = await jbody(request)
+    with tx() as c:
+        return {"id": _bc(lambda: broadcast.schedule_save(c, u, b))}
+
+
+@app.post("/api/broadcast-schedules/{sid}/active")
+async def api_broadcast_schedule_active(request: Request, sid: int):
+    u = need_users(request)
+    b = await jbody(request)
+    with tx() as c:
+        _bc(lambda: broadcast.schedule_set(c, u, sid, active=bool(b.get("active"))))
+    return {"ok": True}
+
+
+@app.delete("/api/broadcast-schedules/{sid}")
+def api_broadcast_schedule_delete(request: Request, sid: int):
+    u = need_users(request)
+    with tx() as c:
+        _bc(lambda: broadcast.schedule_set(c, u, sid, delete=True))
+    return {"ok": True}
 
 
 @app.post("/api/broadcasts/test")

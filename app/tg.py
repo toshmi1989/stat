@@ -214,10 +214,14 @@ def _poll_loop() -> None:
 
 
 def _schedule_loop() -> None:
-    from . import notify
+    from . import broadcast, notify
     while True:
         try:
             notify.run_due()
+        except Exception:
+            pass
+        try:
+            broadcast.run_due()                                # the broadcasts that were put on a schedule
         except Exception:
             pass
         time.sleep(30)

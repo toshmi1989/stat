@@ -805,36 +805,117 @@ async function exportView() {
   document.querySelectorAll("[data-f]").forEach(a => a.onclick = e => { e.preventDefault(); location.href = "/api/export?" + scopeQ() + "&" + qs({ fmt: a.dataset.f, kind: $("#x-k").value }); });
 }
 
-// ---------- broadcast: a message written here goes to the people of the bot
+// ---------- broadcast: a message written here goes to the people of the bot (chosen by role, region and today's report), now or by a schedule; the text may hold figures: {name} {unsent_list} …
 let BCPOLL = null;
+const normAud = a => { a = a || {}; const regions = (a.regions || []).map(Number);
+  if ("roles" in a || "report" in a) return { roles: ["heads", "responsibles"].includes(a.roles) ? a.roles : "all", report: ["unsent", "sent"].includes(a.report) ? a.report : "any", regions };
+  const m = a.mode || "all"; return { roles: ["heads", "responsibles"].includes(m) ? m : "all", report: m === "unsent" ? "unsent" : "any", regions }; };
+const audLabel = a => { a = normAud(a);
+  const roles = { all: T("Все, у кого есть доступ"), heads: T("Руководители регионов"), responsibles: T("Ответственные учреждений") }[a.roles], rep = { any: "", unsent: T("не сдали сегодня"), sent: T("сдали сегодня") }[a.report];
+  const regs = a.regions.length ? a.regions.map(id => rname((META.regions.find(r => r.id === id) || {}).name_ru || id)).join(", ") : T("все регионы");
+  return [roles, rep, regs].filter(Boolean).join(" · "); };
+const whenLabel = x => x.repeat === "daily" ? T("каждый день в {t}", { t: x.at_time }) : x.repeat === "weekdays" ? T("по будням в {t}", { t: x.at_time }) : T("{d} в {t}", { d: x.run_date, t: x.at_time });
 async function broadcastView() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   clearTimeout(BCPOLL);
-  const AUD = { all: T("Все, у кого есть доступ"), heads: T("Руководители регионов"), responsibles: T("Ответственные учреждений"), regions: T("Выбранные регионы"), unsent: T("Не сдавшие сводку сегодня") };
   const regs = (ME.regions === null ? META.regions : META.regions.filter(r => ME.regions.includes(r.id)));
-  let mode = "all", chosen = new Set();
-  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>${T("Рассылка")}</h2><span class="muted sm">${T("сообщение придёт в Telegram тем, кто пользуется ботом")}</span></div>
-    <div class="lbl">${T("Кому")}</div><div class="chips" id="bc-mode">${Object.entries(AUD).map(([k, l]) => `<button class="chip${k === mode ? " on" : ""}" data-m="${k}">${l}</button>`).join("")}</div>
-    <div class="chips" id="bc-regs" hidden>${regs.map(r => `<button class="chip" data-r="${r.id}">${esc(LANG === "uz" ? nm(r) : r.name_ru.replace("Республика ", "").replace(" область", "").replace("город ", "г. "))}</button>`).join("")}</div>
-    <div class="grid2"><label>${T("Текст по-узбекски (O‘zbekcha)")}<textarea id="bc-uz" rows="6" maxlength="3500" placeholder="Xabar matni"></textarea><span class="muted sm" id="bc-uz-n">0 / 3500</span></label>
-    <label>${T("Текст по-русски")}<textarea id="bc-ru" rows="6" maxlength="3500" placeholder="${T("Текст сообщения")}"></textarea><span class="muted sm" id="bc-ru-n">0 / 3500</span></label></div>
-    <p class="muted sm">${T("Каждый получит текст на своём языке бота. Если один язык оставить пустым, его получатели увидят текст на другом. Перед текстом бот добавит строку «📢 Объявление».")}</p>
+  let spec = { roles: "all", report: "any", regions: [] }, when = "now", sample = "", tpls = [], phs = [], lastTa = null;
+  const seg = (id, items, cur) => `<div class="seg" id="${id}">${items.map(([k, l]) => `<button data-v="${k}" class="${k === cur ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  const PH = { name: T("Имя получателя"), facility: T("Его учреждение (учреждения)"), region: T("Регион"), date: T("Сегодняшняя дата"), deadline: T("Срок сдачи"), sent: T("Сколько учреждений сдали"), total: T("Сколько учреждений всего"),
+    unsent: T("Сколько не сдали"), percent: T("Процент сдавших"), unsent_list: T("Список не сдавших (руководителю региона: с телефонами ответственных)"), status: T("Статус его учреждений: сдал / не сдал") };
+  if (nav !== NAVID) return;
+  view.innerHTML = `<div class="bc-grid"><div class="card bc-main"><div class="row"><h2>${T("Рассылка")}</h2><span class="muted sm">${T("сообщение придёт в Telegram тем, кто пользуется ботом")}</span></div>
+    <div class="bc-step"><div class="bc-h"><b>1</b> ${T("Кому")}</div>
+      <div class="bc-line"><span class="muted sm">${T("Кто")}</span>${seg("bc-roles", [["all", T("Все")], ["heads", T("Руководители регионов")], ["responsibles", T("Ответственные учреждений")]], spec.roles)}</div>
+      <div class="bc-line"><span class="muted sm">${T("Сводка за сегодня")}</span>${seg("bc-report", [["any", T("Любые")], ["unsent", T("Не сдали")], ["sent", T("Сдали")]], spec.report)}</div>
+      <div class="bc-line"><span class="muted sm">${T("Регионы")}</span><div class="chips" id="bc-regs"><button class="chip on" data-r="all">${T("Все регионы")}</button>${regs.map(r => `<button class="chip" data-r="${r.id}">${esc(LANG === "uz" ? nm(r) : r.name_ru.replace("Республика ", "").replace(" область", "").replace("город ", "г. "))}</button>`).join("")}</div></div>
+      <div class="bc-count" id="bc-count"><span class="muted">${T("Считаю получателей…")}</span></div></div>
+    <div class="bc-step"><div class="bc-h"><b>2</b> ${T("Текст")}</div>
+      <div class="row"><select id="bc-tpl" style="min-width:260px"></select><button class="btn sm" id="bc-tpl-save">${T("Сохранить как шаблон")}</button><button class="btn sm bad" id="bc-tpl-del" hidden>${T("Удалить шаблон")}</button></div>
+      <div class="bc-ph"><span class="muted sm">${T("Вставить в текст (у каждого получателя подставятся его данные):")}</span><div class="chips" id="bc-ph"></div></div>
+      <div class="grid2 bc-ta"><label>${T("Текст по-узбекски (O‘zbekcha)")}<textarea id="bc-uz" rows="7" maxlength="3500" placeholder="Xabar matni"></textarea><span class="muted sm" id="bc-uz-n">0 / 3500</span></label>
+        <label>${T("Текст по-русски")}<textarea id="bc-ru" rows="7" maxlength="3500" placeholder="${T("Текст сообщения")}"></textarea><span class="muted sm" id="bc-ru-n">0 / 3500</span></label></div>
+      <p class="muted sm">${T("Каждый получит текст на своём языке бота. Если один язык оставить пустым, его получатели увидят текст на другом. Перед текстом бот добавит строку «📢 Объявление».")}</p></div>
+    <div class="bc-step"><div class="bc-h"><b>3</b> ${T("Когда")}</div>
+      <div class="bc-line">${seg("bc-when", [["now", T("Сейчас")], ["later", T("По расписанию")]], when)}</div>
+      <div class="bc-sched" id="bc-sched" hidden><div class="row"><label>${T("Повтор")}<select id="bc-rep"><option value="once">${T("Один раз")}</option><option value="daily">${T("Каждый день")}</option><option value="weekdays">${T("По будням (пн–пт)")}</option></select></label>
+        <label id="bc-date-l">${T("Дата")}<input type="date" id="bc-date" value="${ME.today}" min="${ME.today}"></label><label>${T("Время")}<input type="time" id="bc-time" value="18:30"></label><label>${T("Название")}<input id="bc-title" placeholder="${T("Например: вечерняя сводка")}" style="min-width:220px"></label></div>
+        <p class="muted sm">${T("Получатели и цифры в тексте берутся в момент отправки, а не сейчас.")}</p></div></div>
     <div class="row mt"><button class="btn pri" id="bc-go">${T("Предпросмотр и отправка")}</button><button class="btn" id="bc-test">${T("🧪 Тест себе")}</button><input id="bc-tid" placeholder="${T("Telegram ID для теста (если не указан в профиле)")}" style="max-width:300px"></div></div>
+    <aside class="card bc-side"><h3 style="margin:0 0 8px">${T("Так увидит получатель")}</h3><select id="bc-who" style="width:100%" hidden></select><div id="bc-prev" class="bc-prev"><p class="muted sm">${T("Напишите текст: здесь появится сообщение с данными реального получателя.")}</p></div></aside></div>
+    <div class="card"><div class="row"><h2>${T("Запланированные рассылки")}</h2></div><div id="bc-sch" class="scroll-x"></div></div>
     <div class="card"><div class="row"><h2>${T("История рассылок")}</h2></div><div id="bc-list" class="scroll-x"></div></div>`;
-  const spec = () => ({ mode, regions: [...chosen] });
-  const body = () => ({ audience: spec(), text_ru: $("#bc-ru").value, text_uz: $("#bc-uz").value });
-  ["uz", "ru"].forEach(l => $("#bc-" + l).oninput = () => { $("#bc-" + l + "-n").textContent = $("#bc-" + l).value.length + " / 3500"; });
-  $("#bc-mode").onclick = e => { const b = e.target.closest("[data-m]"); if (!b) return; mode = b.dataset.m; $("#bc-mode").querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === b)); $("#bc-regs").hidden = !["regions", "heads", "responsibles"].includes(mode); };
-  $("#bc-regs").onclick = e => { const b = e.target.closest("[data-r]"); if (!b) return; const id = b.dataset.r; chosen.has(id) ? chosen.delete(id) : chosen.add(id); b.classList.toggle("on", chosen.has(id)); };
+  const body = () => ({ audience: spec, text_ru: $("#bc-ru").value, text_uz: $("#bc-uz").value });
+  const bubble = t => `<div class="bcmsg">${String(t).replace(/\n/g, "<br>")}</div>`;
+  // the counter that follows the choice of the people, and the message as one of them will see it
+  let timer;
+  const countNow = async () => {
+    try { const r = await api("/api/broadcasts/audience", { method: "POST", body: { audience: spec } }); if (!$("#bc-count")) return;
+      $("#bc-count").innerHTML = r.total ? `<b>${T("Получателей: {n}", { n: r.total })}</b> <span class="muted">${T("(по-узбекски {uz}, по-русски {ru})", { uz: r.uz, ru: r.ru })}</span> <details class="inl"><summary>${T("кто")}</summary><p class="sm">${r.list.map(x => esc(x.name)).join(", ")}${r.total > r.list.length ? "…" : ""}</p></details>` : `<span class="err">${T("Получателей нет: никто не подходит под выбор.")}</span>`; }
+    catch (e) { if ($("#bc-count")) $("#bc-count").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  };
+  const prevNow = async () => {
+    if (!$("#bc-ru").value.trim() && !$("#bc-uz").value.trim()) { $("#bc-prev").innerHTML = `<p class="muted sm">${T("Напишите текст: здесь появится сообщение с данными реального получателя.")}</p>`; $("#bc-who").hidden = true; return; }
+    try { const r = await api("/api/broadcasts/preview", { method: "POST", body: { ...body(), sample_tg_id: sample } }); if (!$("#bc-prev")) return;
+      const who = $("#bc-who"); who.hidden = !r.list.length; who.innerHTML = r.list.map(x => `<option value="${x.tg_id}" ${r.sample && x.tg_id === r.sample.tg_id ? "selected" : ""}>${esc(x.name)} (${x.lang === "uz" ? "UZ" : "RU"})</option>`).join("");
+      $("#bc-prev").innerHTML = r.sample ? bubble(r.sample.text) + (r.fallback ? `<p class="muted sm">${T("У {n} человек язык, на котором вы ничего не написали: они получат текст на другом языке.", { n: r.fallback })}</p>` : "") : `<p class="muted sm">${T("Получателей нет.")}</p>`; }
+    catch (e) { if ($("#bc-prev")) $("#bc-prev").innerHTML = `<p class="err sm">${esc(e.message)}</p>`; }
+  };
+  const later = fn => { clearTimeout(timer); timer = setTimeout(fn, 400); };
+  $("#bc-who").onchange = () => { sample = $("#bc-who").value; prevNow(); };
+  // the people
+  const setSeg = (id, v) => $(id).querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  $("#bc-roles").onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; spec.roles = b.dataset.v; setSeg("#bc-roles", spec.roles); countNow(); sample = ""; prevNow(); };
+  $("#bc-report").onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; spec.report = b.dataset.v; setSeg("#bc-report", spec.report); countNow(); sample = ""; prevNow(); };
+  const drawRegs = () => $("#bc-regs").querySelectorAll(".chip").forEach(b => b.classList.toggle("on", b.dataset.r === "all" ? !spec.regions.length : spec.regions.includes(+b.dataset.r)));
+  $("#bc-regs").onclick = e => { const b = e.target.closest("[data-r]"); if (!b) return; if (b.dataset.r === "all") spec.regions = []; else { const id = +b.dataset.r; spec.regions = spec.regions.includes(id) ? spec.regions.filter(x => x !== id) : [...spec.regions, id]; } drawRegs(); countNow(); sample = ""; prevNow(); };
+  const setAud = a => { spec = normAud(a); setSeg("#bc-roles", spec.roles); setSeg("#bc-report", spec.report); drawRegs(); countNow(); };
+  // the text
+  ["uz", "ru"].forEach(l => { const ta = $("#bc-" + l); ta.onfocus = () => { lastTa = ta; }; ta.oninput = () => { $("#bc-" + l + "-n").textContent = ta.value.length + " / 3500"; later(prevNow); }; });
+  const phBox = () => { $("#bc-ph").innerHTML = (phs.length ? phs : Object.keys(PH)).map(k => `<button class="chip" data-p="${k}" title="${esc(PH[k] || k)}">{${k}}</button>`).join(""); };
+  $("#bc-ph").onclick = e => { const b = e.target.closest("[data-p]"); if (!b) return; const ta = lastTa || $("#bc-uz"), ins = `{${b.dataset.p}}`, p = ta.selectionStart ?? ta.value.length;
+    ta.value = ta.value.slice(0, p) + ins + ta.value.slice(ta.selectionEnd ?? p); ta.focus(); ta.setSelectionRange(p + ins.length, p + ins.length); ta.dispatchEvent(new Event("input")); };
+  const loadTpl = async (keep) => {
+    try { const r = await api("/api/broadcast-templates"); tpls = r.items; phs = r.placeholders; } catch (e) { return fail(e); }
+    if (!$("#bc-tpl")) return; phBox();
+    const opt = x => `<option value="${x.id}" ${String(x.id) === String(keep) ? "selected" : ""}>${esc(x.builtin ? (LANG === "uz" ? x.name_uz : x.name_ru) : x.name)}</option>`;
+    $("#bc-tpl").innerHTML = `<option value="">${T("— Шаблон текста —")}</option><optgroup label="${T("Готовые")}">${tpls.filter(x => x.builtin).map(opt).join("")}</optgroup>${tpls.some(x => !x.builtin) ? `<optgroup label="${T("Мои шаблоны")}">${tpls.filter(x => !x.builtin).map(opt).join("")}</optgroup>` : ""}`;
+    $("#bc-tpl-del").hidden = !tpls.some(x => String(x.id) === String(keep) && !x.builtin);
+  };
+  $("#bc-tpl").onchange = () => { const x = tpls.find(t => String(t.id) === $("#bc-tpl").value); $("#bc-tpl-del").hidden = !x || x.builtin; if (!x) return;
+    $("#bc-uz").value = x.text_uz; $("#bc-ru").value = x.text_ru; ["uz", "ru"].forEach(l => $("#bc-" + l + "-n").textContent = $("#bc-" + l).value.length + " / 3500"); setAud(x.audience); sample = ""; prevNow(); };
+  $("#bc-tpl-save").onclick = () => { if (!$("#bc-ru").value.trim() && !$("#bc-uz").value.trim()) return toast(T("Сначала напишите текст"));
+    modal(`<h2>${T("Сохранить как шаблон")}</h2><label>${T("Название")}<input id="tp-n" maxlength="80"></label><p class="muted sm">${T("Сохранятся тексты и выбор получателей.")}</p><div id="tp-err" class="err"></div><div class="row mt"><button class="btn pri" id="tp-ok">${T("Сохранить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
+    $("#tp-ok").onclick = async () => { try { const r = await api("/api/broadcast-templates", { method: "POST", body: { ...body(), name: $("#tp-n").value } }); closeModal(); toast(T("Шаблон сохранён")); await loadTpl(r.id); } catch (e) { $("#tp-err").textContent = e.message; } }; };
+  $("#bc-tpl-del").onclick = () => { const x = tpls.find(t => String(t.id) === $("#bc-tpl").value); if (!x || x.builtin) return;
+    confirmDlg(T("Удалить шаблон"), `<p>${esc(x.name)}</p>`, T("Удалить"), async () => { await api("/api/broadcast-templates/" + x.id, { method: "DELETE" }); closeModal(); toast(T("Шаблон удалён")); await loadTpl(""); }); };
+  // when
+  $("#bc-when").onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; when = b.dataset.v; setSeg("#bc-when", when); $("#bc-sched").hidden = when !== "later"; $("#bc-go").textContent = when === "later" ? T("Поставить в расписание") : T("Предпросмотр и отправка"); };
+  $("#bc-rep").onchange = () => { $("#bc-date-l").hidden = $("#bc-rep").value !== "once"; };
   $("#bc-test").onclick = async () => { try { const r = await api("/api/broadcasts/test", { method: "POST", body: { ...body(), tg_id: $("#bc-tid").value.trim() } }); toast(T("Тест отправлен (Telegram ID {id})", { id: r.sent_to })); } catch (e) { fail(e); } };
   $("#bc-go").onclick = async () => {
-    let pv; try { pv = await api("/api/broadcasts/preview", { method: "POST", body: body() }); } catch (e) { return fail(e); }
-    modal(`<h2>${T("📢 Проверьте рассылку")}</h2><p>${T("Кому: <b>{aud}</b>{sel} · получателей: <b>{total}</b> (по-узбекски {uz}, по-русски {ru})", { aud: esc(AUD[mode]), sel: ["regions", "heads", "responsibles"].includes(mode) && chosen.size ? ` (${chosen.size})` : "", total: pv.total, uz: pv.uz, ru: pv.ru })}</p>
+    let pv; try { pv = await api("/api/broadcasts/preview", { method: "POST", body: { ...body(), sample_tg_id: sample } }); } catch (e) { return fail(e); }
+    const sch = when === "later" ? { repeat: $("#bc-rep").value, at_time: $("#bc-time").value, run_date: $("#bc-date").value, title: $("#bc-title").value } : null;
+    modal(`<h2>${sch ? T("🕒 Проверьте расписание") : T("📢 Проверьте рассылку")}</h2><p>${T("Кому: <b>{aud}</b> · получателей: <b>{total}</b> (по-узбекски {uz}, по-русски {ru})", { aud: esc(audLabel(spec)), total: pv.total, uz: pv.uz, ru: pv.ru })}</p>
+      ${sch ? `<p>${T("Когда: <b>{w}</b>", { w: esc(whenLabel(sch)) })}</p><div class="note">${T("Получатели и цифры в тексте будут взяты в момент отправки; сейчас показан пример по текущим данным.")}</div>` : ""}
       ${pv.fallback ? `<div class="note">${T("У {n} человек язык, на котором вы ничего не написали: они получат текст на другом языке.", { n: pv.fallback })}</div>` : ""}
-      ${pv.total ? `<div class="bcsample"><div class="muted sm">${T("Так увидит человек с узбекским ботом:")}</div><div class="bcmsg">${pv.sample_uz.replace(/\n/g, "<br>")}</div><div class="muted sm">${T("С русским:")}</div><div class="bcmsg">${pv.sample_ru.replace(/\n/g, "<br>")}</div></div>
+      ${pv.total ? `<div class="bcsample"><div class="muted sm">${T("Пример: {name}", { name: esc(pv.sample.name) })}</div>${bubble(pv.sample.text)}</div>
       <details><summary>${T("Получатели ({n})", { n: pv.total })}</summary><p class="sm">${pv.people.map(esc).join(", ")}${pv.total > pv.people.length ? "…" : ""}</p></details>` : `<div class="alert critical">${T("Получателей нет.")}</div>`}
-      <div class="row mt"><button class="btn pri" id="bc-ok" ${pv.total ? "" : "disabled"}>${T("Отправить")} ${pv.total || ""}</button><button class="btn right" data-close>${T("Назад")}</button></div>`, true);
-    const ok = $("#bc-ok"); if (ok) ok.onclick = async () => { ok.disabled = true; try { await api("/api/broadcasts", { method: "POST", body: { ...body(), confirm: true } }); closeModal(); toast(T("Рассылка запущена")); $("#bc-ru").value = $("#bc-uz").value = ""; list(); } catch (e) { fail(e); ok.disabled = false; } };
+      <div class="row mt"><button class="btn pri" id="bc-ok" ${pv.total || sch ? "" : "disabled"}>${sch ? T("Поставить в расписание") : T("Отправить") + " " + (pv.total || "")}</button><button class="btn right" data-close>${T("Назад")}</button></div>`, true);
+    const ok = $("#bc-ok"); if (ok) ok.onclick = async () => { ok.disabled = true;
+      try { if (sch) { await api("/api/broadcast-schedules", { method: "POST", body: { ...body(), ...sch } }); closeModal(); toast(T("Рассылка поставлена в расписание")); schList(); }
+        else { await api("/api/broadcasts", { method: "POST", body: { ...body(), confirm: true } }); closeModal(); toast(T("Рассылка запущена")); $("#bc-ru").value = $("#bc-uz").value = ""; prevNow(); list(); } }
+      catch (e) { fail(e); ok.disabled = false; } };
+  };
+  // the broadcasts that go by themselves
+  const schList = async () => {
+    let r; try { r = await api("/api/broadcast-schedules"); } catch (e) { return fail(e); }
+    if (!$("#bc-sch")) return;
+    $("#bc-sch").innerHTML = r.items.length ? `<table><tr><th>${T("Название")}</th><th>${T("Когда")}</th><th>${T("Кому")}</th><th>${T("Текст")}</th><th>${T("Последний запуск")}</th><th></th></tr>${r.items.map(x => `<tr><td><b>${esc(x.title || "—")}</b> ${x.active ? `<span class="pill sent">${T("Включено")}</span>` : `<span class="pill">${T("Не действует")}</span>`}</td><td>${esc(whenLabel(x))}</td><td class="sm">${esc(audLabel(x.audience))}</td>
+        <td class="sm" style="max-width:280px">${esc((x.text_uz || x.text_ru).slice(0, 90))}${(x.text_uz || x.text_ru).length > 90 ? "…" : ""}</td><td class="sm">${x.last_run_date ? esc(x.last_run_date) + (x.last_result ? ": " + esc(TS(x.last_result)) : "") : (x.last_result ? esc(TS(x.last_result)) : "—")}</td>
+        <td class="row"><button class="btn sm" data-sa="${x.id}" data-v="${x.active ? 0 : 1}">${x.active ? T("Пауза") : T("Включить")}</button><button class="btn sm bad" data-sd="${x.id}">${T("Удалить")}</button></td></tr>`).join("")}</table>` : `<p class="muted">${T("Расписаний нет: выберите «По расписанию» в шаге 3.")}</p>`;
+    $("#bc-sch").querySelectorAll("[data-sa]").forEach(b => b.onclick = async () => { try { await api(`/api/broadcast-schedules/${b.dataset.sa}/active`, { method: "POST", body: { active: b.dataset.v === "1" } }); schList(); } catch (e) { fail(e); } });
+    $("#bc-sch").querySelectorAll("[data-sd]").forEach(b => b.onclick = () => confirmDlg(T("Удалить расписание"), `<p>${T("Рассылка больше не будет уходить по этому расписанию. Уже отправленные остаются в истории.")}</p>`, T("Удалить"), async () => { await api("/api/broadcast-schedules/" + b.dataset.sd, { method: "DELETE" }); closeModal(); schList(); }));
   };
   const STX = { sending: ["warning", T("Отправляется")], done: ["sent", T("Готово")], interrupted: ["critical", T("Прервана")] };
   const list = async () => {
@@ -842,14 +923,14 @@ async function broadcastView() {
     let r; try { r = await api("/api/broadcasts"); } catch (e) { return fail(e); }
     if (!$("#bc-list")) return;
     $("#bc-list").innerHTML = r.items.length ? `<table><tr><th>${T("Когда")}</th><th>${T("От кого")}</th><th>${T("Текст")}</th><th>${T("Кому")}</th><th>${T("Итог")}</th><th></th></tr>${r.items.map(b => { const a = JSON.parse(b.audience || "{}"), [cls, lbl] = STX[b.status] || ["", b.status]; const pct = b.total ? Math.round(100 * (b.sent + b.failed) / b.total) : 0;
-      return `<tr><td>${esc(b.created_at)}</td><td>${esc(b.by_name)}</td><td class="sm" style="max-width:320px">${esc((b.text_uz || b.text_ru).slice(0, 110))}${(b.text_uz || b.text_ru).length > 110 ? "…" : ""}</td><td>${esc(AUD[a.mode || "all"] || "")}</td>
+      return `<tr><td>${esc(b.created_at)}</td><td>${esc(b.by_name)}</td><td class="sm" style="max-width:320px">${esc((b.text_uz || b.text_ru).slice(0, 110))}${(b.text_uz || b.text_ru).length > 110 ? "…" : ""}</td><td>${esc(audLabel(a))}</td>
         <td><span class="pill ${cls}">${lbl}</span> ${T("отправлено <b>{sent}</b> из {total}", { sent: b.sent, total: b.total })}${b.failed ? `, ${T("не доставлено <b>{n}</b>", { n: b.failed })}` : ""}${b.status === "sending" ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}</td>
         <td class="row">${b.failed ? `<button class="btn sm" data-fl="${b.id}">${T("Кому не дошло")}</button>` : ""}${(b.status === "interrupted" || (b.status === "done" && b.failed)) ? `<button class="btn sm" data-rs="${b.id}">${b.status === "interrupted" ? T("Продолжить") : T("Повторить")}</button>` : ""}</td></tr>`; }).join("")}</table>` : `<p class="muted">${T("Рассылок пока не было.")}</p>`;
     $("#bc-list").querySelectorAll("[data-rs]").forEach(b => b.onclick = async () => { try { await api(`/api/broadcasts/${b.dataset.rs}/resume`, { method: "POST", body: {} }); list(); } catch (e) { fail(e); } });
     $("#bc-list").querySelectorAll("[data-fl]").forEach(b => b.onclick = async () => { try { const f = await api(`/api/broadcasts/${b.dataset.fl}/failures`); modal(`<h2>${T("Не доставлено")}</h2><p class="muted sm">${T("Обычно человек остановил или заблокировал бота.")}</p><div class="scroll-x"><table><tr><th>${T("Кто")}</th><th>${T("Причина")}</th></tr>${f.items.map(x => `<tr><td>${esc(x.name || x.username || x.tg_id)} <span class="muted">${esc(x.tg_id)}</span></td><td class="sm">${esc(x.error)}</td></tr>`).join("")}</table></div><div class="row mt"><button class="btn right" data-close>${T("Закрыть")}</button></div>`); } catch (e) { fail(e); } });
     if (r.items.some(b => b.status === "sending")) BCPOLL = setTimeout(() => { if (location.hash.startsWith("#/broadcast")) list(); }, 2000);
   };
-  list();
+  list(); schList(); loadTpl(""); countNow();
 }
 
 // ---------- confidential messages of the facilities for the Ministry: one chat per Telegram profile (the super administrator only)

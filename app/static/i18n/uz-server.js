@@ -149,6 +149,15 @@ Object.assign(window.UZ, {
   "Учреждение не найдено или не из вашего региона": "Muassasa topilmadi yoki sizning viloyatingizdan emas",
   "Строка не решена: выберите учреждение, «создать» или «пропустить»": "Qator hal qilinmagan: muassasani, «yaratish» yoki «o‘tkazib yuborish»ni tanlang",
   "Ожидался список ответственных": "Mas’ul shaxslar ro‘yxati kutilgan edi",
+  "Дайте шаблону название": "Shablonga nom bering",
+  "Шаблон не найден": "Shablon topilmadi",
+  "Расписание не найдено": "Jadval topilmadi",
+  "Повтор: один раз, каждый день или по будням": "Takrorlash: bir marta, har kuni yoki ish kunlari",
+  "Время отправки в виде ЧЧ:ММ": "Yuborish vaqti SS:DD ko‘rinishida",
+  "Укажите дату отправки: сегодня или позже": "Yuborish sanasini ko‘rsating: bugun yoki keyinroq",
+  "отправлено": "yuborildi",
+  "пропущено: сервис был выключен": "o‘tkazib yuborildi: xizmat o‘chiq edi",
+  "отправитель отключён": "yuboruvchi o‘chirib qo‘yilgan",
 });
 window.UZP.push(
   // with a number or a name inside
