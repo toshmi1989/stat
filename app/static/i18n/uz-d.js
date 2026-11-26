@@ -105,4 +105,6 @@ Object.assign(window.UZ, {
   "Все": "Barchasi",
   "Непрочитанные": "O‘qilmaganlar",
   "Все области": "Barcha viloyatlar",
+  "Руководители регионов": "Viloyat boshliqlari",
+  "Ответственные учреждений": "Muassasalarning mas’ul shaxslari",
 })

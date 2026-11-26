@@ -80,6 +80,11 @@ def assign(c, user, tg_id: str, facility_id: int, kind: str = "primary", fio: st
     return c.execute("SELECT id FROM assignments WHERE tg_id=? AND facility_id=?", (str(tg_id), facility_id)).fetchone()["id"]
 
 
+def fmt_phone(p: str) -> str:
+    """998901234567 -> +998 90 123 45 67 (Telegram makes such a number a link to call or write)."""
+    return f"+998 {p[3:5]} {p[5:8]} {p[8:10]} {p[10:]}" if len(p) == 12 and p.startswith("998") else ("+" + p if p.isdigit() else p)
+
+
 SYSTEM = {"id": None, "role": "super_admin", "regions": None}     # what the system itself does (the phone of the person is the proof), not a person of the site
 
 

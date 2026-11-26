@@ -36,13 +36,14 @@ def body_for(lang: str, ru: str, uz: str) -> tuple[str, bool]:
 
 
 def recipients(c, user, spec: dict) -> list[dict]:
-    """The people of the bot the sender may write to: active, with access in the regions of the sender (and in the chosen ones)."""
+    """The people of the bot the sender may write to: active, with access in the regions of the sender (and in the chosen ones). Modes: all; regions (the chosen
+    ones); unsent (still owe today's report); heads (the heads of regions: access to a whole region); responsibles (responsible for facilities)."""
     mode = spec.get("mode") or "all"
     mine = user["regions"]                                         # None = every region
     chosen = [int(x) for x in (spec.get("regions") or []) if str(x).isdigit()]
-    if mode == "regions":
-        if not chosen:
-            raise BroadcastError("Выберите хотя бы один регион")
+    if mode == "regions" and not chosen:
+        raise BroadcastError("Выберите хотя бы один регион")
+    if mode in ("regions", "heads", "responsibles") and chosen:          # the chosen regions (the new modes may be narrowed to some regions too)
         regions = [r for r in chosen if mine is None or r in mine]
         if not regions:
             raise BroadcastError("Эти регионы вам недоступны", 403)
@@ -56,10 +57,15 @@ def recipients(c, user, spec: dict) -> list[dict]:
         q = ",".join("?" * len(regions))
         cond_r, cond_a = f" AND ra.region_id IN ({q})", f" AND d.region_id IN ({q})"
         args = regions + regions
-    rows = c.execute(f"""SELECT u.tg_id, u.lang, u.first_name, u.last_name, u.username FROM tg_users u WHERE u.active=1 AND (
-                           EXISTS (SELECT 1 FROM region_access ra WHERE ra.tg_id=u.tg_id AND ra.active=1{cond_r})
-                           OR EXISTS (SELECT 1 FROM assignments a JOIN facilities f ON f.id=a.facility_id JOIN districts d ON d.id=f.district_id WHERE a.tg_id=u.tg_id AND a.active=1{cond_a}))
-                         ORDER BY u.first_name, u.last_name""", args).fetchall()
+    heads = f"EXISTS (SELECT 1 FROM region_access ra WHERE ra.tg_id=u.tg_id AND ra.active=1{cond_r})"                                                                           # the heads of the regions
+    resp = f"EXISTS (SELECT 1 FROM assignments a JOIN facilities f ON f.id=a.facility_id JOIN districts d ON d.id=f.district_id WHERE a.tg_id=u.tg_id AND a.active=1{cond_a})"    # responsible for facilities
+    if mode == "heads":
+        who, args = heads, args[:len(args) // 2] if regions is not None else args
+    elif mode == "responsibles":
+        who, args = resp, args[len(args) // 2:] if regions is not None else args
+    else:
+        who = f"({heads} OR {resp})"
+    rows = c.execute(f"SELECT u.tg_id, u.lang, u.first_name, u.last_name, u.username FROM tg_users u WHERE u.active=1 AND {who} ORDER BY u.first_name, u.last_name", args).fetchall()
     if mode == "unsent":                                           # only those who still owe today's report
         owe = notify.unsent_by_person(c, today().isoformat(), all_settings(c))
         rows = [r for r in rows if r["tg_id"] in owe]

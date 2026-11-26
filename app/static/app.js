@@ -810,7 +810,7 @@ let BCPOLL = null;
 async function broadcastView() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   clearTimeout(BCPOLL);
-  const AUD = { all: T("Все, у кого есть доступ"), regions: T("Выбранные регионы"), unsent: T("Не сдавшие сводку сегодня") };
+  const AUD = { all: T("Все, у кого есть доступ"), heads: T("Руководители регионов"), responsibles: T("Ответственные учреждений"), regions: T("Выбранные регионы"), unsent: T("Не сдавшие сводку сегодня") };
   const regs = (ME.regions === null ? META.regions : META.regions.filter(r => ME.regions.includes(r.id)));
   let mode = "all", chosen = new Set();
   if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>${T("Рассылка")}</h2><span class="muted sm">${T("сообщение придёт в Telegram тем, кто пользуется ботом")}</span></div>
@@ -824,12 +824,12 @@ async function broadcastView() {
   const spec = () => ({ mode, regions: [...chosen] });
   const body = () => ({ audience: spec(), text_ru: $("#bc-ru").value, text_uz: $("#bc-uz").value });
   ["uz", "ru"].forEach(l => $("#bc-" + l).oninput = () => { $("#bc-" + l + "-n").textContent = $("#bc-" + l).value.length + " / 3500"; });
-  $("#bc-mode").onclick = e => { const b = e.target.closest("[data-m]"); if (!b) return; mode = b.dataset.m; $("#bc-mode").querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === b)); $("#bc-regs").hidden = mode !== "regions"; };
+  $("#bc-mode").onclick = e => { const b = e.target.closest("[data-m]"); if (!b) return; mode = b.dataset.m; $("#bc-mode").querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === b)); $("#bc-regs").hidden = !["regions", "heads", "responsibles"].includes(mode); };
   $("#bc-regs").onclick = e => { const b = e.target.closest("[data-r]"); if (!b) return; const id = b.dataset.r; chosen.has(id) ? chosen.delete(id) : chosen.add(id); b.classList.toggle("on", chosen.has(id)); };
   $("#bc-test").onclick = async () => { try { const r = await api("/api/broadcasts/test", { method: "POST", body: { ...body(), tg_id: $("#bc-tid").value.trim() } }); toast(T("Тест отправлен (Telegram ID {id})", { id: r.sent_to })); } catch (e) { fail(e); } };
   $("#bc-go").onclick = async () => {
     let pv; try { pv = await api("/api/broadcasts/preview", { method: "POST", body: body() }); } catch (e) { return fail(e); }
-    modal(`<h2>${T("📢 Проверьте рассылку")}</h2><p>${T("Кому: <b>{aud}</b>{sel} · получателей: <b>{total}</b> (по-узбекски {uz}, по-русски {ru})", { aud: esc(AUD[mode]), sel: mode === "regions" ? ` (${chosen.size})` : "", total: pv.total, uz: pv.uz, ru: pv.ru })}</p>
+    modal(`<h2>${T("📢 Проверьте рассылку")}</h2><p>${T("Кому: <b>{aud}</b>{sel} · получателей: <b>{total}</b> (по-узбекски {uz}, по-русски {ru})", { aud: esc(AUD[mode]), sel: ["regions", "heads", "responsibles"].includes(mode) && chosen.size ? ` (${chosen.size})` : "", total: pv.total, uz: pv.uz, ru: pv.ru })}</p>
       ${pv.fallback ? `<div class="note">${T("У {n} человек язык, на котором вы ничего не написали: они получат текст на другом языке.", { n: pv.fallback })}</div>` : ""}
       ${pv.total ? `<div class="bcsample"><div class="muted sm">${T("Так увидит человек с узбекским ботом:")}</div><div class="bcmsg">${pv.sample_uz.replace(/\n/g, "<br>")}</div><div class="muted sm">${T("С русским:")}</div><div class="bcmsg">${pv.sample_ru.replace(/\n/g, "<br>")}</div></div>
       <details><summary>${T("Получатели ({n})", { n: pv.total })}</summary><p class="sm">${pv.people.map(esc).join(", ")}${pv.total > pv.people.length ? "…" : ""}</p></details>` : `<div class="alert critical">${T("Получателей нет.")}</div>`}
