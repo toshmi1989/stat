@@ -104,7 +104,37 @@ def link_phone(c, tg_id: str, only_facility: int | None = None) -> list[dict]:
         assign(c, SYSTEM, row["tg_id"], k["facility_id"], kind, k["fio"] or " ".join(x for x in (row["first_name"], row["last_name"]) if x), row["phone"])
         audit(c, "phone.linked", "facility", k["facility_id"], {"tg_id": row["tg_id"], "kind": kind}, actor="phone " + row["phone"])
         out.append({"facility_id": k["facility_id"], "kind": kind, "name_ru": k["name_ru"], "name_uz": k["name_uz"]})
+    if not only_facility:
+        out += _link_regions(c, row)
     return out
+
+
+def _link_regions(c, row, only_region: int | None = None) -> list[dict]:
+    """The same for the head of the health department of a region: his phone gives him the access to the whole region (any facility of it)."""
+    sql = """SELECT k.region_id, k.kind, k.fio, r.name_ru, r.name_uz FROM region_contacts k JOIN regions r ON r.id=k.region_id WHERE r.active=1 AND (',' || k.phone || ',') LIKE ?"""
+    args: list = ["%," + row["phone"] + ",%"]
+    if only_region:
+        sql += " AND k.region_id=?"; args.append(only_region)
+    out = []
+    for k in c.execute(sql + " ORDER BY k.region_id, k.kind", args).fetchall():
+        if c.execute("SELECT 1 FROM region_access WHERE tg_id=? AND region_id=? AND active=1", (row["tg_id"], k["region_id"])).fetchone():
+            continue
+        kind = "primary" if k["kind"] == "main" else "reserve"
+        assign_region(c, SYSTEM, row["tg_id"], k["region_id"], kind, k["fio"] or " ".join(x for x in (row["first_name"], row["last_name"]) if x), row["phone"])
+        audit(c, "phone.linked", "region", k["region_id"], {"tg_id": row["tg_id"], "kind": kind}, actor="phone " + row["phone"])
+        out.append({"region_id": k["region_id"], "kind": kind, "name_ru": k["name_ru"], "name_uz": k["name_uz"]})
+    return out
+
+
+def link_region(c, region_id: int) -> int:
+    """The phones of the head of a region were written or changed: the people of the bot whose phone it is are linked."""
+    from . import editor
+    n = 0
+    for k in c.execute("SELECT phone FROM region_contacts WHERE region_id=?", (region_id,)).fetchall():
+        for ph in editor.phones(k["phone"]):
+            for u in c.execute("SELECT tg_id, phone, first_name, last_name FROM tg_users WHERE phone=? AND active=1", (ph,)).fetchall():
+                n += len(_link_regions(c, u, region_id))
+    return n
 
 
 def link_facility(c, facility_id: int) -> int:

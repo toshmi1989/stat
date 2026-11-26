@@ -284,6 +284,29 @@ def replace_contacts(c, facility_id: int, items: list) -> None:
 
 
 
+def region_contacts_of(c, ids: list[int] | None = None) -> dict:
+    out: dict = {}
+    for x in c.execute("SELECT id, region_id, kind, fio, phone FROM region_contacts ORDER BY region_id, kind, id"):
+        if ids is None or x["region_id"] in ids:
+            out.setdefault(x["region_id"], []).append(dict(x))
+    return out
+
+
+def replace_region_contacts(c, region_id: int, items: list) -> None:
+    """The head of the regional department (main) and a reserve one, as the form sends them; an empty one is dropped. The people of the bot with these phones are linked."""
+    c.execute("DELETE FROM region_contacts WHERE region_id=?", (region_id,))
+    seen_main = False
+    for x in (items or [])[:5]:
+        fio, phone = clean_fio(x.get("fio")), ",".join(dict.fromkeys(phones(x.get("phone"))))
+        if not fio and not phone:
+            continue
+        kind = "main" if (x.get("kind") != "reserve" and not seen_main) else "reserve"
+        seen_main = seen_main or kind == "main"
+        c.execute("INSERT INTO region_contacts(region_id, kind, fio, phone, created_at, updated_at) VALUES (?,?,?,?,?,?)", (region_id, kind, fio, phone, now(), now()))
+    from .people import link_region
+    link_region(c, region_id)
+
+
 def apply(c, user, rows: list, disable: list, actor: str = "") -> dict:
     """What the person decided: per row match (the name of the facility is corrected to the one of the list, the beds and the responsible person are set), new (a facility is
     created) or skip; and facilities to switch off. Everything in one transaction; a row that cannot be applied is reported, the others are done."""

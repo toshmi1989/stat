@@ -309,4 +309,11 @@ Object.assign(window.UZ, {
   "Подключён в боте: {n}": "Botga ulangan: {n}",
   "Подключено в боте: {n}": "Botga ulandi: {n}",
   "Когда этот человек отправит боту свой номер телефона кнопкой, он автоматически станет ответственным за учреждение.": "Bu shaxs botga telefon raqamini tugma orqali yuborganda, u avtomatik ravishda muassasa uchun mas’ul bo‘ladi.",
+  "Новых предложений: {n}": "Yangi takliflar: {n}",
+  "Руководитель отдела здравоохранения": "Sog‘liqni saqlash boshqarmasi boshlig‘i",
+  "не указан": "ko‘rsatilmagan",
+  "Подключён в боте": "Botga ulangan",
+  "Когда этот человек отправит боту свой номер телефона кнопкой, он автоматически получит доступ ко всему региону.": "Bu shaxs botga telefon raqamini tugma orqali yuborganda, u avtomatik ravishda butun viloyatga kirish huquqini oladi.",
+  "новых нет": "yangilari yo‘q",
+  "Показать все предложения": "Barcha takliflarni ko‘rsatish",
 });

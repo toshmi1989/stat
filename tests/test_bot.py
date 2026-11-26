@@ -589,3 +589,14 @@ def test_if_the_edit_fails_the_answer_is_sent_as_a_new_message(monkeypatch):
         assert tg.send(1, "text") == (True, "") and seen == ["editMessageText", "sendMessage"]
     finally:
         tg.reset_edit_target(token)
+
+
+def test_the_head_of_a_region_gets_the_access_to_the_whole_region_by_his_phone(bot):
+    from app.db import connect
+    make_facility(1, "Район А", "Больница Р1")
+    msg(bot, 830001, "/start")
+    SENT.clear(); contact(bot, 830001, "+998977897077")                                                # the head of the Karakalpakstan department (the list that is built in)
+    c = connect()
+    assert [(r["region_id"], r["kind"]) for r in c.execute("SELECT region_id, kind FROM region_access WHERE tg_id='830001' AND active=1")] == [(1, "primary")]
+    assert "подключены" in last(830001) and c.execute("SELECT COUNT(*) FROM audit WHERE action='phone.linked'").fetchone()[0] == 1
+    assert bot.reports.has_access(c, "830001")

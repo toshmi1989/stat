@@ -148,6 +148,7 @@ Object.assign(window.UZ, {
   "Неизвестное действие": "Noma’lum amal",
   "Учреждение не найдено или не из вашего региона": "Muassasa topilmadi yoki sizning viloyatingizdan emas",
   "Строка не решена: выберите учреждение, «создать» или «пропустить»": "Qator hal qilinmagan: muassasani, «yaratish» yoki «o‘tkazib yuborish»ni tanlang",
+  "Ожидался список ответственных": "Mas’ul shaxslar ro‘yxati kutilgan edi",
 });
 window.UZP.push(
   // with a number or a name inside
