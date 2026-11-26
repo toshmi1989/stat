@@ -1,5 +1,6 @@
 """Telegram transport: Bot API calls, sending, long polling. Standard library only.
 The token lives only in the environment. Two uvicorn workers share a container, so a file lock lets exactly one run the bot."""
+import contextvars
 import json
 import os
 import threading
@@ -62,8 +63,43 @@ def profile_photo(tg_id) -> bytes | None:
         return None
 
 
+# While a button under a message is being handled, the answer goes into that very message (it is edited), so that the chat does not fill up with a new message at every press:
+# set_edit_target() is called by the handler of the buttons, the first send() of the answer edits the message, later ones are new messages. A reply keyboard cannot be put by an
+# edit: then the buttons of the old message are removed (nobody can press them twice) and the answer is a new message.
+_EDIT: contextvars.ContextVar = contextvars.ContextVar("tg_edit", default=None)
+
+
+def set_edit_target(chat_id, message_id):
+    return _EDIT.set({"chat": str(chat_id), "id": message_id, "used": False} if chat_id and message_id else None)
+
+
+def reset_edit_target(token) -> None:
+    _EDIT.reset(token)
+
+
+def _edit_in_place(chat_id, text: str, markup: dict | None) -> bool:
+    """True when the answer was put into the message of the pressed button."""
+    tgt = _EDIT.get()
+    if not tgt or tgt["used"] or str(chat_id) != tgt["chat"]:
+        return False
+    tgt["used"] = True
+    inline = not markup or "inline_keyboard" in markup
+    try:
+        if inline:
+            api("editMessageText", {"chat_id": tgt["chat"], "message_id": tgt["id"], "text": text[:4000], "parse_mode": "HTML", "disable_web_page_preview": True,
+                                    "reply_markup": markup or {"inline_keyboard": []}})
+            return True
+        api("editMessageReplyMarkup", {"chat_id": tgt["chat"], "message_id": tgt["id"], "reply_markup": {"inline_keyboard": []}})
+    except TgError as e:
+        if inline and "not modified" in e.description:
+            return True                                    # the same text and buttons: nothing to change, nothing to add
+    return False
+
+
 def send(chat_id, text: str, markup: dict | None = None) -> tuple[bool, str]:
     """(ok, error). A person who blocked the bot is marked inactive for reminders instead of failing every morning."""
+    if _edit_in_place(chat_id, text, markup):
+        return True, ""
     for attempt in (1, 2):
         try:
             payload = {"chat_id": str(chat_id), "text": text[:4000], "parse_mode": "HTML", "disable_web_page_preview": True}

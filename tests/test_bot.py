@@ -428,7 +428,9 @@ def test_new_users_get_uzbek_by_default_and_the_menu_buttons_work_in_latin(bot):
         people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, "990001", 1)     # with access the whole menu is drawn
     SENT.clear()
     msg(bot, 990001, "/start")
-    buttons = [x["text"] for row in SENT[-1][2]["keyboard"] for x in row]
+    rows = [x for row in SENT[-1][2]["keyboard"] for x in row]
+    assert rows[0].get("request_contact") is True                                                      # until he has sent his phone, the first button asks for it (Telegram sends his own contact)
+    buttons = [x["text"] for x in rows if not x.get("request_contact")]
     assert len(buttons) == 5 and all(not any("а" <= ch.lower() <= "я" for ch in x) for x in buttons if "Язык" not in x), buttons      # the menu is in Latin
     assert "🌐 Til / Язык" in buttons                                                                     # except the language button: it can always be found
     for x in buttons:                                                                                  # every drawn button is recognised (this was broken: «Quyidagi menyudan tanlang»)
@@ -479,3 +481,111 @@ def test_status_is_in_uzbek_for_an_uzbek_user(bot):
     msg(bot, 991002, "/status")
     allt = "\n".join(t for c, t, m in SENT if c == "991002")
     assert "Hisobot holati" in allt and "Topshirmaganlar (1)" in allt and "1. Касса" in allt and "bugun" in allt
+
+
+def contact(bot, uid, phone, user_id=None, first="Али"):
+    bot.handle_update({"message": {"chat": {"id": uid, "type": "private"}, "from": {"id": uid, "first_name": first}, "contact": {"phone_number": phone, "first_name": first, "user_id": uid if user_id is None else user_id}}})
+
+
+def seed_contacts():
+    from app import editor
+    from app.db import tx
+    f1, f2, f3 = make_facility(1, "Район А", "Больница Ф1"), make_facility(1, "Район Б", "Больница Ф2"), make_facility(2, "Район В", "Чужая Ф3")
+    with tx() as c:
+        editor.replace_contacts(c, f1, [{"kind": "main", "fio": "Иванов Иван", "phone": "90-123-45-67"}, {"kind": "reserve", "fio": "Резерв", "phone": "91-000-00-01"}])
+        editor.replace_contacts(c, f2, [{"kind": "main", "fio": "Иванов Иван", "phone": "+998 90 123 45 67\n93-111-22-33"}])    # the same person leads two facilities
+        editor.replace_contacts(c, f3, [{"kind": "main", "fio": "Петров", "phone": "97-777-77-77"}])
+    return f1, f2, f3
+
+
+def test_the_phone_of_the_responsible_person_links_his_telegram_account(bot):
+    from app.db import connect
+    f1, f2, f3 = seed_contacts()
+    msg(bot, 810001, "/start")
+    assert any(x.get("request_contact") for row in SENT[-1][2]["keyboard"] for x in row)               # the button that sends his own number is offered
+    SENT.clear()
+    contact(bot, 810001, "+998901234567")                                                              # Telegram gives it with a plus
+    c = connect()
+    rows = {r["facility_id"]: r["kind"] for r in c.execute("SELECT facility_id, kind FROM assignments WHERE tg_id='810001' AND active=1")}
+    assert rows == {f1: "primary", f2: "primary"} and "подключены" in last(810001) and "Больница Ф1" in last(810001)
+    assert c.execute("SELECT phone FROM tg_users WHERE tg_id='810001'").fetchone()[0] == "998901234567"
+    assert not any(x.get("request_contact") for row in SENT[-1][2]["keyboard"] for x in row)           # the phone is known: the button is gone
+    assert c.execute("SELECT COUNT(*) FROM audit WHERE action='phone.linked'").fetchone()[0] == 2
+    SENT.clear(); contact(bot, 810001, "+998901234567")                                                # again: nothing new
+    assert connect().execute("SELECT COUNT(*) FROM assignments WHERE tg_id='810001'").fetchone()[0] == 2 and "новых подключений нет" in last(810001)
+
+
+def test_a_contact_of_somebody_else_proves_nothing_and_an_unknown_phone_links_nothing(bot):
+    from app.db import connect
+    seed_contacts()
+    msg(bot, 810002, "/start")
+    SENT.clear(); contact(bot, 810002, "+998901234567", user_id=555)                                   # a forwarded contact of another person
+    assert "собственный номер" in last(810002) and connect().execute("SELECT COUNT(*) FROM assignments WHERE tg_id='810002'").fetchone()[0] == 0
+    assert connect().execute("SELECT phone FROM tg_users WHERE tg_id='810002'").fetchone()[0] == ""
+    SENT.clear(); contact(bot, 810002, "+998909999999")                                                # his own, but not in any list
+    assert "в списках ответственных его нет" in last(810002) and connect().execute("SELECT COUNT(*) FROM assignments WHERE tg_id='810002'").fetchone()[0] == 0
+
+
+def test_a_phone_written_later_by_the_administrator_links_the_person_who_is_already_in_the_bot(bot):
+    from app import editor
+    from app.db import connect, tx
+    f1 = make_facility(1, "Район А", "Больница Л1")
+    msg(bot, 810003, "/start"); contact(bot, 810003, "998935551234")                                  # he sent his number first, nothing is linked yet
+    assert connect().execute("SELECT COUNT(*) FROM assignments WHERE tg_id='810003'").fetchone()[0] == 0
+    with tx() as c:                                                                                    # the list is loaded afterwards (the editor or the table)
+        editor.replace_contacts(c, f1, [{"kind": "main", "fio": "Сидоров", "phone": "93-555-12-34"}])
+    assert [(r["facility_id"], r["kind"]) for r in connect().execute("SELECT facility_id, kind FROM assignments WHERE tg_id='810003' AND active=1")] == [(f1, "primary")]
+
+
+def test_an_existing_primary_person_is_not_pushed_out_by_the_phone(bot):
+    from app import editor, people
+    from app.db import connect, tx
+    f = make_facility(1, "Район А", "Больница Л2")
+    with tx() as c:
+        people.add_tg_user(c, "810004", "Старый")
+        people.assign(c, {"id": 1, "role": "super_admin", "regions": None}, "810004", f)               # the administrator has already named a primary person
+    msg(bot, 810005, "/start"); contact(bot, 810005, "998945550000")
+    with tx() as c:
+        editor.replace_contacts(c, f, [{"kind": "main", "fio": "Новый", "phone": "94-555-00-00"}])
+    kinds = {r["tg_id"]: r["kind"] for r in connect().execute("SELECT tg_id, kind FROM assignments WHERE facility_id=? AND active=1", (f,))}
+    assert kinds == {"810004": "primary", "810005": "reserve"}                                         # the new one reports as a reserve, the old one stays
+
+
+def test_buttons_edit_their_own_message_instead_of_filling_the_chat(monkeypatch):
+    from app import tg
+    calls = []
+    monkeypatch.setattr(tg, "api", lambda method, payload=None, timeout=15: calls.append((method, payload)) or {})
+    inline = {"inline_keyboard": [[{"text": "x", "callback_data": "y"}]]}
+    token = tg.set_edit_target(42, 7)
+    try:
+        assert tg.send(42, "step 2", inline) == (True, "")                                              # the first answer is the old message, edited
+        assert calls[-1][0] == "editMessageText" and calls[-1][1]["message_id"] == 7 and calls[-1][1]["reply_markup"] == inline
+        tg.send(42, "another one", inline)                                                              # a second message of the same handler is a new one
+        assert calls[-1][0] == "sendMessage"
+    finally:
+        tg.reset_edit_target(token)
+    calls.clear()
+    token = tg.set_edit_target(42, 8)
+    try:
+        tg.send(42, "menu", {"keyboard": [[{"text": "a"}]]})                                            # a reply keyboard cannot be set by an edit: the old buttons go, a new message comes
+        assert [c[0] for c in calls] == ["editMessageReplyMarkup", "sendMessage"] and calls[0][1]["reply_markup"] == {"inline_keyboard": []}
+    finally:
+        tg.reset_edit_target(token)
+    calls.clear(); tg.send(42, "no button pressed", inline)                                             # outside of a button press nothing is edited
+    assert [c[0] for c in calls] == ["sendMessage"]
+
+
+def test_if_the_edit_fails_the_answer_is_sent_as_a_new_message(monkeypatch):
+    from app import tg
+    seen = []
+    def api(method, payload=None, timeout=15):
+        seen.append(method)
+        if method == "editMessageText":
+            raise tg.TgError(400, "Bad Request: message to edit not found")
+        return {}
+    monkeypatch.setattr(tg, "api", api)
+    token = tg.set_edit_target(1, 2)
+    try:
+        assert tg.send(1, "text") == (True, "") and seen == ["editMessageText", "sendMessage"]
+    finally:
+        tg.reset_edit_target(token)

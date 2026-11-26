@@ -1,5 +1,6 @@
 """The Telegram bot: access, requests for access, the daily report form, status and history (§4). Russian and Uzbek (Cyrillic).
 Every right is checked on the server in reports.submit(); the bot only hides what a person may not do."""
+import contextvars
 import html
 import json
 import re
@@ -12,7 +13,7 @@ from .db import all_settings, connect, now, now_dt, today, tx
 T = {
     "ru": {
         "hello": "Здравствуйте, <b>{name}</b>!\nЭто бот ежедневной отчётности по гриппу и ОРВИ.", "pick": "Выберите действие в меню ниже.",
-        "no_access": "У вас отсутствуют права доступа для отправки отчётности. Вы можете отправить запрос администратору на предоставление доступа.",
+        "no_access": "У вас отсутствуют права доступа для отправки отчётности. Если ваш номер телефона внесён в список ответственных, нажмите «📱 Отправить мой номер телефона»: доступ откроется сразу. Либо отправьте запрос администратору на предоставление доступа.",
         "m_submit": "📝 Отправить ежедневную сводку", "m_fac": "🏥 Мои учреждения", "m_status": "📊 Статус отчётности", "m_hist": "🗂 История отправленных отчётов",
         "m_req": "🔑 Запросить доступ", "m_help": "❓ Помощь", "m_lang": "🌐 Til / Язык", "m_rights": "📋 Мои права доступа",
         "help": "<b>Как пользоваться</b>\n📝 «Отправить ежедневную сводку» — заполнить форму по вашему учреждению: бот спросит каждый показатель.\n📊 «Статус отчётности» — отправлен ли отчёт сегодня.\n🗂 «История» — ваши прошлые отчёты.\n🔑 «Запросить доступ» — если нужного учреждения нет в списке.\nОтмена в любой момент: кнопка «✖ Отмена».",
@@ -37,7 +38,7 @@ T = {
     },
     "uz": {
         "hello": "Ассалому алайкум, <b>{name}</b>!\nБу грипп ва ОРВИ бўйича кундалик ҳисобот боти.", "pick": "Қуйидаги менюдан танланг.",
-        "no_access": "Сизда ҳисобот юбориш учун рухсат йўқ. Администраторга рухсат бериш сўровини юборишингиз мумкин.",
+        "no_access": "Сизда ҳисобот юбориш учун рухсат йўқ. Агар телефон рақамингиз масъул шахслар рўйхатига киритилган бўлса, «📱 Телефон рақамимни юбориш» тугмасини босинг: рухсат дарҳол очилади. Ёки администраторга рухсат бериш сўровини юборинг.",
         "m_submit": "📝 Кундалик маълумот юбориш", "m_fac": "🏥 Менинг муассасаларим", "m_status": "📊 Ҳисобот ҳолати", "m_hist": "🗂 Юборилган ҳисоботлар тарихи",
         "m_req": "🔑 Рухсат сўраш", "m_help": "❓ Ёрдам", "m_lang": "🌐 Til / Язык", "m_rights": "📋 Менинг рухсатларим",
         "help": "<b>Қандай фойдаланиш</b>\n📝 «Кундалик маълумот юбориш» — муассасангиз бўйича шаклни тўлдиринг: бот ҳар бир кўрсаткични сўрайди.\n📊 «Ҳисобот ҳолати» — бугун ҳисобот юборилганми.\n🗂 «Тарих» — олдинги ҳисоботларингиз.\n🔑 «Рухсат сўраш» — керакли муассаса рўйхатда бўлмаса.\nИстаган пайтда бекор қилиш: «✖ Бекор қилиш» тугмаси.",
@@ -111,6 +112,20 @@ T["uz"].update({
     "confirm_fix": "✅ Ўзгаришларни тасдиқлаш", "no_changes": "\n\nℹ️ Қийматлар олдин юборилганлар билан бир хил: ўзгартиришга ҳожат йўқ.",
 })
 
+T["ru"].update({
+    "m_phone": "📱 Отправить мой номер телефона",
+    "phone_linked": "✅ Номер принят. Вы подключены как ответственный: {where}.\nТеперь можно отправлять ежедневную сводку.",
+    "phone_none": "✅ Номер принят, но в списках ответственных его нет. Если вы отвечаете за учреждение, нажмите «🔑 Запросить доступ» — администратор рассмотрит заявку.",
+    "phone_again": "✅ Номер уже сохранён, новых подключений нет.",
+    "bad_contact": "⚠️ Нужен ваш собственный номер: нажмите кнопку «📱 Отправить мой номер телефона» (контакт другого человека не подходит).",
+})
+T["uz"].update({
+    "m_phone": "📱 Телефон рақамимни юбориш",
+    "phone_linked": "✅ Рақам қабул қилинди. Сиз масъул шахс сифатида уландингиз: {where}.\nЭнди кундалик маълумот юборишингиз мумкин.",
+    "phone_none": "✅ Рақам қабул қилинди, лекин масъул шахслар рўйхатида у йўқ. Агар сиз муассаса учун масъул бўлсангиз, «🔑 Рухсат сўраш» тугмасини босинг — администратор кўриб чиқади.",
+    "phone_again": "✅ Рақам аллақачон сақланган, янги уланишлар йўқ.",
+    "bad_contact": "⚠️ Ўзингизнинг рақамингиз керак: «📱 Телефон рақамимни юбориш» тугмасини босинг (бошқа одамнинг контакти ярамайди).",
+})
 T["ru"].update({
     "pick_fac_region": "Регион: <b>{region}</b>\nВыберите <b>учреждение</b> кнопкой или напишите его название. Нет в списке или нужно убрать — нажмите «✍️ Предложить…» внизу.",
     "no_fac_region": "В регионе <b>{region}</b> пока нет учреждений. Предложите добавить своё — нажмите кнопку ниже.", "add_new": "✍️ Предложить добавить или удалить учреждение",
@@ -209,11 +224,16 @@ def nm(row, lang: str, base: str = "name") -> str:
     return row[f"{base}_ru"]
 
 
+_PHONE_UNKNOWN: contextvars.ContextVar = contextvars.ContextVar("phone_unknown", default=False)      # the person who writes now has not sent his phone yet
+
+
 def main_kb(lang: str, has_access: bool) -> dict:
     """The menu. «Yordam» (help), «Mening muassasalarim» (my facilities) and «Yuborilgan hisobotlar tarixi» (history) are not drawn any more; the commands and the old buttons still work."""
     rows = [[{"text": t(lang, "m_submit")}], [{"text": t(lang, "m_status")}, {"text": t(lang, "m_dl")}], [{"text": t(lang, "m_req")}, {"text": t(lang, "m_lang")}]]
     if not has_access:
         rows = [[{"text": t(lang, "m_req")}], [{"text": t(lang, "m_rights")}, {"text": t(lang, "m_lang")}]]
+    if _PHONE_UNKNOWN.get():
+        rows.insert(0, [{"text": t(lang, "m_phone"), "request_contact": True}])              # Telegram sends the person's own number; it links him to the facilities of the list
     return {"keyboard": rows, "resize_keyboard": True, "is_persistent": True}
 
 
@@ -252,11 +272,35 @@ def welcome_preapproved(c, user, chat) -> None:
     tg.send(chat, t(lang, "preapproved", where=", ".join(names)), main_kb(lang, True))
 
 
+def handle_contact(msg: dict) -> None:
+    """The person pressed «Send my phone number»: Telegram sends his own contact (user_id is his). That phone is compared with the phones of the responsible people of the
+    facilities, and he becomes responsible for those. A contact of somebody else (forwarded, typed by hand) proves nothing and is refused."""
+    frm, contact, chat = msg.get("from") or {}, msg.get("contact") or {}, (msg.get("chat") or {})
+    with tx() as c:
+        user = people.touch(c, frm, all_settings(c)["default_lang"])
+        lang = user["lang"]
+        if not user["active"]:
+            return tg.send(chat["id"], t(lang, "stopped"))
+        if not contact.get("user_id") or str(contact["user_id"]) != str(frm.get("id")):
+            _PHONE_UNKNOWN.set(not user["phone"])
+            return tg.send(chat["id"], t(lang, "bad_contact"), main_kb(lang, reports.has_access(c, user["tg_id"])))
+        num = people.save_verified_phone(c, user["tg_id"], str(contact.get("phone_number") or ""))
+        _PHONE_UNKNOWN.set(not num)
+        linked = people.link_phone(c, user["tg_id"]) if num else []
+        has = reports.has_access(c, user["tg_id"])
+        if linked:
+            where = ", ".join(esc(nm(x, lang)) for x in linked)
+            return tg.send(chat["id"], t(lang, "phone_linked", where=where), main_kb(lang, has))
+        tg.send(chat["id"], t(lang, "phone_again" if has else "phone_none"), main_kb(lang, has))
+
+
 def handle_update(u: dict) -> None:
     if u.get("callback_query"):
         return handle_callback(u["callback_query"])
     msg = u.get("message") or {}
     chat = msg.get("chat") or {}
+    if chat.get("type") == "private" and msg.get("contact"):
+        return handle_contact(msg)
     if chat.get("type") != "private" or not msg.get("text"):
         return
     frm = msg.get("from") or {}
@@ -264,6 +308,7 @@ def handle_update(u: dict) -> None:
     with tx() as c:
         user = people.touch(c, frm, all_settings(c)["default_lang"])
         lang = user["lang"]
+        _PHONE_UNKNOWN.set(not user["phone"])
         if not user["active"]:
             tg.send(chat["id"], t(lang, "stopped"))
             return
@@ -902,87 +947,102 @@ def handle_callback(cq: dict) -> None:
     with tx() as c:
         user = people.touch(c, cq["from"], all_settings(c)["default_lang"])
         lang = user["lang"]
+        _PHONE_UNKNOWN.set(not user["phone"])
         welcome_preapproved(c, user, chat)
         has = reports.has_access(c, user["tg_id"])
         tg.answer(cq["id"])
         if not user["active"]:
             return
-        p = data.split(":")
-        k = p[0]
-        if k == "rq":
-            return request_flow(c, user, chat, msg, p)
-        if k == "mr":                                                         # «Reply» under the Ministry's answer: the next text goes into the same dialogue
-            root = c.execute("SELECT id FROM ministry_messages WHERE id=? AND tg_id=?", (int(p[1]), user["tg_id"])).fetchone() if len(p) > 1 and p[1].isdigit() else None
-            if not root:
-                return
-            set_state(c, user["tg_id"], "mreply", {"thread": root["id"]})
-            return tg.send(chat, t(lang, "mr_ask"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True, "input_field_placeholder": t(lang, "note_ph")})
-        if k == "sf":
-            return pick_facility(c, user, chat, int(p[1]))
-        if k == "sx":
-            if not reports.access(c, user["tg_id"], int(p[1])):
-                return tg.send(chat, t(lang, "fail", msg="У вас нет прав отправлять отчёт за это учреждение"))
-            set_state(c, user["tg_id"], "pick_date_text", {"fid": int(p[1])})
-            return tg.send(chat, t(lang, "ask_date"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
-        if k == "dr":
-            return ask_download_date(c, user, chat, p[1])
-        if k == "dd":
-            return download_format(c, user, chat, p[1], p[2])
-        if k == "dx":
-            return deliver_download(c, user, chat, p[1], p[2], p[3])
-        if k == "sn":
-            return suggest_menu(c, user, chat, int(p[1]))
-        if k == "sa":
-            if not any(r["id"] == int(p[1]) for r in reports.user_regions(c, user["tg_id"])):
-                return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
-            if p[2] == "del":
-                return suggest_delete_list(c, user, chat, int(p[1]), 0)
-            set_state(c, user["tg_id"], "suggest_add", {"rid": int(p[1])})
-            return tg.send(chat, t(lang, "sug_add_name"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
-        if k == "sy":
-            if not any(r["id"] == int(p[1]) for r in reports.user_regions(c, user["tg_id"])):
-                return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
-            return suggest_delete_list(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
-        if k == "pz":
-            f = c.execute("SELECT f.id, f.name_ru, f.name_uz, d.region_id FROM facilities f JOIN districts d ON d.id=f.district_id WHERE f.id=? AND f.active=1", (int(p[1]),)).fetchone()
-            if not f or not any(r["id"] == f["region_id"] for r in reports.user_regions(c, user["tg_id"])):
-                return tg.send(chat, t(lang, "fail", msg="У вас нет прав на это учреждение"))
-            set_state(c, user["tg_id"], "suggest_reason", {"rid": f["region_id"], "fid": f["id"], "name": f["name_ru"]})
-            return tg.send(chat, t(lang, "sug_del_reason", name=esc(nm(f, lang))), {"keyboard": [[{"text": t(lang, "sug_skip")}], [{"text": t(lang, "cancel")}]], "resize_keyboard": True})
-        if k == "sr":
-            return pick_region_facility(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
-        if k == "sg":
-            return pick_facility_to_submit(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
-        if k == "sd":
-            return pick_date(c, user, chat, int(p[1]), p[2])
-        if k == "go" or k == "sub":
-            return begin_submit(c, user, chat, has)
-        if k == "hi":
-            return show_report(c, user, chat, int(p[1]))
-        st = get_state(c, user["tg_id"])
-        if k in ("ok", "ch", "no", "ef") and st["state"] not in ("preview", "edit_pick", "edit_field"):
+        k0 = data.split(":")[0]
+        tok = tg.set_edit_target(chat, msg.get("message_id")) if k0 not in KEEP_BUTTONS else None       # the answer goes into the message of the pressed button
+        try:
+            return _callback_body(c, user, lang, has, chat, msg, data)
+        finally:
+            if tok is not None:
+                tg.reset_edit_target(tok)
+
+
+# the button under the Ministry's answer stays where it is: the person may come back to it later
+KEEP_BUTTONS = {"mr"}
+
+
+def _callback_body(c, user, lang, has, chat, msg, data) -> None:
+    p = data.split(":")
+    k = p[0]
+    if k == "rq":
+        return request_flow(c, user, chat, msg, p)
+    if k == "mr":                                                         # «Reply» under the Ministry's answer: the next text goes into the same dialogue
+        root = c.execute("SELECT id FROM ministry_messages WHERE id=? AND tg_id=?", (int(p[1]), user["tg_id"])).fetchone() if len(p) > 1 and p[1].isdigit() else None
+        if not root:
             return
-        d = st["data"]
-        if k == "no":
-            set_state(c, user["tg_id"])
-            return tg.send(chat, t(lang, "cancelled"), main_kb(lang, has))
-        if k == "ch":
-            inds = indicator_list(c)
-            set_state(c, user["tg_id"], "edit_pick", d)
-            return tg.send(chat, t(lang, "pick_field"), ik([[btn(f"{k}. {nm(i, lang)[:44]}: {d['values'].get(i['code'], '—')}", f"ef:{i['code']}")] for k, i in enumerate(inds, 1)] + [[btn(t(lang, "note_btn"), "ef:__note")]]))
-        if k == "ef" and p[1] == "__note":
-            d["edit_code"] = "__note"
-            set_state(c, user["tg_id"], "edit_field", d)
-            return ask_note(c, user, chat, d)
-        if k == "ef":
-            d["edit_code"] = p[1]
-            set_state(c, user["tg_id"], "edit_field", d)
-            ind = c.execute("SELECT name_ru, name_uz FROM indicators WHERE code=?", (p[1],)).fetchone()
-            kb = {"keyboard": [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]], "resize_keyboard": True}
-            bd = bound_of(d, p[1])
-            return tg.send(chat, f"<b>{esc(nm(ind, lang))}</b>\n\n" + (t(lang, "q_limit", n=bd[1], v=bd[0]) + "\n" if bd else "") + t(lang, "q_old", old=d["values"].get(p[1], "—")), {**kb, "input_field_placeholder": t(lang, "q_placeholder")})
-        if k == "ok":
-            return confirm(c, user, chat, d, has)
+        set_state(c, user["tg_id"], "mreply", {"thread": root["id"]})
+        return tg.send(chat, t(lang, "mr_ask"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True, "input_field_placeholder": t(lang, "note_ph")})
+    if k == "sf":
+        return pick_facility(c, user, chat, int(p[1]))
+    if k == "sx":
+        if not reports.access(c, user["tg_id"], int(p[1])):
+            return tg.send(chat, t(lang, "fail", msg="У вас нет прав отправлять отчёт за это учреждение"))
+        set_state(c, user["tg_id"], "pick_date_text", {"fid": int(p[1])})
+        return tg.send(chat, t(lang, "ask_date"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
+    if k == "dr":
+        return ask_download_date(c, user, chat, p[1])
+    if k == "dd":
+        return download_format(c, user, chat, p[1], p[2])
+    if k == "dx":
+        return deliver_download(c, user, chat, p[1], p[2], p[3])
+    if k == "sn":
+        return suggest_menu(c, user, chat, int(p[1]))
+    if k == "sa":
+        if not any(r["id"] == int(p[1]) for r in reports.user_regions(c, user["tg_id"])):
+            return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
+        if p[2] == "del":
+            return suggest_delete_list(c, user, chat, int(p[1]), 0)
+        set_state(c, user["tg_id"], "suggest_add", {"rid": int(p[1])})
+        return tg.send(chat, t(lang, "sug_add_name"), {"keyboard": [[{"text": t(lang, "cancel")}]], "resize_keyboard": True})
+    if k == "sy":
+        if not any(r["id"] == int(p[1]) for r in reports.user_regions(c, user["tg_id"])):
+            return tg.send(chat, t(lang, "fail", msg="У вас нет доступа к этому региону"))
+        return suggest_delete_list(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
+    if k == "pz":
+        f = c.execute("SELECT f.id, f.name_ru, f.name_uz, d.region_id FROM facilities f JOIN districts d ON d.id=f.district_id WHERE f.id=? AND f.active=1", (int(p[1]),)).fetchone()
+        if not f or not any(r["id"] == f["region_id"] for r in reports.user_regions(c, user["tg_id"])):
+            return tg.send(chat, t(lang, "fail", msg="У вас нет прав на это учреждение"))
+        set_state(c, user["tg_id"], "suggest_reason", {"rid": f["region_id"], "fid": f["id"], "name": f["name_ru"]})
+        return tg.send(chat, t(lang, "sug_del_reason", name=esc(nm(f, lang))), {"keyboard": [[{"text": t(lang, "sug_skip")}], [{"text": t(lang, "cancel")}]], "resize_keyboard": True})
+    if k == "sr":
+        return pick_region_facility(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
+    if k == "sg":
+        return pick_facility_to_submit(c, user, chat, int(p[1]), int(p[2]) if len(p) > 2 else 0)
+    if k == "sd":
+        return pick_date(c, user, chat, int(p[1]), p[2])
+    if k == "go" or k == "sub":
+        return begin_submit(c, user, chat, has)
+    if k == "hi":
+        return show_report(c, user, chat, int(p[1]))
+    st = get_state(c, user["tg_id"])
+    if k in ("ok", "ch", "no", "ef") and st["state"] not in ("preview", "edit_pick", "edit_field"):
+        return
+    d = st["data"]
+    if k == "no":
+        set_state(c, user["tg_id"])
+        return tg.send(chat, t(lang, "cancelled"), main_kb(lang, has))
+    if k == "ch":
+        inds = indicator_list(c)
+        set_state(c, user["tg_id"], "edit_pick", d)
+        return tg.send(chat, t(lang, "pick_field"), ik([[btn(f"{k}. {nm(i, lang)[:44]}: {d['values'].get(i['code'], '—')}", f"ef:{i['code']}")] for k, i in enumerate(inds, 1)] + [[btn(t(lang, "note_btn"), "ef:__note")]]))
+    if k == "ef" and p[1] == "__note":
+        d["edit_code"] = "__note"
+        set_state(c, user["tg_id"], "edit_field", d)
+        return ask_note(c, user, chat, d)
+    if k == "ef":
+        d["edit_code"] = p[1]
+        set_state(c, user["tg_id"], "edit_field", d)
+        ind = c.execute("SELECT name_ru, name_uz FROM indicators WHERE code=?", (p[1],)).fetchone()
+        kb = {"keyboard": [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]], "resize_keyboard": True}
+        bd = bound_of(d, p[1])
+        return tg.send(chat, f"<b>{esc(nm(ind, lang))}</b>\n\n" + (t(lang, "q_limit", n=bd[1], v=bd[0]) + "\n" if bd else "") + t(lang, "q_old", old=d["values"].get(p[1], "—")), {**kb, "input_field_placeholder": t(lang, "q_placeholder")})
+    if k == "ok":
+        return confirm(c, user, chat, d, has)
 
 
 def request_flow(c, user, chat, msg, p) -> None:

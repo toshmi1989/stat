@@ -306,4 +306,7 @@ Object.assign(window.UZ, {
   "Нужно решить: {n}": "Qaror kerak: {n}",
   "Есть похожее учреждение: выберите его или «создать»": "O‘xshash muassasa bor: uni tanlang yoki «yaratish»ni tanlang",
   "Сначала решите строки, отмеченные красным: {n}": "Avval qizil bilan belgilangan qatorlarni hal qiling: {n}",
+  "Подключён в боте: {n}": "Botga ulangan: {n}",
+  "Подключено в боте: {n}": "Botga ulandi: {n}",
+  "Когда этот человек отправит боту свой номер телефона кнопкой, он автоматически станет ответственным за учреждение.": "Bu shaxs botga telefon raqamini tugma orqali yuborganda, u avtomatik ravishda muassasa uchun mas’ul bo‘ladi.",
 });
