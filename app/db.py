@@ -153,6 +153,18 @@ CREATE TABLE IF NOT EXISTS broadcast_log (
     broadcast_id INTEGER NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE, tg_id TEXT NOT NULL, lang TEXT NOT NULL DEFAULT 'uz',
     status TEXT NOT NULL DEFAULT 'queued', error TEXT NOT NULL DEFAULT '', at TEXT NOT NULL DEFAULT '', PRIMARY KEY (broadcast_id, tg_id)
 );
+-- texts of broadcasts that people saved to use again (with the audience they were written for); the ready-made ones live in the code (app/broadcast.py)
+CREATE TABLE IF NOT EXISTS broadcast_templates (
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL, text_ru TEXT NOT NULL DEFAULT '', text_uz TEXT NOT NULL DEFAULT '', audience TEXT NOT NULL DEFAULT '{}',
+    created_by INTEGER, created_at TEXT NOT NULL
+);
+-- broadcasts that go by themselves: once, every day or on weekdays at a time; the audience and the figures in the text are taken at the moment of sending
+CREATE TABLE IF NOT EXISTS broadcast_schedules (
+    id INTEGER PRIMARY KEY, title TEXT NOT NULL DEFAULT '', created_by INTEGER, created_at TEXT NOT NULL,
+    audience TEXT NOT NULL DEFAULT '{}', text_ru TEXT NOT NULL DEFAULT '', text_uz TEXT NOT NULL DEFAULT '',
+    repeat TEXT NOT NULL DEFAULT 'once', at_time TEXT NOT NULL DEFAULT '18:00', run_date TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1, last_run_date TEXT NOT NULL DEFAULT '', last_broadcast_id INTEGER, last_result TEXT NOT NULL DEFAULT ''
+);
 -- profile photos fetched from Telegram (the bot token never leaves the server): found=0 means the person has none or hides it
 CREATE TABLE IF NOT EXISTS tg_avatars (tg_id TEXT PRIMARY KEY, data BLOB, fetched_at TEXT NOT NULL, found INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS access_requests (
