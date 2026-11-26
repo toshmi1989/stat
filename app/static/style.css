@@ -261,3 +261,13 @@ details>summary{cursor:pointer}
 .qtab{table-layout:fixed;min-width:900px}.qtab col.c-i{width:40px}.qtab col.c-h{width:110px}.qtab col.c-l{width:220px}.qtab col.c-q{width:100px}.qtab col.c-a{width:60px}.qtab col.c-x{width:210px}
 .qtab td{vertical-align:middle}.qtab tr.off td{opacity:.5}.qtab td.c{text-align:center}.qtab td.act{white-space:nowrap;text-align:right}.qtab code{font-size:12px}
 .pvlist{max-height:62vh;overflow:auto;padding-right:4px}.pvlist .bcmsg{max-width:none;margin:6px 0}
+
+/* the card of the regions, the summary of the reporting */
+#rt-v{margin-left:14px}
+.sumtab{min-width:0;width:100%;table-layout:auto}.sumtab th,.sumtab td{padding:9px 12px}.sumtab th{vertical-align:middle;white-space:nowrap}.sumtab th.n,.sumtab td.n{text-align:right}
+.sumtab td.cv2{width:42%;min-width:190px}.sumtab th.n:last-child{text-align:left}
+.sumtab tr.total td{font-weight:700;border-top:2px solid var(--line);background:var(--grey)}
+.sumtab .bad-t{color:var(--bad);font-weight:600}
+.cov{display:flex;align-items:center;gap:10px}.cov .pill{width:58px;text-align:center;flex:none;padding-left:0;padding-right:0}
+.cbar{flex:1;height:8px;border-radius:4px;background:var(--grey);overflow:hidden}.cbar i{display:block;height:100%;border-radius:4px;background:var(--mut)}
+.cbar i.normal{background:var(--ok)}.cbar i.elevated{background:var(--warn,#e8a21c)}.cbar i.critical{background:var(--bad)}
