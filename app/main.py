@@ -330,6 +330,39 @@ def api_facilities(request: Request, district_id: int | None = None, q: str = ""
         c.close()
 
 
+@app.get("/api/region-contacts")
+def api_region_contacts(request: Request):
+    """The heads of the regional health departments (full name, phone) of the regions the person sees; `linked`: somebody with that phone already has the access to the region in the bot."""
+    u = me(request)
+    c = connect()
+    try:
+        res = {}
+        for rid, items in editor.region_contacts_of(c).items():
+            if not auth.sees_region(u, rid):
+                continue
+            acc = {r["tg_id"] for r in c.execute("SELECT tg_id FROM region_access WHERE region_id=? AND active=1", (rid,))}
+            phones = {x["tg_id"]: x["phone"] for x in c.execute("SELECT tg_id, phone FROM tg_users WHERE phone!=''")}
+            res[str(rid)] = [dict(x) | {"linked": any(phones.get(t) in editor.phones(x["phone"]) for t in acc)} for x in items]
+        return {"items": res}
+    finally:
+        c.close()
+
+
+@app.put("/api/regions/{rid}/contacts")
+async def api_region_contacts_put(request: Request, rid: int):
+    """The head of the regional department (main) and a reserve one: for the people who have the section «Территории», in their own regions."""
+    b = await jbody(request)
+    if not isinstance(b.get("contacts"), list):
+        bad("Ожидался список ответственных")
+    with tx() as c:
+        need_territory(request, rid)
+        if not c.execute("SELECT 1 FROM regions WHERE id=?", (rid,)).fetchone():
+            bad("Регион не найден", 404)
+        editor.replace_region_contacts(c, rid, [x for x in b["contacts"] if isinstance(x, dict)])
+        audit(c, "region.contacts", "region", rid, {"n": len(b["contacts"])})
+    return {"ok": True}
+
+
 @app.get("/api/territory-summary")
 def api_territory_summary(request: Request):
     """Per region: the facilities, the active ones, how many have a responsible person (full name or phone) and how many of those have a phone: for the list of regions on «Территории»."""
@@ -1089,7 +1122,7 @@ async def api_editor_apply(request: Request):
 
 
 @app.get("/api/facility-proposals")
-def api_facility_proposals(request: Request, status: str = "new"):
+def api_facility_proposals(request: Request, status: str = "new", region_id: int | None = None, count_only: int = 0):
     """The proposals of the bot's people to add or to remove a facility, for the people who have the section «Территории» (their own regions only)."""
     u = me(request)
     if not auth.can_territories(u):
@@ -1101,6 +1134,8 @@ def api_facility_proposals(request: Request, status: str = "new"):
             w.append("p.status=?"); a.append(status)
         elif status == "handled":
             w.append("p.status!='new'")
+        if region_id:
+            w.append("p.region_id=?"); a.append(region_id)
         if u["regions"] is not None:
             w.append("p.region_id IN (%s)" % ",".join("?" * len(u["regions"]))); a += list(u["regions"])
         rows = c.execute(f"""SELECT p.*, r.name_ru AS region, r.name_uz AS region_uz, tu.first_name, tu.last_name, tu.username,
@@ -1116,7 +1151,9 @@ def api_facility_proposals(request: Request, status: str = "new"):
                           "facility_id": x["facility_id"] if x["fid"] else None, "facility": x["facility"] or "", "facility_uz": x["facility_uz"] or "", "district": x["district"] or "", "reports": x["reports"] or 0,
                           "comment": x["comment"], "who": who, "username": x["username"] or "", "tg_id": x["tg_id"], "at": x["created_at"],
                           "handled_by": x["handled_name"], "handled_at": x["handled_at"], "handled_comment": x["handled_comment"]})
-        return {"items": items, "new": proposals_new(c, u)}
+        w2, a2 = ("", []) if u["regions"] is None else (" AND region_id IN (%s)" % ",".join("?" * len(u["regions"])), list(u["regions"]))
+        per = {str(r["region_id"]): r["n"] for r in c.execute("SELECT region_id, COUNT(*) AS n FROM facility_proposals WHERE status='new'" + w2 + " GROUP BY region_id", a2)}
+        return {"items": [] if count_only else items, "new": proposals_new(c, u), "per_region": per}
     finally:
         c.close()
 

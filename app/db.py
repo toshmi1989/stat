@@ -63,6 +63,14 @@ CREATE TABLE IF NOT EXISTS facilities (
     created_at TEXT NOT NULL DEFAULT ''
 );
 
+-- the head of the health department of a region (and a reserve one): full name and phone, like the responsible person of a facility
+CREATE TABLE IF NOT EXISTS region_contacts (
+    id INTEGER PRIMARY KEY,
+    region_id INTEGER NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'main',
+    fio TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+);
 -- the person responsible for a facility (the head physician or whoever the administrator names): full name and phone, whether or not he is already in the bot
 CREATE TABLE IF NOT EXISTS facility_contacts (
     id INTEGER PRIMARY KEY,
@@ -225,6 +233,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_preapp ON preapproved(username, region_id,
 CREATE INDEX IF NOT EXISTS idx_assign_fac ON assignments(facility_id);
 CREATE INDEX IF NOT EXISTS idx_regacc_tg ON region_access(tg_id);
 CREATE INDEX IF NOT EXISTS idx_versions_report ON report_versions(report_id, id);
+CREATE INDEX IF NOT EXISTS idx_rcontacts ON region_contacts(region_id);
 CREATE INDEX IF NOT EXISTS idx_fcontacts ON facility_contacts(facility_id);
 CREATE INDEX IF NOT EXISTS idx_notify ON notify_log(kind, day, tg_id, slot);
 """
@@ -345,6 +354,7 @@ def init_db() -> None:
         if "heartbeat" not in {r["name"] for r in c.execute("PRAGMA table_info(broadcasts)")}:
             c.execute("ALTER TABLE broadcasts ADD COLUMN heartbeat TEXT NOT NULL DEFAULT ''")
         questionnaire_v2(c)
+        region_heads_v1(c)
         questionnaire_texts_v3(c)
         occupied_unbounded_v4(c)
         if not c.execute("SELECT 1 FROM settings WHERE key='default_lang_uz_v1'").fetchone():     # one time: a database made earlier still has the old default
@@ -399,6 +409,38 @@ def occupied_unbounded_v4(c) -> None:
         return
     c.execute("DELETE FROM rules WHERE core=1 AND expr='beds_occupied <= beds_flu'")
     c.execute("INSERT INTO settings(key, value) VALUES ('occupied_unbounded_v4', ?)", (now(),))
+
+
+# the heads of the regional health departments (ССБ), as the administrator gave them: the region (as written in the list), the full name, the phones
+REGION_HEADS = [
+    ("Қорақалпоғистон Республикаси", "Курбанов Мурад Исмайлович", "97-789-70-77"),
+    ("Андижон вилояти", "Умиджон", "90-380-55-90"),
+    ("Бухоро вилояти", "Ражабов Мухсин Мансурович", "97-301-25-00"),
+    ("Жиззах вилояти", "Умаров Мамарасул Дўстматович", "94-449-44-15"),
+    ("Қашқадарё вилояти", "в.в.б. Қурбонов Низом Азизович", "90-195-07-18"),
+    ("Навоий вилояти", "Сафоев Нурали Неъматуллоевич", "94-372-30-00"),
+    ("Наманган вилояти", "Алижанов Аброр Алижанович", "91-293-05-55"),
+    ("Самарқанд вилояти", "Зайниев Сухроб Собирович", "91-535-51-56"),
+    ("Сурхондарё вилояти", "Абдувохидов Комил Муртазаевич", "91-574-44-43"),
+    ("Сирдарё вилояти", "Вохид Ёрқулович", "97-394-22-99"),
+    ("Тошкент вилояти", "Арзикулов Тўрақул Содиқович", "95-833-44-45\n94-612-46-37"),
+    ("Фарғона вилояти", "Анвар Азимжонович", "975950528"),
+    ("Хоразм вилояти", "Тангрибердиев Кўпалбай Раимбердиевич", "99-601-80-75"),
+    ("Тошкент шаҳар", "Исабеков Ботирбек Абдуллаевич", "99-811-54-55"),
+]
+
+
+def region_heads_v1(c) -> None:
+    """One time: the heads of the regional health departments are attached to their regions (only to a region that has no head yet)."""
+    if c.execute("SELECT 1 FROM settings WHERE key='region_heads_v1'").fetchone():
+        return
+    from . import editor
+    regions = [dict(r) for r in c.execute("SELECT id, name_ru, name_uz FROM regions")]
+    for text, fio, phone in REGION_HEADS:
+        reg = editor.match_region(regions, text)
+        if reg and not c.execute("SELECT 1 FROM region_contacts WHERE region_id=?", (reg["id"],)).fetchone():
+            c.execute("INSERT INTO region_contacts(region_id, kind, fio, phone, created_at, updated_at) VALUES (?,?,?,?,?,?)", (reg["id"], "main", fio, ",".join(editor.phones(phone)), now(), now()))
+    c.execute("INSERT INTO settings(key, value) VALUES ('region_heads_v1', ?)", (now(),))
 
 
 def all_settings(c=None) -> dict:

@@ -179,3 +179,41 @@ def test_the_editor_links_the_people_of_the_bot_whose_phone_is_in_the_list(clien
     assert [(r["facility_id"], r["kind"]) for r in connect().execute("SELECT facility_id, kind FROM assignments WHERE tg_id='820001' AND active=1")] == [(a, "primary")]
     item = next(x for x in client.get("/api/facilities?region_id=2&size=200").json()["items"] if x["id"] == a)
     assert [x["tg_id"] for x in item["assignments"]] == ["820001"]
+
+
+def test_the_heads_of_the_regional_departments_are_attached_once_and_editable(client):
+    from app import db
+    from app.db import connect, tx
+    c = connect()
+    rows = {r["region_id"]: r for r in c.execute("SELECT * FROM region_contacts")}
+    assert len(rows) == 14 and rows[1]["fio"] == "Курбанов Мурад Исмайлович" and rows[1]["phone"] == "998977897077"
+    assert rows[11]["phone"] == "998958334445,998946124637" and rows[12]["phone"] == "998975950528" and rows[14]["fio"].startswith("Исабеков")     # Tashkent oblast and the city are told apart
+    assert "Неъматуллоевич" in rows[6]["fio"] and rows[5]["fio"].startswith("в.в.б. ")
+    with tx() as c:
+        c.execute("UPDATE region_contacts SET fio='Другой' WHERE region_id=1")
+        db.region_heads_v1(c)                                                                         # a second start does not overwrite what the administrator changed
+    assert connect().execute("SELECT fio FROM region_contacts WHERE region_id=1").fetchone()[0] == "Другой"
+    got = client.get("/api/region-contacts").json()["items"]
+    assert got["12"][0]["phone"] == "998975950528" and got["12"][0]["linked"] is False
+    r = client.put("/api/regions/12/contacts", json={"contacts": [{"kind": "main", "fio": " Новый  Глава ", "phone": "90-111-22-33"}, {"kind": "reserve", "fio": "Резерв", "phone": ""}, {"fio": "", "phone": ""}]})
+    assert r.status_code == 200, r.text
+    assert [(x["kind"], x["fio"], x["phone"]) for x in client.get("/api/region-contacts").json()["items"]["12"]] == [("main", "Новый Глава", "998901112233"), ("reserve", "Резерв", "")]
+    assert client.put("/api/regions/999/contacts", json={"contacts": []}).status_code == 404 and client.put("/api/regions/12/contacts", json={"contacts": "x"}).status_code == 400
+    # only the person with the section «Территории» and only in his own regions
+    a = mk_staff(client, "rc_adm", "admin", [1])
+    assert a.put("/api/regions/1/contacts", json={"contacts": []}).status_code == 403
+    sid = [x for x in client.get("/api/staff").json()["items"] if x["login"] == "rc_adm"][0]["id"]
+    client.patch(f"/api/staff/{sid}", json={"can_manage_territories": True})
+    assert a.put("/api/regions/1/contacts", json={"contacts": [{"kind": "main", "fio": "Свой", "phone": ""}]}).status_code == 200
+    assert a.put("/api/regions/2/contacts", json={"contacts": []}).status_code == 403 and set(a.get("/api/region-contacts").json()["items"]) == {"1"}
+
+
+def test_proposals_of_one_region_and_the_counts_per_region(client):
+    from app.db import tx
+    with tx() as c:
+        for rid, name in ((1, "А1"), (1, "А2"), (2, "Б1")):
+            c.execute("INSERT INTO facility_proposals(region_id, kind, name, tg_id, created_at) VALUES (?,?,?,?,datetime('now'))", (rid, "add", name, "1"))
+    r = client.get("/api/facility-proposals?region_id=1").json()
+    assert {p["name"] for p in r["items"]} == {"А1", "А2"} and r["per_region"] == {"1": 2, "2": 1} and r["new"] == 3
+    c_ = client.get("/api/facility-proposals?count_only=1&status=new").json()
+    assert c_["items"] == [] and c_["per_region"] == {"1": 2, "2": 1}

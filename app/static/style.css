@@ -235,3 +235,7 @@ tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
 details>summary{cursor:pointer}
 
 .ftab .botdot{margin-right:4px;font-size:14px;cursor:default}
+
+/* the head of the regional department and the proposals inside the opened region */
+.rhead{margin:10px 0 6px;padding:8px 12px;background:var(--grey);border-radius:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.props{margin:8px 0}.props:empty{display:none}.props>.row{margin-bottom:4px}.props .prop{margin:6px 0}
