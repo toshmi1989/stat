@@ -61,9 +61,11 @@ def overview(c, user, ref: str | None = None, region_id=None, district_id=None, 
     ref_d = date.fromisoformat(ref) if ref else today()
     tot = stats.daily_totals(c, user, (ref_d - timedelta(days=WINDOW + 3)).isoformat(), ref_d.isoformat(), region_id, district_id, facility_id)
     out = {"ref": ref_d.isoformat(), "metrics": {}, "beds": None}
-    for code in ("visits", "severe", "extreme", "hosp", "disch"):
-        out["metrics"][code] = project(series_of(tot, code), ref_d)
-    if tot:
+    active = {r["code"] for r in c.execute("SELECT code FROM indicators WHERE active=1")}
+    for code in ("visits", "visits_flu", "hosp", "hosp_flu", "disch", "severe", "extreme"):      # the figures of the questionnaire that have a daily course (the ones switched off are not forecast)
+        if code in active:
+            out["metrics"][code] = project(series_of(tot, code), ref_d)
+    if tot and "hosp" in out["metrics"] and "disch" in out["metrics"] and "beds_occupied" in tot[max(tot)]:      # the bed load needs the occupied beds of the last day: without that question there is no such forecast
         lastd = max(tot)
         t = tot[lastd]
         occ0, flu = t.get("beds_occupied", 0), t.get("beds_flu", 0)
