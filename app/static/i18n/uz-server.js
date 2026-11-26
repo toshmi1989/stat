@@ -158,6 +158,10 @@ Object.assign(window.UZ, {
   "отправлено": "yuborildi",
   "пропущено: сервис был выключен": "o‘tkazib yuborildi: xizmat o‘chiq edi",
   "отправитель отключён": "yuboruvchi o‘chirib qo‘yilgan",
+  "Основной вопрос нельзя удалить: его можно только отключить": "Asosiy savolni o‘chirib bo‘lmaydi: uni faqat o‘chirib qo‘yish mumkin",
+  "По этому вопросу уже есть данные в отчётах: отключите его, данные сохранятся": "Bu savol bo‘yicha hisobotlarda ma’lumot bor: uni o‘chirib qo‘ying, ma’lumotlar saqlanadi",
+  "Вопрос используется в основных правилах проверки: удалять нельзя, только выключить": "Savol asosiy tekshiruv qoidalarida ishlatilgan: o‘chirib bo‘lmaydi, faqat o‘chirib qo‘yish mumkin",
+  "Неверный порядок вопросов": "Savollar tartibi noto‘g‘ri",
 });
 window.UZP.push(
   // with a number or a name inside

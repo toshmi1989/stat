@@ -310,7 +310,7 @@ SETTINGS = {
     "allow_user_edit": "1", "edit_window_hours": "24", "lock_after_days": "3",
     "occ_elevated": "70", "occ_critical": "85", "fac_occ_warn": "90",
     "growth_warn_pct": "30", "growth_crit_pct": "60", "severe_growth_pct": "25", "hosp_growth_pct": "30",
-    "default_lang": "uz", "org_title": "Министерство здравоохранения Республики Узбекистан",
+    "note_enabled": "1", "q_hints": "0", "default_lang": "uz", "org_title": "Министерство здравоохранения Республики Узбекистан",
 }
 
 
@@ -361,6 +361,8 @@ def init_db() -> None:
         c.execute("UPDATE ministry_messages SET thread_id=id WHERE thread_id IS NULL")
         if "can_manage_territories" not in {r["name"] for r in c.execute("PRAGMA table_info(staff)")}:      # a database made before the territories of the administrators
             c.execute("ALTER TABLE staff ADD COLUMN can_manage_territories INTEGER NOT NULL DEFAULT 0")
+        if "required" not in {r["name"] for r in c.execute("PRAGMA table_info(indicators)")}:                # a database made before the editor of the questionnaire
+            c.execute("ALTER TABLE indicators ADD COLUMN required INTEGER NOT NULL DEFAULT 1")
         if "beds" not in {r["name"] for r in c.execute("PRAGMA table_info(facilities)")}:                  # a database made before the editor of territories
             c.execute("ALTER TABLE facilities ADD COLUMN beds INTEGER")
         if "heartbeat" not in {r["name"] for r in c.execute("PRAGMA table_info(broadcasts)")}:

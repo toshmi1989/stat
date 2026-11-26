@@ -747,20 +747,77 @@ async function editorView() {
   };
   if (ED.data) render();
 }
-// ---------- indicators and rules
+// ---------- the questionnaire of the bot: the questions (order, texts in two languages, hints, optional, on/off), the limits between them and the check rules; how the bot shows it
+const AGG = { sum: T("складывать за период (обращения, поступившие)"), last: T("брать значение последнего дня (койки, тяжёлые)"), max: T("брать максимум за период") };
 async function indicators() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
-  const r = await api("/api/indicators");
-  if (nav !== NAVID) return; view.innerHTML = `<div class="card"><div class="row"><h2>${T("Показатели")}</h2><button class="btn pri right" id="i-add">${T("+ Показатель")}</button></div><p class="muted sm">${T("«Способ сложения»: sum — потоки (обращения), last — состояние на последний день (койки), max — максимум за период.")}</p><div class="scroll-x"><table><tr><th>${T("Код")}</th><th>${T("Название")}</th><th>${T("Сложение")}</th><th>${T("Активен")}</th><th></th></tr>${r.items.map(i => `<tr><td>${esc(i.code)}${i.core ? " 🔒" : ""}</td><td>${esc(nm(i))}</td><td>${i.agg}</td><td>${i.active ? T("да") : T("нет")}</td><td><button class="btn sm" data-i="${i.code}">${T("Изменить")}</button></td></tr>`).join("")}</table></div></div>
-  <div class="card"><div class="row"><h2>${T("Правила проверки")}</h2><button class="btn pri right" id="r-add">${T("+ Правило")}</button></div><div class="scroll-x"><table><tr><th>${T("Вид")}</th><th>${T("Условие (должно выполняться)")}</th><th>${T("Сообщение")}</th><th>${T("Вкл.")}</th><th></th></tr>${r.rules.map(x => `<tr><td>${x.kind === "error" ? `<span class="pill critical">${T("ошибка")}</span>` : `<span class="pill warning">${T("предупреждение")}</span>`}</td><td><code>${esc(x.expr)}</code></td><td>${esc(LANG === "uz" && x.message_uz ? x.message_uz : x.message_ru)}</td><td>${x.active ? T("да") : T("нет")}</td><td><button class="btn sm" data-r="${x.id}">${T("Изменить")}</button></td></tr>`).join("")}</table></div></div>`;
-  $("#i-add").onclick = () => indDlg(null); document.querySelectorAll("[data-i]").forEach(b => b.onclick = () => indDlg(r.items.find(i => i.code === b.dataset.i)));
+  const [r, st] = await Promise.all([api("/api/indicators"), api("/api/settings")]);
+  if (nav !== NAVID) return;
+  const items = r.items, S = st.settings, byCode = Object.fromEntries(items.map(i => [i.code, i]));
+  const qn = i => (LANG === "uz" && i.name_uz) || i.name_ru;
+  const pos = {}; items.filter(i => i.active).forEach((i, k) => { pos[i.code] = k + 1; });
+  const limitOf = code => { const x = r.rules.find(q => q.active && q.kind === "error" && new RegExp(`^\\s*${code}\\s*<=\\s*([a-z][a-z0-9_]*)\\s*$`).test(q.expr)); return x ? x.expr.split("<=")[1].trim() : ""; };
+  const words = expr => esc(expr).replace(/\b[a-z][a-z0-9_]*\b/g, m => byCode[m] ? `«${esc(qn(byCode[m]))}»` : m);
+  const row = i => `<tr class="${i.active ? "" : "off"}" data-i="${i.code}"><td class="n muted">${pos[i.code] || "—"}</td>
+      <td><b>${esc(i.name_ru)}</b>${i.name_uz ? `<div class="muted sm">${esc(i.name_uz)}</div>` : `<div class="sm warn-t">${T("нет узбекского названия")}</div>`}<div class="muted sm"><code>${esc(i.code)}</code>${i.core ? " 🔒" : ""}</div></td>
+      <td class="sm">${i.hint_ru ? "RU ✓" : "RU —"} · ${i.hint_uz ? "UZ ✓" : "UZ —"}</td>
+      <td class="sm">${limitOf(i.code) && byCode[limitOf(i.code)] ? "≤ " + esc(qn(byCode[limitOf(i.code)])) : '<span class="muted">—</span>'}</td>
+      <td class="sm">${i.required ? T("да") : `<span class="muted">${T("нет")}</span>`}</td>
+      <td class="c"><input type="checkbox" data-on="${i.code}" ${i.active ? "checked" : ""} title="${T("Включён: бот задаёт этот вопрос")}"></td>
+      <td class="act"><button class="btn sm" data-up="${i.code}" title="${T("Выше")}">↑</button><button class="btn sm" data-dn="${i.code}" title="${T("Ниже")}">↓</button><button class="btn sm" data-i="${i.code}">${T("Изменить")}</button>${i.core ? "" : `<button class="btn sm bad" data-del="${i.code}" title="${T("Удалить")}">✕</button>`}</td></tr>`;
+  view.innerHTML = `<div class="card"><div class="row"><h2>${T("Вопросник бота")}</h2><button class="btn right" id="q-prev">${T("👁 Как это видит человек в боте")}</button><button class="btn pri" id="i-add">${T("+ Вопрос")}</button></div>
+      <p class="muted sm">${T("Бот задаёт включённые вопросы по порядку. Выключенный вопрос не задаётся, а ответы на него в прежних отчётах сохраняются. Основные вопросы (🔒) на панели и в расчётах нельзя удалить, только выключить.")}</p>
+      <div class="qsw"><label><input type="checkbox" id="q-note" ${S.note_enabled === "1" ? "checked" : ""}> ${T("Последний вопрос: конфиденциальное сообщение для Министерства")}</label>
+        <label><input type="checkbox" id="q-hints" ${S.q_hints === "1" ? "checked" : ""}> ${T("Показывать подсказку под вопросом")}</label></div>
+      <div class="scroll-x"><table class="qtab"><colgroup><col class="c-i"><col class="c-n"><col class="c-h"><col class="c-l"><col class="c-q"><col class="c-a"><col class="c-x"></colgroup>
+        <tr><th>#</th><th>${T("Вопрос")}</th><th>${T("Подсказка")}</th><th>${T("Ответ не больше")}</th><th>${T("Обязательный")}</th><th>${T("Вкл.")}</th><th></th></tr>${items.map(row).join("")}</table></div></div>
+    <div class="card"><div class="row"><h2>${T("Правила проверки")}</h2><button class="btn pri right" id="r-add">${T("+ Правило")}</button></div><p class="muted sm">${T("Правило сравнивает ответы: «ошибка» не даёт отправить сводку, «предупреждение» только предупреждает. Простое правило «ответ не больше другого» человек видит в боте уже у вопроса.")}</p><div class="scroll-x"><table><tr><th>${T("Вид")}</th><th>${T("Условие (должно выполняться)")}</th><th>${T("Сообщение")}</th><th>${T("Вкл.")}</th><th></th></tr>${r.rules.map(x => `<tr><td>${x.kind === "error" ? `<span class="pill critical">${T("ошибка")}</span>` : `<span class="pill warning">${T("предупреждение")}</span>`}</td><td><code>${esc(x.expr)}</code><div class="muted sm">${words(x.expr)}</div></td><td class="sm">${esc((LANG === "uz" && x.message_uz ? x.message_uz : x.message_ru).replace(/\{(\w+)\}/g, (m, k) => byCode[k] ? "…" : m))}</td><td>${x.active ? "✓" : "—"}</td><td><button class="btn sm" data-r="${x.id}">${T("Изменить")}</button></td></tr>`).join("")}</table></div></div>`;
+  const reload = async () => { META = await api("/api/meta"); indicators(); };
+  $("#i-add").onclick = () => indDlg(null, items, r.rules, reload);
+  document.querySelectorAll("button[data-i]").forEach(b => b.onclick = () => indDlg(byCode[b.dataset.i], items, r.rules, reload));
   $("#r-add").onclick = () => ruleDlg(null); document.querySelectorAll("[data-r]").forEach(b => b.onclick = () => ruleDlg(r.rules.find(x => x.id === +b.dataset.r)));
+  const setting = async (k, v) => { try { await api("/api/settings", { method: "PUT", body: { [k]: v ? "1" : "0" } }); toast(T("Сохранено")); } catch (e) { fail(e); } };
+  $("#q-note").onchange = e => setting("note_enabled", e.target.checked); $("#q-hints").onchange = e => setting("q_hints", e.target.checked);
+  document.querySelectorAll("[data-on]").forEach(c => c.onchange = async () => { try { await api("/api/indicators/" + c.dataset.on, { method: "PATCH", body: { active: c.checked } }); await reload(); } catch (e) { fail(e); c.checked = !c.checked; } });
+  const move = async (code, d) => { const codes = items.map(i => i.code), k = codes.indexOf(code), j = k + d; if (j < 0 || j >= codes.length) return; [codes[k], codes[j]] = [codes[j], codes[k]];
+    try { await api("/api/indicators/reorder", { method: "POST", body: { codes } }); await reload(); } catch (e) { fail(e); } };
+  document.querySelectorAll("[data-up]").forEach(b => b.onclick = () => move(b.dataset.up, -1)); document.querySelectorAll("[data-dn]").forEach(b => b.onclick = () => move(b.dataset.dn, 1));
+  document.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { const i = byCode[b.dataset.del];
+    confirmDlg(T("Удалить вопрос"), `<p>${T("Вопрос «{name}» будет удалён.", { name: `<b>${esc(i.name_ru)}</b>` })}</p><p class="muted sm">${T("Если по нему уже есть данные в отчётах или он используется в правилах, система откажет: тогда вопрос можно выключить.")}</p>`, T("Удалить"), async () => { await api("/api/indicators/" + i.code, { method: "DELETE" }); closeModal(); toast(T("Вопрос удалён")); reload(); }); });
+  $("#q-prev").onclick = () => previewDlg(LANG);
 }
-function indDlg(i) {
-  modal(`<h2>${i ? T("Показатель") : T("Новый показатель")}</h2>${i ? "" : `<label>${T("Код (латиница)")}<input id="p-c"></label>`}<label>${T("Название (рус.)")}<input id="p-n" value="${esc(i?.name_ru || "")}"></label><label>${T("Название (узб.)")}<input id="p-u" value="${esc(i?.name_uz || "")}"></label><label>${T("Подсказка")}<input id="p-h" value="${esc(i?.hint_ru || "")}"></label>
-  <label>${T("Сложение")}<select id="p-a">${["sum", "last", "max"].map(a => `<option ${i?.agg === a ? "selected" : ""}>${a}</option>`).join("")}</select></label>${i ? `<label><input type="checkbox" id="p-ac" ${i.active ? "checked" : ""} style="width:auto"> ${T("Активен")}</label>` : ""}<div class="row mt"><button class="btn pri" id="p-ok">${T("Сохранить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
-  $("#p-ok").onclick = async () => { const body = { name_ru: $("#p-n").value, name_uz: $("#p-u").value, hint_ru: $("#p-h").value, agg: $("#p-a").value }; if (i) body.active = $("#p-ac").checked; else body.code = $("#p-c").value;
-    try { await api(i ? "/api/indicators/" + i.code : "/api/indicators", { method: i ? "PATCH" : "POST", body }); META = await api("/api/meta"); closeModal(); indicators(); } catch (e) { fail(e); } };
+// the questions exactly as the bot sends them (Telegram's HTML: b, i), in one of the two languages
+async function previewDlg(lang) {
+  let r; try { r = await api("/api/questionnaire/preview?lang=" + lang); } catch (e) { return fail(e); }
+  modal(`<div class="row"><h2>${T("Так спрашивает бот")}</h2><div class="seg right" id="pv-l"><button data-l="uz" class="${lang === "uz" ? "on" : ""}">UZ</button><button data-l="ru" class="${lang === "ru" ? "on" : ""}">RU</button></div></div>
+    <p class="muted sm">${T("Вопросов: {n}. Название учреждения и дата подставляются при заполнении; «…» в ограничении заменится ответом на более ранний вопрос.", { n: r.n })}</p>
+    <div class="pvlist">${r.items.map((x, k) => `<div class="bcmsg">${x.text.replace(/\n/g, "<br>")}</div>${x.code !== "__note" && !x.required ? `<div class="muted sm" style="margin:-4px 0 8px 8px">${T("можно пропустить")}</div>` : ""}`).join("")}</div>
+    <div class="row mt"><button class="btn right" data-close>${T("Закрыть")}</button></div>`, true);
+  $("#pv-l").onclick = e => { const b = e.target.closest("[data-l]"); if (b && b.dataset.l !== lang) previewDlg(b.dataset.l); };
+}
+function indDlg(i, items, rules, done) {
+  const cur = i ? ((rules.find(q => q.active && q.kind === "error" && new RegExp(`^\\s*${i.code}\\s*<=\\s*([a-z][a-z0-9_]*)\\s*$`).test(q.expr)) || { expr: "" }).expr.split("<=")[1] || "").trim() : "";
+  const others = items.filter(x => x.active && (!i || x.code !== i.code));
+  modal(`<h2>${i ? T("Вопрос") : T("Новый вопрос")}</h2>
+    <label>${T("Название (рус.)")}<input id="p-n" value="${esc(i?.name_ru || "")}"></label><label>${T("Название (узб.)")}<input id="p-u" value="${esc(i?.name_uz || "")}"></label>
+    <div class="grid2"><label>${T("Подсказка (рус.)")}<textarea id="p-h" rows="2">${esc(i?.hint_ru || "")}</textarea></label><label>${T("Подсказка (узб.)")}<textarea id="p-hu" rows="2">${esc(i?.hint_uz || "")}</textarea></label></div>
+    <label>${T("Как складывать по периоду")}<select id="p-a">${Object.entries(AGG).map(([k, l]) => `<option value="${k}" ${(i?.agg || "sum") === k ? "selected" : ""}>${k} — ${l}</option>`).join("")}</select></label>
+    <label>${T("Ответ не может быть больше ответа на вопрос")}<select id="p-lim"><option value="">${T("— без ограничения —")}</option>${others.map(x => `<option value="${x.code}" ${cur === x.code ? "selected" : ""}>${esc(x.name_ru)}</option>`).join("")}</select></label>
+    <div class="row"><label class="chk"><input type="checkbox" id="p-rq" ${!i || i.required ? "checked" : ""} style="width:auto"> ${T("Обязательный (без ответа нельзя отправить сводку)")}</label>${i ? `<label class="chk"><input type="checkbox" id="p-ac" ${i.active ? "checked" : ""} style="width:auto"> ${T("Включён")}</label>` : ""}</div>
+    ${i ? "" : `<details><summary class="muted sm">${T("Код (латиница), если нужен свой")}</summary><label><input id="p-c" placeholder="${T("создастся сам из названия")}"></label></details>`}
+    <div id="p-err" class="err"></div><div class="row mt"><button class="btn pri" id="p-ok">${T("Сохранить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
+  $("#p-ok").onclick = async () => {
+    const body = { name_ru: $("#p-n").value, name_uz: $("#p-u").value, hint_ru: $("#p-h").value, hint_uz: $("#p-hu").value, agg: $("#p-a").value, required: $("#p-rq").checked };
+    if (i) body.active = $("#p-ac").checked; else body.code = ($("#p-c") || { value: "" }).value;
+    try {
+      const x = await api(i ? "/api/indicators/" + i.code : "/api/indicators", { method: i ? "PATCH" : "POST", body }), code = i ? i.code : x.code, want = $("#p-lim").value;
+      if (want !== cur) {                                   // the limit is an ordinary rule «this <= that»: the old one goes, the new one is made with a message in both languages
+        for (const q of rules.filter(q => q.kind === "error" && new RegExp(`^\\s*${code}\\s*<=\\s*([a-z][a-z0-9_]*)\\s*$`).test(q.expr))) await api("/api/rules/" + q.id, { method: "DELETE" });
+        if (want) { const o = items.find(y => y.code === want); await api("/api/rules", { method: "POST", body: { expr: `${code} <= ${want}`, kind: "error", message_ru: `${body.name_ru} ({${code}}) больше, чем «${o.name_ru}» ({${want}}).`, message_uz: `${body.name_uz || body.name_ru} ({${code}}) «${o.name_uz || o.name_ru}» ({${want}}) dan ko‘p.`, active: true } }); }
+      }
+      closeModal(); toast(T("Сохранено")); done();
+    } catch (e) { $("#p-err").textContent = e.message; }
+  };
 }
 function ruleDlg(x) {
   modal(`<h2>${x ? T("Правило") : T("Новое правило")}</h2><label>${T("Условие: оно должно быть верным (например beds_occupied &lt;= beds_flu)")}<input id="q-e" value="${esc(x?.expr || "")}"></label><label>${T("Вид")}<select id="q-k"><option value="error" ${x?.kind === "error" ? "selected" : ""}>${T("Ошибка (блокирует отправку)")}</option><option value="warning" ${x?.kind === "warning" ? "selected" : ""}>${T("Предупреждение")}</option></select></label>
@@ -1036,8 +1093,8 @@ function badgeMessages() { const a = document.querySelector('#tabs a[data-t="mes
 // [name, label, page, right, group]: the pages of a group share one tab of the menu and a row of sub-tabs under it (SUBTABS lists them in the order of the row)
 const TABS = [["dashboard", T("Панель"), dashboard, null], ["messages", T("Сообщения"), messagesView, "s"], ["forecast", T("Прогноз"), forecastView, null], ["reports", T("Отчёты"), reportsView, "w"], ["people", T("Доступы"), people, "u"],
   ["export", T("Выгрузка"), exportView, null], ["territories", T("Территории"), territories, "t", "territories"], ["editor", T("Редактор"), editorView, "t", "territories"], ["broadcast", T("Рассылка"), broadcastView, "u"],
-  ["settings", T("Настройки"), settings, "s", "settings"], ["control", T("Контроль"), control, "w", "settings"], ["indicators", T("Показатели"), indicators, "s", "settings"], ["audit", T("Журнал"), audit, "s"]];
-const SUBTABS = { territories: [["territories", T("Учреждения")], ["editor", T("Редактор")]], settings: [["settings", T("Общие")], ["control", T("Контроль")], ["indicators", T("Показатели")]] };
+  ["settings", T("Настройки"), settings, "s", "settings"], ["control", T("Контроль"), control, "w", "settings"], ["indicators", T("Вопросник"), indicators, "s", "settings"], ["audit", T("Журнал"), audit, "s"]];
+const SUBTABS = { territories: [["territories", T("Учреждения")], ["editor", T("Редактор")]], settings: [["settings", T("Общие")], ["control", T("Контроль")], ["indicators", T("Вопросник")]] };
 function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users) || (t[3] === "t" && ME.can_manage_territories); }
 const tabOf = name => TABS.find(t => t[0] === name);
 // the menu: a group is one tab (its label is its first page's) that leads to the first page of the group the person may open

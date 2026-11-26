@@ -1429,21 +1429,34 @@ def api_indicators(request: Request):
         c.close()
 
 
+def _auto_code(c, name: str) -> str:
+    """A code for a new question made from its name (Latin letters, digits, underscore), unique."""
+    from .translit import lat
+    base = "q_" + (re.sub(r"[^a-z0-9]+", "_", lat(name).lower().replace("‘", "").replace("’", "")).strip("_")[:28] or "new")
+    code, n = base, 2
+    while c.execute("SELECT 1 FROM indicators WHERE code=?", (code,)).fetchone() or code in ("occupancy", "beds_free", "n", "reported"):
+        code, n = f"{base}_{n}", n + 1
+    return code
+
+
 @app.post("/api/indicators")
 async def api_indicator_create(request: Request):
+    """A new question at the end of the questionnaire. The code (Latin) is optional: it is made from the name."""
     need_super(request)
     b = await jbody(request)
-    code = re.sub(r"[^a-z0-9_]", "", str(b.get("code") or "").lower())
-    if not re.fullmatch(r"[a-z][a-z0-9_]{1,39}", code) or code in ("occupancy", "beds_free", "n", "reported"):
-        bad("Код: латиница, цифры, подчёркивание, начинается с буквы (2–40 знаков)")
     name = str(b.get("name_ru") or "").strip()
     if not name or b.get("agg", "sum") not in ("sum", "last", "max"):
         bad("Укажите название и способ сложения (sum / last / max)")
     with tx() as c:
+        code = re.sub(r"[^a-z0-9_]", "", str(b.get("code") or "").lower())
+        if not code:
+            code = _auto_code(c, name)
+        if not re.fullmatch(r"[a-z][a-z0-9_]{1,39}", code) or code in ("occupancy", "beds_free", "n", "reported"):
+            bad("Код: латиница, цифры, подчёркивание, начинается с буквы (2–40 знаков)")
         if c.execute("SELECT 1 FROM indicators WHERE code=?", (code,)).fetchone():
             bad("Такой код уже есть")
-        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, agg, sort) VALUES (?,?,?,?,?,?,?,(SELECT COALESCE(MAX(sort),0)+1 FROM indicators))",
-                  (code, "extra", name, str(b.get("name_uz") or "").strip(), str(b.get("hint_ru") or "").strip(), str(b.get("hint_uz") or "").strip(), b.get("agg", "sum")))
+        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, agg, sort, required) VALUES (?,?,?,?,?,?,?,(SELECT COALESCE(MAX(sort),0)+1 FROM indicators),?)",
+                  (code, "extra", name, str(b.get("name_uz") or "").strip(), str(b.get("hint_ru") or "").strip(), str(b.get("hint_uz") or "").strip(), b.get("agg", "sum"), int(b.get("required", True) is not False)))
         audit(c, "indicator.create", "indicator", code, {"name": name})
     return {"code": code}
 
@@ -1460,13 +1473,63 @@ async def api_indicator_update(request: Request, code: str):
         if agg not in ("sum", "last", "max"):
             bad("Способ сложения: sum / last / max")
         active = int(bool(b.get("active", r["active"])))
-        if r["core"] and not active:
-            bad("Основной показатель нельзя отключить: на нём построены расчёты")
-        c.execute("UPDATE indicators SET name_ru=?, name_uz=?, hint_ru=?, hint_uz=?, agg=?, active=?, sort=? WHERE code=?",
+        required = int(bool(b.get("required", r["required"])))
+        c.execute("UPDATE indicators SET name_ru=?, name_uz=?, hint_ru=?, hint_uz=?, agg=?, active=?, required=?, sort=? WHERE code=?",
                   (str(b.get("name_ru", r["name_ru"])).strip() or r["name_ru"], str(b.get("name_uz", r["name_uz"])).strip(), str(b.get("hint_ru", r["hint_ru"])).strip(), str(b.get("hint_uz", r["hint_uz"])).strip(),
-                   agg, active, int(b.get("sort", r["sort"])), code))
+                   agg, active, required, int(b.get("sort", r["sort"])), code))
         audit(c, "indicator.update", "indicator", code, b)
     return {"ok": True}
+
+
+@app.delete("/api/indicators/{code}")
+def api_indicator_delete(request: Request, code: str):
+    """A question that was added later can be removed while no report holds a figure for it (the rules written for it, for example its limit, go with it); the others are switched
+    off (their figures stay in the reports)."""
+    need_super(request)
+    with tx() as c:
+        r = c.execute("SELECT * FROM indicators WHERE code=?", (code,)).fetchone()
+        if not r:
+            bad("Показатель не найден", 404)
+        if r["core"]:
+            bad("Основной вопрос нельзя удалить: его можно только отключить", 409)
+        if c.execute("SELECT COUNT(*) FROM report_values WHERE code=?", (code,)).fetchone()[0]:
+            bad("По этому вопросу уже есть данные в отчётах: отключите его, данные сохранятся", 409)
+        used = [x for x in c.execute("SELECT id, expr, core FROM rules").fetchall() if re.search(rf"\b{re.escape(code)}\b", x["expr"])]
+        if any(x["core"] for x in used):
+            bad("Вопрос используется в основных правилах проверки: удалять нельзя, только выключить", 409)
+        for x in used:                                                      # the rules that were written for this question (for example its limit) go with it
+            c.execute("DELETE FROM rules WHERE id=?", (x["id"],))
+        c.execute("DELETE FROM indicators WHERE code=?", (code,))
+        audit(c, "indicator.delete", "indicator", code, {"name": r["name_ru"]})
+    return {"ok": True}
+
+
+@app.post("/api/indicators/reorder")
+async def api_indicator_reorder(request: Request):
+    """The order of the questions in the bot: the codes in the new order (the ones that are not named keep their relative place after them)."""
+    need_super(request)
+    b = await jbody(request)
+    codes = [str(x) for x in (b.get("codes") or [])]
+    with tx() as c:
+        have = [r["code"] for r in c.execute("SELECT code FROM indicators ORDER BY sort, rowid")]
+        if not codes or any(x not in have for x in codes) or len(set(codes)) != len(codes):
+            bad("Неверный порядок вопросов")
+        order = codes + [x for x in have if x not in codes]
+        for i, code in enumerate(order, 1):
+            c.execute("UPDATE indicators SET sort=? WHERE code=?", (i, code))
+        audit(c, "indicator.reorder", "indicator", "", {"codes": order})
+    return {"ok": True}
+
+
+@app.get("/api/questionnaire/preview")
+def api_questionnaire_preview(request: Request, lang: str = "uz"):
+    """The questions exactly as the bot asks them (the text of each message), to see the questionnaire before people do."""
+    need_super(request)
+    c = connect()
+    try:
+        return bot.questionnaire_preview(c, "uz" if lang == "uz" else "ru")
+    finally:
+        c.close()
 
 
 def _rule_fields(c, b: dict, rule=None) -> dict:
@@ -1580,7 +1643,7 @@ async def api_settings_put(request: Request):
             if not days or not all(d in "1234567" and len(d) == 1 for d in days):
                 bad("Дни недели: числа от 1 (пн) до 7 (вс) через запятую")
             v = ",".join(days)
-        elif k in ("remind_enabled", "allow_user_edit"):
+        elif k in ("remind_enabled", "allow_user_edit", "note_enabled", "q_hints"):
             v = "1" if v in ("1", "true", "True") else "0"
         elif k == "default_lang":
             if v not in ("ru", "uz"):
