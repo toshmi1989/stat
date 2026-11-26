@@ -45,7 +45,7 @@ def test_an_optional_question_may_stay_empty_and_a_required_one_may_not(client):
     code = client.post("/api/indicators", json={"name_ru": "Необязательный", "agg": "sum", "required": False}).json()["code"]
     must = client.post("/api/indicators", json={"name_ru": "Обязательный", "agg": "sum"}).json()["code"]
     c = connect()
-    full = dict(beds_total=100, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6)
+    full = dict(beds_total=100, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6, visits_flu=1, hosp_flu=1)
     res = rules.validate(c, full | {must: 1}, "ru", None, None)
     assert res["errors"] == []                                                                         # the optional one is absent, and that is fine
     res = rules.validate(c, full, "ru", None, None)
@@ -72,11 +72,11 @@ def test_the_note_and_the_hints_are_switches_in_the_settings(client):
 def test_the_preview_shows_what_the_bot_sends(client):
     from app.db import connect
     r = client.get("/api/questionnaire/preview?lang=uz").json()
-    assert r["lang"] == "uz" and len(r["items"]) == 13 and r["items"][0]["code"] == "beds_total" and "1-savol / 13" in r["items"][0]["text"] and r["items"][-1]["code"] == "__note"
+    assert r["lang"] == "uz" and len(r["items"]) == 14 and r["items"][0]["code"] == "beds_total" and "1-savol / 14" in r["items"][0]["text"] and r["items"][-1]["code"] == "__note"
     assert "Jami o‘rinlar" in r["items"][0]["text"] and "Hozir" not in r["items"][0]["text"]
     sev = next(x for x in r["items"] if x["code"] == "severe")["text"]
     assert "Ko‘pi bilan" in sev and "(2-savol)" not in sev and "…" in sev                              # a limit that comes from a rule: «not more than the answer to question N»
     client.put("/api/settings", json={"q_hints": "1", "note_enabled": "0"})
     r = client.get("/api/questionnaire/preview?lang=ru").json()
-    assert len(r["items"]) == 12 and r["items"][-1]["code"] != "__note" and "Все койки учреждения" in r["items"][0]["text"] and "Вопрос 1 из 12" in r["items"][0]["text"]
+    assert len(r["items"]) == 13 and r["items"][-1]["code"] != "__note" and "Все койки учреждения" in r["items"][0]["text"] and "Вопрос 1 из 13" in r["items"][0]["text"]
     assert client.get("/api/questionnaire/preview").status_code == 200

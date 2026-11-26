@@ -1429,6 +1429,23 @@ def api_indicators(request: Request):
         c.close()
 
 
+def _parent_of(c, code: str, v) -> str:
+    """The question that this one is an addition to («of them»): empty, or a question of the list that is not this one and does not lead back to it."""
+    v = str(v or "").strip()
+    if not v:
+        return ""
+    if v == code or not c.execute("SELECT 1 FROM indicators WHERE code=?", (v,)).fetchone():
+        bad("Уточнение: выберите другой существующий вопрос")
+    seen, cur = set(), v
+    while cur and cur not in seen:                                         # the chain of parents must not come back to this question
+        if cur == code:
+            bad("Вопросы не могут быть уточнениями друг друга по кругу")
+        seen.add(cur)
+        row = c.execute("SELECT parent_code FROM indicators WHERE code=?", (cur,)).fetchone()
+        cur = row["parent_code"] if row else ""
+    return v
+
+
 def _auto_code(c, name: str) -> str:
     """A code for a new question made from its name (Latin letters, digits, underscore), unique."""
     from .translit import lat
@@ -1455,8 +1472,8 @@ async def api_indicator_create(request: Request):
             bad("Код: латиница, цифры, подчёркивание, начинается с буквы (2–40 знаков)")
         if c.execute("SELECT 1 FROM indicators WHERE code=?", (code,)).fetchone():
             bad("Такой код уже есть")
-        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, agg, sort, required) VALUES (?,?,?,?,?,?,?,(SELECT COALESCE(MAX(sort),0)+1 FROM indicators),?)",
-                  (code, "extra", name, str(b.get("name_uz") or "").strip(), str(b.get("hint_ru") or "").strip(), str(b.get("hint_uz") or "").strip(), b.get("agg", "sum"), int(b.get("required", True) is not False)))
+        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, agg, sort, required, parent_code) VALUES (?,?,?,?,?,?,?,(SELECT COALESCE(MAX(sort),0)+1 FROM indicators WHERE sort<900),?,?)",
+                  (code, "extra", name, str(b.get("name_uz") or "").strip(), str(b.get("hint_ru") or "").strip(), str(b.get("hint_uz") or "").strip(), b.get("agg", "sum"), int(b.get("required", True) is not False), _parent_of(c, code, b.get("parent_code"))))
         audit(c, "indicator.create", "indicator", code, {"name": name})
     return {"code": code}
 
@@ -1474,9 +1491,10 @@ async def api_indicator_update(request: Request, code: str):
             bad("Способ сложения: sum / last / max")
         active = int(bool(b.get("active", r["active"])))
         required = int(bool(b.get("required", r["required"])))
-        c.execute("UPDATE indicators SET name_ru=?, name_uz=?, hint_ru=?, hint_uz=?, agg=?, active=?, required=?, sort=? WHERE code=?",
+        parent = _parent_of(c, code, b["parent_code"]) if "parent_code" in b else r["parent_code"]
+        c.execute("UPDATE indicators SET name_ru=?, name_uz=?, hint_ru=?, hint_uz=?, agg=?, active=?, required=?, sort=?, parent_code=? WHERE code=?",
                   (str(b.get("name_ru", r["name_ru"])).strip() or r["name_ru"], str(b.get("name_uz", r["name_uz"])).strip(), str(b.get("hint_ru", r["hint_ru"])).strip(), str(b.get("hint_uz", r["hint_uz"])).strip(),
-                   agg, active, required, int(b.get("sort", r["sort"])), code))
+                   agg, active, required, int(b.get("sort", r["sort"])), parent, code))
         audit(c, "indicator.update", "indicator", code, b)
     return {"ok": True}
 
@@ -1499,6 +1517,7 @@ def api_indicator_delete(request: Request, code: str):
             bad("Вопрос используется в основных правилах проверки: удалять нельзя, только выключить", 409)
         for x in used:                                                      # the rules that were written for this question (for example its limit) go with it
             c.execute("DELETE FROM rules WHERE id=?", (x["id"],))
+        c.execute("UPDATE indicators SET parent_code='' WHERE parent_code=?", (code,))
         c.execute("DELETE FROM indicators WHERE code=?", (code,))
         audit(c, "indicator.delete", "indicator", code, {"name": r["name_ru"]})
     return {"ok": True}

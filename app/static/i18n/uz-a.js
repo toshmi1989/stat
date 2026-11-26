@@ -4,8 +4,8 @@ Object.assign(window.UZ, {
   "Беременные": "Homilador ayollar",
   // indicator names (charts, chips)
   "Всего коек": "Jami o‘rinlar",
-  "Занято: беременные": "Band: homilador ayollar",
-  "Занято: дети": "Band: bolalar",
+  "Госпитализированы: беременные": "Yotqizilgan: homilador ayollar",
+  "Госпитализированы: дети": "Yotqizilgan: bolalar",
   "Крайне тяжёлые: беременные": "O‘ta og‘ir: homilador ayollar",
   "Крайне тяжёлые: дети": "O‘ta og‘ir: bolalar",
   "Обращения": "Murojaatlar",
@@ -50,7 +50,7 @@ Object.assign(window.UZ, {
   "Сбросить": "Tozalash",
   // dashboard
   "Сдали отчёт": "Hisobot topshirdi",
-  "Занято коек: беременные / дети": "Band o‘rinlar: homilador ayollar / bolalar",
+  "Госпитализированы: беременные / дети": "Yotqizilgan: homilador ayollar / bolalar",
   "Крайне тяжёлые: беременные / дети": "O‘ta og‘ir: homilador ayollar / bolalar",
   "из {n}": "{n} tadan",
   "Сводка за {date}": "{date} uchun hisobot",

@@ -311,9 +311,9 @@ def test_confidential_message_for_the_ministry_from_the_last_bot_question(client
     def press(data):
         bot.handle_update({"callback_query": {"id": "1", "data": data, "from": {"id": 660001, "first_name": "Сообщающий"}, "message": {"message_id": 1, "chat": {"id": 660001, "type": "private"}}}})
     press(f"sd:{f}:2026-02-10")
-    for a in ["100", "40", "50", "10", "6", "20", "1", "1", "5", "1", "0", "0"]:
+    for a in ["100", "40", "50", "20", "10", "5", "1", "1", "5", "1", "0", "0", "6"]:
         say(a)
-    assert "13 из 13" in sent[-1][1] and "конфиденциально" in sent[-1][1]                         # the last question says that the message is confidential
+    assert "14 из 14" in sent[-1][1] and "конфиденциально" in sent[-1][1]                         # the last question says that the message is confidential
     say("x" * 1001)
     assert "слишком длинное" in sent[-1][1]
     say("В больнице нет тест-систем. Прошу помочь с поставкой.")
@@ -338,7 +338,7 @@ def test_confidential_message_for_the_ministry_from_the_last_bot_question(client
     assert client.get("/api/messages?unread=1").json()["items"] == []
     # a second submission without a message adds nothing; skipping the question is allowed
     press(f"sd:{f}:2026-02-09")
-    for a in ["100", "40", "50", "10", "6", "20", "1", "1", "5", "1", "0", "0"]:
+    for a in ["100", "40", "50", "20", "10", "5", "1", "1", "5", "1", "0", "0", "6"]:
         say(a)
     say("⏭ Без сообщения, продолжить")
     assert "Сообщение для Министерства: нет" in sent[-1][1]
