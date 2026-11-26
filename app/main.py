@@ -285,7 +285,7 @@ def api_meta(request: Request):
     c = connect()
     try:
         regs = [dict(r) for r in c.execute("SELECT id, name_ru, name_uz, active FROM regions ORDER BY sort") if auth.sees_region(u, r["id"])]
-        return {"regions": regs, "indicators": [dict(r) for r in c.execute("SELECT code, grp, name_ru, name_uz, agg, sort, active, core FROM indicators ORDER BY sort")]}
+        return {"regions": regs, "indicators": [dict(r) for r in c.execute("SELECT code, grp, name_ru, name_uz, short_ru, short_uz, agg, sort, active, core, parent_code FROM indicators ORDER BY sort")]}
     finally:
         c.close()
 
@@ -1472,8 +1472,8 @@ async def api_indicator_create(request: Request):
             bad("Код: латиница, цифры, подчёркивание, начинается с буквы (2–40 знаков)")
         if c.execute("SELECT 1 FROM indicators WHERE code=?", (code,)).fetchone():
             bad("Такой код уже есть")
-        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, agg, sort, required, parent_code) VALUES (?,?,?,?,?,?,?,(SELECT COALESCE(MAX(sort),0)+1 FROM indicators WHERE sort<900),?,?)",
-                  (code, "extra", name, str(b.get("name_uz") or "").strip(), str(b.get("hint_ru") or "").strip(), str(b.get("hint_uz") or "").strip(), b.get("agg", "sum"), int(b.get("required", True) is not False), _parent_of(c, code, b.get("parent_code"))))
+        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, short_ru, short_uz, agg, sort, required, parent_code) VALUES (?,?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(sort),0)+1 FROM indicators WHERE sort<900),?,?)",
+                  (code, "extra", name, str(b.get("name_uz") or "").strip(), str(b.get("hint_ru") or "").strip(), str(b.get("hint_uz") or "").strip(), str(b.get("short_ru") or "").strip()[:40], str(b.get("short_uz") or "").strip()[:40], b.get("agg", "sum"), int(b.get("required", True) is not False), _parent_of(c, code, b.get("parent_code"))))
         audit(c, "indicator.create", "indicator", code, {"name": name})
     return {"code": code}
 
@@ -1492,9 +1492,9 @@ async def api_indicator_update(request: Request, code: str):
         active = int(bool(b.get("active", r["active"])))
         required = int(bool(b.get("required", r["required"])))
         parent = _parent_of(c, code, b["parent_code"]) if "parent_code" in b else r["parent_code"]
-        c.execute("UPDATE indicators SET name_ru=?, name_uz=?, hint_ru=?, hint_uz=?, agg=?, active=?, required=?, sort=?, parent_code=? WHERE code=?",
+        c.execute("UPDATE indicators SET name_ru=?, name_uz=?, hint_ru=?, hint_uz=?, short_ru=?, short_uz=?, agg=?, active=?, required=?, sort=?, parent_code=? WHERE code=?",
                   (str(b.get("name_ru", r["name_ru"])).strip() or r["name_ru"], str(b.get("name_uz", r["name_uz"])).strip(), str(b.get("hint_ru", r["hint_ru"])).strip(), str(b.get("hint_uz", r["hint_uz"])).strip(),
-                   agg, active, required, int(b.get("sort", r["sort"])), parent, code))
+                   str(b.get("short_ru", r["short_ru"])).strip()[:40], str(b.get("short_uz", r["short_uz"])).strip()[:40], agg, active, required, int(b.get("sort", r["sort"])), parent, code))
         audit(c, "indicator.update", "indicator", code, b)
     return {"ok": True}
 

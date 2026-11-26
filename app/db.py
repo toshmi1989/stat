@@ -370,6 +370,9 @@ def init_db() -> None:
             c.execute("ALTER TABLE indicators ADD COLUMN required INTEGER NOT NULL DEFAULT 1")
         if "parent_code" not in {r["name"] for r in c.execute("PRAGMA table_info(indicators)")}:
             c.execute("ALTER TABLE indicators ADD COLUMN parent_code TEXT NOT NULL DEFAULT ''")
+        for col in ("short_ru", "short_uz"):                                                                  # a short name of a question: the head of a column in the tables
+            if col not in {r["name"] for r in c.execute("PRAGMA table_info(indicators)")}:
+                c.execute(f"ALTER TABLE indicators ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
         if "beds" not in {r["name"] for r in c.execute("PRAGMA table_info(facilities)")}:                  # a database made before the editor of territories
             c.execute("ALTER TABLE facilities ADD COLUMN beds INTEGER")
         if "heartbeat" not in {r["name"] for r in c.execute("PRAGMA table_info(broadcasts)")}:
@@ -378,6 +381,7 @@ def init_db() -> None:
         region_heads_v1(c)
         questionnaire_texts_v3(c)
         questionnaire_v4(c)
+        questionnaire_short_v1(c)
         occupied_unbounded_v4(c)
         if not c.execute("SELECT 1 FROM settings WHERE key='default_lang_uz_v1'").fetchone():     # one time: a database made earlier still has the old default
             c.execute("UPDATE settings SET value='uz' WHERE key='default_lang'")
@@ -471,6 +475,24 @@ PARENT = {"beds_flu": "beds_total", "visits_flu": "visits", "hosp_flu": "hosp", 
 OCCUPIED = ("beds_occupied", "beds", "Количество коек, занятых больными гриппом и ОРВИ на конец отчётного дня",
             "Hisobot kuni yakunida gripp va ORVI bilan kasallangan bemorlar band qilgan o‘rinlar soni", "Сколько коек занято больными гриппом и ОРВИ на конец дня.",
             "Hisobot kuni oxirida gripp va ORVI bilan kasallangan bemorlar yotgan o‘rinlar.", "last")
+
+
+SHORT = {                                   # code: (Russian, Uzbek): the heads of the columns of the tables
+    "beds_total": ("Коек всего", "Jami o‘rin"), "beds_flu": ("Для гриппа и ОРВИ", "Gripp va ORVI uchun"), "visits": ("Обращения", "Murojaatlar"),
+    "visits_flu": ("Обращения: грипп и ОРВИ", "Murojaat: gripp va ORVI"), "hosp": ("Госпитализации", "Yotqizilganlar"), "hosp_flu": ("Госпитализ.: грипп и ОРВИ", "Yotqizilgan: gripp va ORVI"),
+    "occ_pregnant": ("Беременные", "Homiladorlar"), "occ_children": ("Дети", "Bolalar"), "severe": ("Тяжёлые", "Og‘ir"), "extreme": ("Крайне тяжёлые", "O‘ta og‘ir"),
+    "extreme_pregnant": ("Крайне тяжёлые: беременные", "O‘ta og‘ir: homiladorlar"), "extreme_children": ("Крайне тяжёлые: дети", "O‘ta og‘ir: bolalar"),
+    "disch": ("Выписки", "Chiqarilganlar"), "beds_occupied": ("Занято", "Band"),
+}
+
+
+def questionnaire_short_v1(c) -> None:
+    """One time: the short names of the known questions (empty ones only: a name written on the site is never overwritten)."""
+    if c.execute("SELECT 1 FROM settings WHERE key='questionnaire_short_v1'").fetchone():
+        return
+    for code, (ru, uz) in SHORT.items():
+        c.execute("UPDATE indicators SET short_ru=?, short_uz=? WHERE code=? AND short_ru='' AND short_uz=''", (ru, uz, code))
+    c.execute("INSERT INTO settings(key, value) VALUES ('questionnaire_short_v1', ?)", (now(),))
 
 
 def questionnaire_v4(c) -> None:

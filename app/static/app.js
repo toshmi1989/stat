@@ -6,6 +6,9 @@ let ME = null, META = null, DEB = null;
 const rname = s => LANG === "uz" && META && (META.regions || []).some(r => r.name_ru === s && r.name_uz) ? META.regions.find(r => r.name_ru === s).name_uz : s;
 const nm = o => (LANG === "uz" && o.name_uz) || o.name_ru || o.name || "";
 const NAMES = { beds_total: T("Всего коек"), occ_pregnant: T("Госпитализированы: беременные"), occ_children: T("Госпитализированы: дети"), extreme_pregnant: T("Крайне тяжёлые: беременные"), extreme_children: T("Крайне тяжёлые: дети"), visits: T("Обращения"), severe: T("Тяжёлые"), extreme: T("Крайне тяжёлые"), hosp: T("Госпитализации"), disch: T("Выписки"), beds_occupied: T("Занято коек"), occupancy: T("Загрузка, %"), beds_free: T("Свободно коек"), beds_flu: T("Коек для гриппа и ОРВИ") };
+// the short name of a question (the head of a column): the one written on the site, else the full name
+const indShort = i => LANG === "uz" ? (i.short_uz || i.name_uz || i.short_ru || i.name_ru) : (i.short_ru || i.name_ru);
+const labelOf = code => { const i = (META.indicators || []).find(x => x.code === code); return i ? indShort(i) : (NAMES[code] || code); };
 const STATE = { sent: T("Отправлен"), corrected: T("Исправлен"), returned: T("Возвращён"), not_sent: T("Не отправлен"), overdue: T("Просрочен"), normal: T("Норма"), elevated: T("Повышенная"), critical: T("Критическая"), none: "—" };
 
 async function api(path, opt = {}) {
@@ -191,7 +194,7 @@ function loadDyn(silent) {
   const mEl = $("#dyn-m"), rEl = $("#dyn-r"); if (!mEl || !rEl) return;
   const short = n => LANG === "uz" ? uzShort(n) : n.replace("Республика ", "").replace(" область", "").replace("город ", "г. ");
   const drawChips = () => {
-    mEl.innerHTML = ["visits", "hosp", "disch", "beds_occupied", "occ_pregnant", "occ_children", "severe", "extreme"].map(m => `<button class="chip ${METRICS.includes(m) ? "on" : ""}" data-m="${m}">${NAMES[m]}</button>`).join("");
+    mEl.innerHTML = (META.indicators || []).filter(x => x.active).map(x => x.code).map(m => `<button class="chip ${METRICS.includes(m) ? "on" : ""}" data-m="${m}">${esc(labelOf(m))}</button>`).join("");
     rEl.innerHTML = `<button class="chip ${REGSEL.length ? "" : "on"}" data-r="">${T("Вся территория")}</button>` + META.regions.map(r => `<button class="chip ${REGSEL.includes(String(r.id)) ? "on" : ""}" data-r="${r.id}">${esc(short(r.name_ru))}</button>`).join("");
     mEl.querySelectorAll("[data-m]").forEach(b => b.onclick = () => {
       const m = b.dataset.m;
@@ -214,8 +217,8 @@ function loadDyn(silent) {
     try {
       const r = await api("/api/dynamics?" + qs({ d1: a, d2, metrics: METRICS.join(","), regions: REGSEL.join(","), region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }));
       if (!$("#dyn")) return;
-      H($("#dyn"), sl).innerHTML = (REGSEL.length >= 2 ? `<p class="muted sm">${T("Сравнение по показателю «{m}»", { m: NAMES[METRICS[0]] })}</p>` : "") +
-        lineChart(r.dates, r.series.map(s => { const sn = s.region_id ? rname(s.name) : T(s.name); return { name: REGSEL.length >= 2 ? sn : REGSEL.length === 1 && METRICS.length > 1 ? sn + " — " + NAMES[s.metric] : METRICS.length > 1 ? NAMES[s.metric] : sn, points: s.points }; }));
+      H($("#dyn"), sl).innerHTML = (REGSEL.length >= 2 ? `<p class="muted sm">${T("Сравнение по показателю «{m}»", { m: labelOf(METRICS[0]) })}</p>` : "") +
+        lineChart(r.dates, r.series.map(s => { const sn = s.region_id ? rname(s.name) : T(s.name); return { name: REGSEL.length >= 2 ? sn : REGSEL.length === 1 && METRICS.length > 1 ? sn + " — " + labelOf(s.metric) : METRICS.length > 1 ? labelOf(s.metric) : sn, points: s.points }; }));
     } catch (e) { fail(e); }
   };
   if (!(silent && mEl.firstChild)) drawChips();               // the choice of figures and regions is the person's, a refresh keeps it
@@ -235,7 +238,12 @@ async function loadTable(d1, d2, silent) {
   const pid = DRILL.length ? DRILL[DRILL.length - 1].id : "";
   let r; try { r = await api("/api/regions-table?" + qs({ d1, d2, level, parent_id: pid })); } catch (e) { return fail(e); }
   if (!$("#rt-q")) return;   // the person has already left the dashboard
-  const cols = [["name", T("Название")], ["reported", T("Отчёты")], ["visits", T("Обращения")], ["hosp", T("Госпитализации")], ["disch", T("Выписки")], ["beds_total", T("Коек всего")], ["beds_flu", T("Для гриппа и ОРВИ")], ["beds_occupied", T("Занято")], ["occ_pregnant", T("Беременные")], ["occ_children", T("Дети")], ["beds_free", T("Свободно")], ["occupancy", T("Загрузка")], ["severe", T("Тяжёлые")], ["extreme", T("Крайне тяжёлые")], ["extreme_pregnant", T("Крайне тяжёлые: беременные")], ["extreme_children", T("Крайне тяжёлые: дети")]];
+  const act = (META.indicators || []).filter(x => x.active);           // the columns follow the questionnaire: its questions in their order, with their short names
+  const occ = [["beds_occupied", labelOf("beds_occupied")], ["beds_free", T("Свободно")], ["occupancy", T("Загрузка")]];
+  const hasOcc = r.rows.some(x => x.values.occupancy != null || x.values.beds_occupied != null);
+  const cols = [["name", T("Название")], ["reported", T("Отчёты")]];
+  act.forEach(x => { cols.push([x.code, indShort(x)]); if (x.code === "beds_occupied") cols.push(occ[1], occ[2]); });
+  if (hasOcc && !act.some(x => x.code === "beds_occupied")) cols.push(...occ);   // the occupied beds are no longer asked, but the days that have them are still shown
   const dn = x => level === "region" ? rname(x.name) : x.name;      // a region is shown in the language of the interface; facilities are named as they are
   const draw = sl => {
     const q = ($("#rt-q").value || "").toLowerCase();
@@ -243,7 +251,7 @@ async function loadTable(d1, d2, silent) {
     const rows = r.rows.filter(x => dn(x).toLowerCase().includes(q)).sort((a, b) => { const A = val(a, SORT.key), B = val(b, SORT.key); const c = typeof A === "string" ? A.localeCompare(B, LANG === "uz" ? "uz" : "ru") : (A ?? -1) - (B ?? -1); return SORT.asc ? c : -c; });
     const manyDistricts = new Set(r.rows.map(x => x.district)).size > 1;
     const crumbs = `<div class="crumbs"><button class="btn sm${DRILL.length ? "" : " on"}" id="up0">${T("Республика")}</button>${DRILL.map((d, i) => `<span class="sep">›</span><button class="btn sm${i === DRILL.length - 1 ? " on" : ""}" data-up="${i}">${esc(rname(d.name))}</button>`).join("")}</div>`;
-    H($("#rt"), sl).innerHTML = crumbs + `<table class="rtab"><colgroup>${cols.map(([k]) => `<col class="${k === "name" ? "cn" : "cv"}">`).join("")}</colgroup><tr>${cols.map(([k, l]) => `<th data-s="${k}" class="${k !== "name" ? "n " : ""}${SORT.key === k ? "on" + (SORT.asc ? " asc" : "") : ""}" title="${esc(l)}">${k === "name" ? l : `<span class="vt">${l}</span>`}</th>`).join("")}</tr>${rows.map(x => `<tr class="${level === "region" ? "link" : ""}" data-id="${x.id}" data-name="${esc(x.name)}"><td>${esc(dn(x))}${level === "rfac" && manyDistricts ? `<div class="muted sm">${esc(x.district || "")}</div>` : ""}</td><td class="n">${x.reported}/${x.facilities}</td>${cols.slice(2).map(([k]) => k === "occupancy" ? `<td class="n">${x.values.occupancy == null ? "—" : `<span class="pill ${x.level_state === "none" ? "" : x.level_state}">${num(x.values.occupancy)}%</span>`}</td>` : `<td class="n">${num(x.values[k])}</td>`).join("")}</tr>`).join("")}</table>`;
+    H($("#rt"), sl).innerHTML = crumbs + `<table class="rtab"><colgroup>${cols.map(([k]) => `<col class="${k === "name" ? "cn" : "cv"}">`).join("")}</colgroup><tr>${cols.map(([k, l]) => `<th data-s="${k}" class="${k !== "name" ? "n " : ""}${SORT.key === k ? "on" + (SORT.asc ? " asc" : "") : ""}" title="${esc(l)}">${k === "name" ? l : `<span class="vt">${esc(l)}</span>`}</th>`).join("")}</tr>${rows.map(x => `<tr class="${level === "region" ? "link" : ""}" data-id="${x.id}" data-name="${esc(x.name)}"><td>${esc(dn(x))}${level === "rfac" && manyDistricts ? `<div class="muted sm">${esc(x.district || "")}</div>` : ""}</td><td class="n">${x.reported}/${x.facilities}</td>${cols.slice(2).map(([k]) => k === "occupancy" ? `<td class="n">${x.values.occupancy == null ? "—" : `<span class="pill ${x.level_state === "none" ? "" : x.level_state}">${num(x.values.occupancy)}%</span>`}</td>` : `<td class="n">${num(x.values[k])}</td>`).join("")}</tr>`).join("")}</table>`;
     document.querySelectorAll("#rt th[data-s]").forEach(th => th.onclick = () => { SORT.asc = SORT.key === th.dataset.s ? !SORT.asc : false; SORT.key = th.dataset.s; draw(); });
     document.querySelectorAll("#rt tr.link").forEach(tr => tr.onclick = () => { DRILL.push({ id: tr.dataset.id, name: tr.dataset.name }); loadTable(d1, d2); });
     $("#up0").onclick = e => { e.preventDefault(); DRILL.length = 0; loadTable(d1, d2); };
@@ -800,6 +808,7 @@ function indDlg(i, items, rules, done) {
   const others = items.filter(x => x.active && (!i || x.code !== i.code));
   modal(`<h2>${i ? T("Вопрос") : T("Новый вопрос")}</h2>
     <label>${T("Название (рус.)")}<input id="p-n" value="${esc(i?.name_ru || "")}"></label><label>${T("Название (узб.)")}<input id="p-u" value="${esc(i?.name_uz || "")}"></label>
+    <div class="grid2"><label>${T("Короткое название (рус.)")}<input id="p-s" maxlength="40" value="${esc(i?.short_ru || "")}" placeholder="${T("для заголовка колонки в таблице")}"></label><label>${T("Короткое название (узб.)")}<input id="p-su" maxlength="40" value="${esc(i?.short_uz || "")}" placeholder="${T("для заголовка колонки в таблице")}"></label></div>
     <div class="grid2"><label>${T("Подсказка (рус.)")}<textarea id="p-h" rows="2">${esc(i?.hint_ru || "")}</textarea></label><label>${T("Подсказка (узб.)")}<textarea id="p-hu" rows="2">${esc(i?.hint_uz || "")}</textarea></label></div>
     <label>${T("Как складывать по периоду")}<select id="p-a">${Object.entries(AGG).map(([k, l]) => `<option value="${k}" ${(i?.agg || "sum") === k ? "selected" : ""}>${k} — ${l}</option>`).join("")}</select></label>
     <label>${T("Ответ не может быть больше ответа на вопрос")}<select id="p-lim"><option value="">${T("— без ограничения —")}</option>${others.map(x => `<option value="${x.code}" ${cur === x.code ? "selected" : ""}>${esc(x.name_ru)}</option>`).join("")}</select></label>
@@ -808,7 +817,7 @@ function indDlg(i, items, rules, done) {
     ${i ? "" : `<details><summary class="muted sm">${T("Код (латиница), если нужен свой")}</summary><label><input id="p-c" placeholder="${T("создастся сам из названия")}"></label></details>`}
     <div id="p-err" class="err"></div><div class="row mt"><button class="btn pri" id="p-ok">${T("Сохранить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
   $("#p-ok").onclick = async () => {
-    const body = { name_ru: $("#p-n").value, name_uz: $("#p-u").value, hint_ru: $("#p-h").value, hint_uz: $("#p-hu").value, agg: $("#p-a").value, required: $("#p-rq").checked, parent_code: $("#p-par").value };
+    const body = { name_ru: $("#p-n").value, name_uz: $("#p-u").value, hint_ru: $("#p-h").value, hint_uz: $("#p-hu").value, short_ru: $("#p-s").value, short_uz: $("#p-su").value, agg: $("#p-a").value, required: $("#p-rq").checked, parent_code: $("#p-par").value };
     if (i) body.active = $("#p-ac").checked; else body.code = ($("#p-c") || { value: "" }).value;
     try {
       const x = await api(i ? "/api/indicators/" + i.code : "/api/indicators", { method: i ? "PATCH" : "POST", body }), code = i ? i.code : x.code, want = $("#p-lim").value;

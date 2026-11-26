@@ -172,4 +172,7 @@ Object.assign(window.UZ, {
   "Уточняет вопрос («Шундан…»: бот показывает его вместе с ответом на тот вопрос)": "Qaysi savolga qo‘shimcha («Shundan…»: bot uni o‘sha savolga berilgan javob bilan birga ko‘rsatadi)",
   "— самостоятельный вопрос —": "— mustaqil savol —",
   "Выделено коек для гриппа и ОРВИ: <b>{b}</b> · данные о занятых койках не собираются": "Gripp va ORVI uchun ajratilgan o‘rinlar: <b>{b}</b> · band o‘rinlar haqidagi ma’lumot yig‘ilmaydi",
+  "Короткое название (рус.)": "Qisqa nomi (ruscha)",
+  "Короткое название (узб.)": "Qisqa nomi (o‘zbekcha)",
+  "для заголовка колонки в таблице": "jadval ustuni sarlavhasi uchun",
 })
