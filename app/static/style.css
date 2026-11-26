@@ -233,3 +233,5 @@ tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
 .edtab th,.edtab td{vertical-align:top;padding:6px 8px}.edtab tr.er.ok td{background:color-mix(in srgb,var(--ok) 5%,transparent)}.edtab tr.er.fix td{background:color-mix(in srgb,var(--warn) 8%,transparent)}.edtab tr.er.new td{background:color-mix(in srgb,var(--pri) 7%,transparent)}.edtab tr.er.skip td{opacity:.7}.edtab tr.er.review td{background:var(--badbg)}.edtab tr.er.dup td{background:var(--badbg)}
 .edtab select.ci{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--ink);font:inherit}.er-old{margin-top:3px;color:var(--mut)}.warn-t{color:var(--bad)}
 details>summary{cursor:pointer}
+
+.ftab .botdot{margin-right:4px;font-size:14px;cursor:default}

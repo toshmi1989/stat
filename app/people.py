@@ -80,6 +80,54 @@ def assign(c, user, tg_id: str, facility_id: int, kind: str = "primary", fio: st
     return c.execute("SELECT id FROM assignments WHERE tg_id=? AND facility_id=?", (str(tg_id), facility_id)).fetchone()["id"]
 
 
+SYSTEM = {"id": None, "role": "super_admin", "regions": None}     # what the system itself does (the phone of the person is the proof), not a person of the site
+
+
+def link_phone(c, tg_id: str, only_facility: int | None = None) -> list[dict]:
+    """A person whose verified Telegram phone is the phone of the responsible person of a facility becomes responsible for it. The main person of the list becomes the primary one
+    unless the facility already has another active primary person (then he is a reserve: nobody is removed behind the back of the administrator); a reserve person of the list is a
+    reserve. Returns what was newly linked: [{facility_id, kind, name_ru, name_uz}]."""
+    row = c.execute("SELECT tg_id, phone, first_name, last_name FROM tg_users WHERE tg_id=?", (str(tg_id),)).fetchone()
+    if not row or not row["phone"]:
+        return []
+    sql = """SELECT k.facility_id, k.kind, k.fio, f.name_ru, f.name_uz FROM facility_contacts k JOIN facilities f ON f.id=k.facility_id
+             WHERE f.active=1 AND (',' || k.phone || ',') LIKE ?"""
+    args: list = ["%," + row["phone"] + ",%"]
+    if only_facility:
+        sql += " AND k.facility_id=?"; args.append(only_facility)
+    out = []
+    for k in c.execute(sql + " ORDER BY k.facility_id, k.kind", args).fetchall():
+        if c.execute("SELECT 1 FROM assignments WHERE tg_id=? AND facility_id=? AND active=1", (row["tg_id"], k["facility_id"])).fetchone():
+            continue
+        other = c.execute("SELECT 1 FROM assignments WHERE facility_id=? AND kind='primary' AND active=1 AND tg_id != ?", (k["facility_id"], row["tg_id"])).fetchone()
+        kind = "primary" if k["kind"] == "main" and not other else "reserve"
+        assign(c, SYSTEM, row["tg_id"], k["facility_id"], kind, k["fio"] or " ".join(x for x in (row["first_name"], row["last_name"]) if x), row["phone"])
+        audit(c, "phone.linked", "facility", k["facility_id"], {"tg_id": row["tg_id"], "kind": kind}, actor="phone " + row["phone"])
+        out.append({"facility_id": k["facility_id"], "kind": kind, "name_ru": k["name_ru"], "name_uz": k["name_uz"]})
+    return out
+
+
+def link_facility(c, facility_id: int) -> int:
+    """The phones of a facility were written or changed: the people of the bot whose phone it is are linked. Returns how many links were made."""
+    from . import editor
+    n = 0
+    for k in c.execute("SELECT phone FROM facility_contacts WHERE facility_id=?", (facility_id,)).fetchall():
+        for ph in editor.phones(k["phone"]):
+            for u in c.execute("SELECT tg_id FROM tg_users WHERE phone=? AND active=1", (ph,)).fetchall():
+                n += len(link_phone(c, u["tg_id"], facility_id))
+    return n
+
+
+def save_verified_phone(c, tg_id: str, raw: str) -> str:
+    """The phone that Telegram itself confirmed (the person sent his own contact with the button): digits 998XXXXXXXXX, or '' when it is not a number."""
+    from . import editor
+    ph = editor.phones(raw)
+    num = ph[0] if ph and editor.phone_ok(ph[0]) else (ph[0] if ph else "")
+    if num:
+        c.execute("UPDATE tg_users SET phone=? WHERE tg_id=?", (num, str(tg_id)))
+    return num
+
+
 def can_manage_region(user, region_id: int) -> bool:
     if not user:
         return False

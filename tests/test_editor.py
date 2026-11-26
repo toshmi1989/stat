@@ -163,3 +163,19 @@ def test_a_row_that_looks_alike_but_not_enough_must_be_decided_by_the_person(cli
     from app import editor
     assert editor.sim(editor.key("Тўрткўл туман тиббиёт бирлашмаси"), editor.key("Турткул туман тиббиёт бирлашмаси")) == 1.0
     assert editor.sim(editor.key("Тўрткўл туман тиббиёт бирлашмаси"), editor.key("To‘rtko‘l tuman tibbiyot birlashmasi")) == 1.0
+
+
+def test_the_editor_links_the_people_of_the_bot_whose_phone_is_in_the_list(client):
+    from app import people
+    from app.db import connect, tx
+    a = make_facility(2, "Без района", "Андижон шахар тиббиёт бирлашмаси")
+    with tx() as c:
+        people.add_tg_user(c, "820001", "Мирзаахмедова")
+        c.execute("UPDATE tg_users SET phone='998902110174' WHERE tg_id='820001'")            # sent to the bot earlier with the button
+    pv = post_preview(client, workbook(LIST)).json()
+    rows = [{k: r[k] for k in ("region_id", "name", "beds", "fio", "phone", "action", "facility_id")} for r in pv["rows"]]
+    res = client.post("/api/editor/apply", json={"rows": rows, "disable": []}).json()
+    assert res["linked"] == 1
+    assert [(r["facility_id"], r["kind"]) for r in connect().execute("SELECT facility_id, kind FROM assignments WHERE tg_id='820001' AND active=1")] == [(a, "primary")]
+    item = next(x for x in client.get("/api/facilities?region_id=2&size=200").json()["items"] if x["id"] == a)
+    assert [x["tg_id"] for x in item["assignments"]] == ["820001"]

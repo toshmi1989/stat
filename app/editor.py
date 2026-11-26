@@ -279,6 +279,9 @@ def replace_contacts(c, facility_id: int, items: list) -> None:
         kind = "main" if (x.get("kind") != "reserve" and not seen_main) else "reserve"
         seen_main = seen_main or kind == "main"
         c.execute("INSERT INTO facility_contacts(facility_id, kind, fio, phone, created_at, updated_at) VALUES (?,?,?,?,?,?)", (facility_id, kind, fio, phone, now(), now()))
+    from .people import link_facility
+    link_facility(c, facility_id)                                                  # the people of the bot with these phones become responsible
+
 
 
 def apply(c, user, rows: list, disable: list, actor: str = "") -> dict:
@@ -286,11 +289,12 @@ def apply(c, user, rows: list, disable: list, actor: str = "") -> dict:
     created) or skip; and facilities to switch off. Everything in one transaction; a row that cannot be applied is reported, the others are done."""
     from . import auth
     from .xlsx_import import fold
-    res = {"renamed": 0, "same": 0, "created": 0, "contacts": 0, "disabled": 0, "skipped": 0, "errors": []}
+    res = {"renamed": 0, "same": 0, "created": 0, "contacts": 0, "linked": 0, "disabled": 0, "skipped": 0, "errors": []}
 
     def err(row, msg):
         res["errors"].append({"name": str(row.get("name") or "")[:120], "message": msg})
     used: set = set()
+    touched: set = set()
     for r in rows[:2000]:
         action = r.get("action")
         name = " ".join(str(r.get("name") or "").split())[:200]
@@ -327,6 +331,7 @@ def apply(c, user, rows: list, disable: list, actor: str = "") -> dict:
             res["renamed" if f["name_ru"] != name else "same"] += 1
             if set_main_contact(c, f["id"], r.get("fio"), r.get("phone")):
                 res["contacts"] += 1
+            touched.add(f["id"])
         elif action == "new":
             if any(fold(x["name_ru"]) == fold(name) for x in facilities_of(c, rid)):
                 err(r, "Такое учреждение уже есть в регионе: выберите его в списке"); continue
@@ -335,10 +340,14 @@ def apply(c, user, rows: list, disable: list, actor: str = "") -> dict:
             res["created"] += 1
             if set_main_contact(c, fid, r.get("fio"), r.get("phone")):
                 res["contacts"] += 1
+            touched.add(fid)
         elif action == "review":
             err(r, "Строка не решена: выберите учреждение, «создать» или «пропустить»")
         else:
             err(r, "Неизвестное действие")
+    from .people import link_facility
+    for fid in touched:                                                            # the people of the bot whose verified phone is one of these phones become responsible
+        res["linked"] += link_facility(c, fid)
     for fid in disable[:2000]:
         f = c.execute("SELECT f.id, f.name_ru, d.region_id FROM facilities f JOIN districts d ON d.id=f.district_id WHERE f.id=?", (fid,)).fetchone()
         if not f or not auth.sees_region(user, f["region_id"]):

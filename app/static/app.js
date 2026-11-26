@@ -502,7 +502,7 @@ async function territories() {
         <td><input class="ci num" data-k="beds" value="${x.beds ?? ""}" inputmode="numeric"></td>
         <td class="c"><input type="checkbox" data-k="active" ${x.active ? "checked" : ""} title="${T("Активно (отключённое не входит в отчёты)")}"></td>
         <td class="n">${x.reports}</td>
-        <td class="act"><span class="sv"></span><button class="btn sm" data-more="${x.id}" title="${T("Изменить")}">⋯</button><button class="btn sm bad" data-df="${x.id}" title="${T("Удалить")}">✕</button></td></tr>`; };
+        <td class="act"><span class="sv"></span>${x.assignments.length ? `<span class="botdot" title="${esc(T("Подключён в боте: {n}", { n: x.assignments.length }))}">🤖</span>` : ""}<button class="btn sm" data-more="${x.id}" title="${T("Изменить")}">⋯</button><button class="btn sm bad" data-df="${x.id}" title="${T("Удалить")}">✕</button></td></tr>`; };
     const withC = f.items.filter(x => mainOf(x).fio || mainOf(x).phone).length, withP = f.items.filter(x => mainOf(x).phone).length;
     $("#tsub").innerHTML = `<div class="row"><h2 style="margin:0">${esc(rname(reg.name_ru || ""))}</h2>${SUP ? `<button class="btn sm" id="r-ed">${T("Изменить")}</button><button class="btn sm bad" id="r-del">${T("Удалить регион")}</button>` : ""}
         <button class="btn pri right" id="f-add">${T("+ Учреждение")}</button></div>
@@ -602,6 +602,7 @@ function facDlg(x, districts, did, done) {
     <label>${T("Название (рус.)")}<input id="fd-ru" value="${esc(x ? x.name_ru : "")}"></label><label>${T("Название (узб.)")}<input id="fd-uz" value="${esc(x ? x.name_uz : "")}"></label>
     <div class="row"><label>${T("Койки")}<input id="fd-b" inputmode="numeric" value="${x && x.beds != null ? x.beds : ""}" style="width:110px"></label>${isNew ? "" : `<label class="chk"><input type="checkbox" id="fd-ac" ${x.active ? "checked" : ""} style="width:auto"> ${T("Активно (отключённое не входит в отчёты)")}</label>`}</div>
     <h3>${T("Ответственный")}</h3><div class="row"><label>${T("Ф.И.Ш.")}<input id="fd-f1" value="${esc(m.fio)}"></label><label>${T("Телефон")}<input id="fd-p1" value="${esc(showPhones(m.phone))}" inputmode="tel" placeholder="+998 __ ___ __ __"></label></div>
+    <p class="muted sm">${T("Когда этот человек отправит боту свой номер телефона кнопкой, он автоматически станет ответственным за учреждение.")}</p>
     <h3>${T("Резервный ответственный")}</h3><div class="row"><label>${T("Ф.И.Ш.")}<input id="fd-f2" value="${esc(rv.fio)}"></label><label>${T("Телефон")}<input id="fd-p2" value="${esc(showPhones(rv.phone))}" inputmode="tel" placeholder="+998 __ ___ __ __"></label></div>
     ${!isNew && x.assignments.length ? `<p class="muted sm">${T("Подключены в боте")}: ${x.assignments.map(a => esc(a.fio || [a.first_name, a.last_name].filter(Boolean).join(" ") || a.tg_id) + (a.username ? " @" + esc(a.username) : "") + (a.kind === "reserve" ? " (" + T("резерв") + ")" : "")).join(", ")}</p>` : ""}
     <div id="fd-err" class="err"></div><div class="row mt"><button class="btn pri" id="fd-ok">${T("Сохранить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
@@ -700,7 +701,7 @@ async function editorView() {
         const body = { rows: ED.rows.map(r => ({ region_id: r.region_id, name: r.name, beds: r.beds, fio: r.fio, phone: r.phone, action: r.action, facility_id: r.facility_id })), disable: [...ED.disable].filter(id => !used.has(id)) };
         const res = await api("/api/editor/apply", { method: "POST", body }); closeModal();
         ED.data = null; ED.rows = []; ED.disable = new Set();
-        box.innerHTML = `<div class="card"><h3>${T("Готово")}</h3><div class="edsum"><span class="pill warning">${T("Названий исправлено: {n}", { n: res.renamed })}</span><span class="pill sent">${T("Без изменений названия: {n}", { n: res.same })}</span><span class="pill normal">${T("Создано: {n}", { n: res.created })}</span><span class="pill">${T("Ответственных записано: {n}", { n: res.contacts })}</span><span class="pill critical">${T("Отключено: {n}", { n: res.disabled })}</span></div>
+        box.innerHTML = `<div class="card"><h3>${T("Готово")}</h3><div class="edsum"><span class="pill warning">${T("Названий исправлено: {n}", { n: res.renamed })}</span><span class="pill sent">${T("Без изменений названия: {n}", { n: res.same })}</span><span class="pill normal">${T("Создано: {n}", { n: res.created })}</span><span class="pill">${T("Ответственных записано: {n}", { n: res.contacts })}</span>${res.linked ? `<span class="pill sent">${T("Подключено в боте: {n}", { n: res.linked })}</span>` : ""}<span class="pill critical">${T("Отключено: {n}", { n: res.disabled })}</span></div>
           ${res.errors.length ? `<div class="alert critical mt"><b>${T("Не удалось применить: {n}", { n: res.errors.length })}</b><br>${res.errors.map(e => esc(e.name) + ": " + esc(TS(e.message))).join("<br>")}</div>` : ""}
           <p class="mt"><a class="btn pri" href="#/territories">${T("Открыть учреждения")}</a></p></div>`; });
     };
