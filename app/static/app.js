@@ -827,6 +827,7 @@ async function broadcastView() {
   view.innerHTML = `<div class="bc-grid"><div class="card bc-main"><div class="row"><h2>${T("Рассылка")}</h2><span class="muted sm">${T("сообщение придёт в Telegram тем, кто пользуется ботом")}</span></div>
     <div class="bc-step"><div class="bc-h"><b>1</b> ${T("Кому")}</div>
       <div class="bc-line"><span class="muted sm">${T("Кто")}</span>${seg("bc-roles", [["all", T("Все")], ["heads", T("Руководители регионов")], ["responsibles", T("Ответственные учреждений")]], spec.roles)}</div>
+      <p class="muted sm" id="bc-role-hint" style="margin:0 0 6px"></p>
       <div class="bc-line"><span class="muted sm">${T("Сводка за сегодня")}</span>${seg("bc-report", [["any", T("Любые")], ["unsent", T("Не сдали")], ["sent", T("Сдали")]], spec.report)}</div>
       <div class="bc-line"><span class="muted sm">${T("Регионы")}</span><div class="chips" id="bc-regs"><button class="chip on" data-r="all">${T("Все регионы")}</button>${regs.map(r => `<button class="chip" data-r="${r.id}">${esc(LANG === "uz" ? nm(r) : r.name_ru.replace("Республика ", "").replace(" область", "").replace("город ", "г. "))}</button>`).join("")}</div></div>
       <div class="bc-count" id="bc-count"><span class="muted">${T("Считаю получателей…")}</span></div></div>
@@ -851,7 +852,8 @@ async function broadcastView() {
   let timer;
   const countNow = async () => {
     try { const r = await api("/api/broadcasts/audience", { method: "POST", body: { audience: spec } }); if (!$("#bc-count")) return;
-      $("#bc-count").innerHTML = r.total ? `<b>${T("Получателей: {n}", { n: r.total })}</b> <span class="muted">${T("(по-узбекски {uz}, по-русски {ru})", { uz: r.uz, ru: r.ru })}</span> <details class="inl"><summary>${T("кто")}</summary><p class="sm">${r.list.map(x => esc(x.name)).join(", ")}${r.total > r.list.length ? "…" : ""}</p></details>` : `<span class="err">${T("Получателей нет: никто не подходит под выбор.")}</span>`; }
+      const unl = (r.unlinked_heads || []).length ? `<details class="inl warn"><summary>${T("Руководителей без подключения: {n}", { n: r.unlinked_heads.length })}</summary><p class="sm">${T("Они получат рассылку, когда напишут боту /start и отправят свой номер телефона кнопкой.")}</p><ul class="sm">${r.unlinked_heads.map(x => `<li>${esc(rname(x.region))}: ${esc(x.fio)}${x.phone ? ", " + esc(showPhones(x.phone)) : ""}</li>`).join("")}</ul></details>` : "";
+      $("#bc-count").innerHTML = r.total ? `<b>${T("Получателей: {n}", { n: r.total })}</b> <span class="muted">${T("(по-узбекски {uz}, по-русски {ru})", { uz: r.uz, ru: r.ru })}</span> <details class="inl"><summary>${T("кто")}</summary><p class="sm">${r.list.map(x => esc(x.name)).join(", ")}${r.total > r.list.length ? "…" : ""}</p></details>${unl}` : `<span class="err">${T("Получателей нет: никто не подходит под выбор.")}</span>${unl}`; }
     catch (e) { if ($("#bc-count")) $("#bc-count").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
   };
   const prevNow = async () => {
@@ -865,11 +867,12 @@ async function broadcastView() {
   $("#bc-who").onchange = () => { sample = $("#bc-who").value; prevNow(); };
   // the people
   const setSeg = (id, v) => $(id).querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
-  $("#bc-roles").onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; spec.roles = b.dataset.v; setSeg("#bc-roles", spec.roles); countNow(); sample = ""; prevNow(); };
+  const roleHint = () => { $("#bc-role-hint").textContent = { all: "", heads: T("Руководитель региона: основной человек из списка региона (один на регион), подтверждённый номером телефона в боте."), responsibles: T("Ответственные: все остальные, у кого есть доступ к региону или к учреждению.") }[spec.roles]; };
+  $("#bc-roles").onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; spec.roles = b.dataset.v; setSeg("#bc-roles", spec.roles); roleHint(); countNow(); sample = ""; prevNow(); };
   $("#bc-report").onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; spec.report = b.dataset.v; setSeg("#bc-report", spec.report); countNow(); sample = ""; prevNow(); };
   const drawRegs = () => $("#bc-regs").querySelectorAll(".chip").forEach(b => b.classList.toggle("on", b.dataset.r === "all" ? !spec.regions.length : spec.regions.includes(+b.dataset.r)));
   $("#bc-regs").onclick = e => { const b = e.target.closest("[data-r]"); if (!b) return; if (b.dataset.r === "all") spec.regions = []; else { const id = +b.dataset.r; spec.regions = spec.regions.includes(id) ? spec.regions.filter(x => x !== id) : [...spec.regions, id]; } drawRegs(); countNow(); sample = ""; prevNow(); };
-  const setAud = a => { spec = normAud(a); setSeg("#bc-roles", spec.roles); setSeg("#bc-report", spec.report); drawRegs(); countNow(); };
+  const setAud = a => { spec = normAud(a); roleHint(); setSeg("#bc-roles", spec.roles); setSeg("#bc-report", spec.report); drawRegs(); countNow(); };
   // the text
   ["uz", "ru"].forEach(l => { const ta = $("#bc-" + l); ta.onfocus = () => { lastTa = ta; }; ta.oninput = () => { $("#bc-" + l + "-n").textContent = ta.value.length + " / 3500"; later(prevNow); }; });
   const phBox = () => { $("#bc-ph").innerHTML = (phs.length ? phs : Object.keys(PH)).map(k => `<button class="chip" data-p="${k}" title="${esc(PH[k] || k)}">{${k}}</button>`).join(""); };

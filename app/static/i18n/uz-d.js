@@ -164,4 +164,8 @@ Object.assign(window.UZ, {
   "Список не сдавших (руководителю региона: с телефонами ответственных)": "Topshirmaganlar ro‘yxati (viloyat rahbariga: mas’ullar telefonlari bilan)",
   "Статус его учреждений: сдал / не сдал": "Uning muassasalari holati: topshirdi / topshirmadi",
   "Кому: <b>{aud}</b> · получателей: <b>{total}</b> (по-узбекски {uz}, по-русски {ru})": "Kimga: <b>{aud}</b> · qabul qiluvchilar: <b>{total}</b> (o‘zbekcha {uz}, ruscha {ru})",
+  "Руководителей без подключения: {n}": "Ulanmagan rahbarlar: {n}",
+  "Они получат рассылку, когда напишут боту /start и отправят свой номер телефона кнопкой.": "Ular botga /start yozib, telefon raqamini tugma orqali yuborganlarida xabarnomani oladi.",
+  "Руководитель региона: основной человек из списка региона (один на регион), подтверждённый номером телефона в боте.": "Viloyat rahbari: viloyat ro‘yxatidagi asosiy shaxs (viloyatga bittadan), botda telefon raqami bilan tasdiqlangan.",
+  "Ответственные: все остальные, у кого есть доступ к региону или к учреждению.": "Mas’ullar: viloyatga yoki muassasaga kirish huquqi bor boshqa barcha shaxslar.",
 })
