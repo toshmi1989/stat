@@ -653,6 +653,7 @@ def test_broadcast_can_go_to_the_heads_of_regions_or_to_the_responsible_for_faci
             people.add_tg_user(c, tid, "Человек" + tid)
         su = {"id": 1, "role": "super_admin", "regions": None}
         people.assign_region(c, su, "850001", 1)                          # the head of region 1
+        c.execute("UPDATE tg_users SET phone='998977897077' WHERE tg_id='850001'")                   # confirmed by the phone of the head in the list
         people.assign(c, su, "850002", f1)                                # responsible for a facility of region 1
         people.assign(c, su, "850003", f2)                                # responsible for a facility of region 2
     c = connect()

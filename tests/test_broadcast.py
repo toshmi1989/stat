@@ -16,6 +16,7 @@ def world(env):
         for tid, name in (("880001", "Глава"), ("880002", "Один"), ("880003", "Два"), ("880004", "Три")):
             people.add_tg_user(c, tid, name)
         c.execute("UPDATE tg_users SET lang='uz' WHERE tg_id='880003'")
+        c.execute("UPDATE tg_users SET phone='998977897077' WHERE tg_id='880001'")                     # his confirmed phone is the one of the head of the region in the list
         people.assign_region(c, su, "880001", 1)
         people.assign(c, su, "880002", f1)
         people.assign(c, su, "880003", f2)
@@ -137,3 +138,29 @@ def test_a_regional_administrator_cannot_reach_another_region_by_a_schedule(worl
     sid = a.post("/api/broadcast-schedules", json=base | {"audience": {"roles": "all"}}).json()["id"]
     assert client.get("/api/broadcast-schedules").json()["items"][0]["id"] == sid and a.get("/api/broadcast-schedules").json()["items"][0]["id"] == sid
     assert mk_staff(client, "sch_view", "viewer", [1]).get("/api/broadcast-schedules").status_code == 403
+
+
+def test_the_heads_are_the_people_of_the_list_not_everyone_who_has_the_access_to_a_region(world, client):
+    """One head per region (the main person of the list, confirmed by his phone). Many responsible people hold the access to a whole region: they are the responsible ones."""
+    from app import people
+    from app.db import connect, tx
+    with tx() as c:
+        for i in range(5):                                                                              # five ordinary people with the access to region 1 (as it is in the real system)
+            people.add_tg_user(c, f"8900{i}", f"Обычный{i}")
+            people.assign_region(c, world["su"], f"8900{i}", 1)
+        people.add_tg_user(c, "889999", "Глава Андижана")
+        c.execute("UPDATE tg_users SET phone='998903805590' WHERE tg_id='889999'")                    # the phone of the head of Andijan: no access linked yet, he is a head all the same
+        people.add_tg_user(c, "889998", "Резерв")
+        c.execute("UPDATE tg_users SET phone='998000000000' WHERE tg_id='889998'")                    # a phone that is in nobody's list
+        people.assign_region(c, world["su"], "889998", 1)
+    c = connect()
+    heads = ids(c, world["su"], {"roles": "heads"})
+    assert heads == ["880001", "889999"]                                                              # not the five ordinary ones
+    assert ids(c, world["su"], {"roles": "heads", "regions": [1]}) == ["880001"]
+    resp = ids(c, world["su"], {"roles": "responsibles"})
+    assert all(f"8900{i}" in resp for i in range(5)) and "889998" in resp and "880001" not in resp and "889999" not in resp     # a head is not counted twice
+    assert set(ids(c, world["su"], {"roles": "all"})) == set(heads) | set(resp)
+    aud = client.post("/api/broadcasts/audience", json={"audience": {"roles": "heads"}}).json()
+    assert aud["total"] == 2 and len(aud["unlinked_heads"]) == 12                                      # the other 12 regions have a head in the list that nobody has confirmed yet
+    assert {x["region_id"] for x in aud["unlinked_heads"]}.isdisjoint({1, 2}) and aud["unlinked_heads"][0]["fio"]
+    assert client.post("/api/broadcasts/audience", json={"audience": {"roles": "responsibles"}}).json()["unlinked_heads"] == []

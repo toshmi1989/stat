@@ -48,8 +48,8 @@ def norm_spec(spec: dict) -> dict:
 
 
 def recipients(c, user, spec: dict) -> list[dict]:
-    """The people of the bot the sender may write to: active, with access in the regions of the sender (and in the chosen ones), by role (the heads of regions: access to a whole
-    region; the responsible for facilities) and by today's report (still owe it / have sent it)."""
+    """The people of the bot the sender may write to: active, with access in the regions of the sender (and in the chosen ones), by role (heads of regions: the main person of the list of
+    a region, confirmed by his phone; responsible: everybody else with access) and by today's report (still owe it / have sent it)."""
     sp = norm_spec(spec)
     mine = user["regions"]                                         # None = every region
     chosen = sp["regions"]
@@ -63,18 +63,22 @@ def recipients(c, user, spec: dict) -> list[dict]:
         regions = None if mine is None else list(mine)
     if regions is not None and not regions:
         return []
-    cond_r, cond_a, ra, aa = "", "", [], []
-    if regions is not None:
-        q = ",".join("?" * len(regions))
-        cond_r, cond_a, ra, aa = f" AND ra.region_id IN ({q})", f" AND d.region_id IN ({q})", list(regions), list(regions)
-    heads = f"EXISTS (SELECT 1 FROM region_access ra WHERE ra.tg_id=u.tg_id AND ra.active=1{cond_r})"
-    resp = f"EXISTS (SELECT 1 FROM assignments a JOIN facilities f ON f.id=a.facility_id JOIN districts d ON d.id=f.district_id WHERE a.tg_id=u.tg_id AND a.active=1{cond_a})"
+    # The heads of regions are the people whose verified phone is the phone of the head of a region in the list (one main person per region); they are not everyone who has the access to a
+    # region: in this system many responsible people hold the access to a whole region. All the others with the access (to a region or to facilities) are the responsible ones.
+    q = ",".join("?" * len(regions)) if regions is not None else ""
+    head_any = "EXISTS (SELECT 1 FROM region_contacts k WHERE k.kind='main' AND u.phone!='' AND (',' || k.phone || ',') LIKE '%,' || u.phone || ',%')"
+    head_in = "EXISTS (SELECT 1 FROM region_contacts k WHERE k.kind='main' AND u.phone!='' AND (',' || k.phone || ',') LIKE '%,' || u.phone || ',%'" + (f" AND k.region_id IN ({q})" if regions is not None else "") + ")"
+    acc_r = "EXISTS (SELECT 1 FROM region_access ra WHERE ra.tg_id=u.tg_id AND ra.active=1" + (f" AND ra.region_id IN ({q})" if regions is not None else "") + ")"
+    acc_f = ("EXISTS (SELECT 1 FROM assignments a JOIN facilities f ON f.id=a.facility_id JOIN districts d ON d.id=f.district_id WHERE a.tg_id=u.tg_id AND a.active=1"
+             + (f" AND d.region_id IN ({q})" if regions is not None else "") + ")")
+    rg = list(regions) if regions is not None else []
+    resp = f"(({acc_r} OR {acc_f}) AND NOT {head_any})"
     if sp["roles"] == "heads":
-        who, args = heads, ra
+        who, args = head_in, rg
     elif sp["roles"] == "responsibles":
-        who, args = resp, aa
+        who, args = resp, rg + rg
     else:
-        who, args = f"({heads} OR {resp})", ra + aa
+        who, args = f"({head_in} OR {resp})", rg + rg + rg
     rows = c.execute(f"SELECT u.tg_id, u.lang, u.first_name, u.last_name, u.username FROM tg_users u WHERE u.active=1 AND {who} ORDER BY u.first_name, u.last_name", args).fetchall()
     if sp["report"] != "any":
         owe = notify.unsent_by_person(c, today().isoformat(), all_settings(c))     # who still owes today's report (a returned one counts as not sent)
@@ -144,7 +148,24 @@ def preview(c, user, spec: dict, ru, uz, sample_tg_id: str = "") -> dict:
 def audience(c, user, spec: dict) -> dict:
     """Only the number and the names of the people the audience reaches (for the counter that follows the choice on the page)."""
     people = recipients(c, user, spec)
-    return {"total": len(people), "uz": sum(1 for p in people if p["lang"] == "uz"), "ru": sum(1 for p in people if p["lang"] != "uz"), "list": [{"tg_id": p["tg_id"], "name": p["name"], "lang": p["lang"]} for p in people[:200]]}
+    return {"total": len(people), "uz": sum(1 for p in people if p["lang"] == "uz"), "ru": sum(1 for p in people if p["lang"] != "uz"), "list": [{"tg_id": p["tg_id"], "name": p["name"], "lang": p["lang"]} for p in people[:200]],
+            "unlinked_heads": unlinked_heads(c, user, spec) if norm_spec(spec)["roles"] in ("heads", "all") else []}
+
+
+def unlinked_heads(c, user, spec: dict) -> list[dict]:
+    """The heads of the regions of the audience that nobody in the bot has confirmed yet (no person of the bot has their phone): they cannot get a broadcast until they write to the bot
+    and send their number."""
+    from . import editor
+    sp = norm_spec(spec)
+    mine = user["regions"]
+    out = []
+    known = {r["phone"] for r in c.execute("SELECT phone FROM tg_users WHERE phone!='' AND active=1")}
+    for k in c.execute("SELECT k.region_id, k.fio, k.phone, r.name_ru, r.name_uz FROM region_contacts k JOIN regions r ON r.id=k.region_id WHERE k.kind='main' AND r.active=1 ORDER BY r.sort").fetchall():
+        if (mine is not None and k["region_id"] not in mine) or (sp["regions"] and k["region_id"] not in sp["regions"]):
+            continue
+        if not any(p in known for p in editor.phones(k["phone"])):
+            out.append({"region_id": k["region_id"], "region": k["name_ru"], "region_uz": k["name_uz"], "fio": k["fio"], "phone": k["phone"]})
+    return out
 
 
 def start(c, user, spec: dict, ru, uz) -> int:

@@ -253,3 +253,5 @@ details>summary{cursor:pointer}
 .bc-prev{margin-top:10px}.bc-prev .bcmsg{max-width:none;max-height:420px;overflow:auto}
 @media(max-width:1100px){.bc-grid{grid-template-columns:minmax(0,1fr)}.bc-side{position:static}}
 @media(max-width:700px){.bc-ta{grid-template-columns:minmax(0,1fr)}}
+
+.bc-count details.warn summary{color:var(--warn);cursor:pointer}.bc-count details.inl.warn{display:block;margin-top:6px}.bc-count ul{margin:4px 0 0 18px;padding:0}
