@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, backup, bot, broadcast, coverage, exports, forecast, notify, people, reports, rules, stats, tg, xlsx_import
+from . import auth, backup, bot, broadcast, coverage, editor, exports, forecast, notify, people, reports, rules, stats, tg, xlsx_import
 from .db import all_settings, audit, connect, delete_facilities, delete_reports, init_db, now, now_dt, today, tx
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -317,14 +317,31 @@ def api_facilities(request: Request, district_id: int | None = None, q: str = ""
             w.append("(f.name_ru LIKE ? OR f.name_uz LIKE ?)"); a += [f"%{q.strip()}%"] * 2
         size = max(1, min(size, 200))
         total = c.execute(f"SELECT COUNT(*) FROM facilities f JOIN districts d ON d.id=f.district_id WHERE {' AND '.join(w)}", a).fetchone()[0]
-        rows = c.execute(f"""SELECT f.id, f.name_ru, f.name_uz, f.active, f.contact, f.district_id, d.name_ru AS district, d.region_id, r.name_ru AS region,
+        rows = c.execute(f"""SELECT f.id, f.name_ru, f.name_uz, f.active, f.contact, f.beds, f.district_id, d.name_ru AS district, d.region_id, r.name_ru AS region,
                                     (SELECT COUNT(*) FROM reports x WHERE x.facility_id=f.id) AS reports
                              FROM facilities f JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id WHERE {' AND '.join(w)}
                              ORDER BY r.sort, d.name_ru, f.name_ru LIMIT ? OFFSET ?""", a + [size, (max(page, 1) - 1) * size]).fetchall()
         resp = {}
         for x in c.execute("""SELECT a.facility_id, a.id, a.kind, a.tg_id, a.fio, a.contact, u.first_name, u.last_name, u.username FROM assignments a JOIN tg_users u ON u.tg_id=a.tg_id WHERE a.active=1"""):
             resp.setdefault(x["facility_id"], []).append(dict(x))
-        return {"total": total, "items": [dict(r) | {"assignments": resp.get(r["id"], [])} for r in rows]}
+        cts = editor.contacts_of(c, [r["id"] for r in rows])
+        return {"total": total, "items": [dict(r) | {"assignments": resp.get(r["id"], []), "contacts": cts.get(r["id"], [])} for r in rows]}
+    finally:
+        c.close()
+
+
+@app.get("/api/territory-summary")
+def api_territory_summary(request: Request):
+    """Per region: the facilities, the active ones, how many have a responsible person (full name or phone) and how many of those have a phone: for the list of regions on «Территории»."""
+    u = me(request)
+    c = connect()
+    try:
+        s, args = auth.region_filter_sql(u, "d.region_id")
+        rows = c.execute(f"""SELECT d.region_id, COUNT(*) AS total, SUM(f.active) AS active,
+                                    SUM(CASE WHEN EXISTS (SELECT 1 FROM facility_contacts k WHERE k.facility_id=f.id AND (k.fio!='' OR k.phone!='')) THEN 1 ELSE 0 END) AS with_contact,
+                                    SUM(CASE WHEN EXISTS (SELECT 1 FROM facility_contacts k WHERE k.facility_id=f.id AND k.phone!='') THEN 1 ELSE 0 END) AS with_phone
+                             FROM facilities f JOIN districts d ON d.id=f.district_id WHERE {s or '1=1'} GROUP BY d.region_id""", args).fetchall()
+        return {"items": {str(r["region_id"]): {"total": r["total"], "active": r["active"] or 0, "with_contact": r["with_contact"], "with_phone": r["with_phone"]} for r in rows}}
     finally:
         c.close()
 
@@ -975,6 +992,15 @@ async def api_district_update(request: Request, did: int):
     return {"ok": True}
 
 
+def beds_of(v):
+    """The number of beds from a form: a whole number from 0, empty = not known."""
+    if v in (None, ""):
+        return None
+    if not str(v).strip().isdigit() or int(str(v).strip()) > 100000:
+        bad("Число коек: целое число от 0")
+    return int(str(v).strip())
+
+
 @app.post("/api/facilities")
 async def api_facility_create(request: Request):
     b = await jbody(request)
@@ -987,6 +1013,10 @@ async def api_facility_create(request: Request):
         if not name or not c.execute("SELECT 1 FROM districts WHERE id=?", (q_int(b.get("district_id")),)).fetchone():
             bad("Укажите район и название учреждения")
         cur = c.execute("INSERT INTO facilities(district_id, name_ru, name_uz, contact, created_at) VALUES (?,?,?,?,?)", (int(b["district_id"]), name, str(b.get("name_uz") or "").strip(), str(b.get("contact") or "").strip(), now()))
+        if "beds" in b:
+            c.execute("UPDATE facilities SET beds=? WHERE id=?", (beds_of(b.get("beds")), cur.lastrowid))
+        if isinstance(b.get("contacts"), list):
+            editor.replace_contacts(c, cur.lastrowid, b["contacts"])
         audit(c, "facility.create", "facility", cur.lastrowid, {"name": name})
     return {"id": cur.lastrowid}
 
@@ -1004,6 +1034,10 @@ async def api_facility_update(request: Request, fid: int):
         did = q_int(b.get("district_id")) or r["district_id"]
         c.execute("UPDATE facilities SET name_ru=?, name_uz=?, contact=?, active=?, district_id=? WHERE id=?",
                   (str(b.get("name_ru", r["name_ru"])).strip() or r["name_ru"], str(b.get("name_uz", r["name_uz"])).strip(), str(b.get("contact", r["contact"])).strip(), int(bool(b.get("active", r["active"]))), did, fid))
+        if "beds" in b:
+            c.execute("UPDATE facilities SET beds=? WHERE id=?", (beds_of(b.get("beds")), fid))
+        if isinstance(b.get("contacts"), list):
+            editor.replace_contacts(c, fid, b["contacts"])
         audit(c, "facility.update", "facility", fid, b)
     return {"ok": True}
 
@@ -1018,6 +1052,40 @@ def api_facility_delete(request: Request, fid: int, force: int = 0):
         if n and not force:
             bad(f"У учреждения есть отчёты: {n}. Подтвердите удаление вместе с ними", 409)
         return delete_facilities(c, [fid], "удаление учреждения")
+
+
+@app.post("/api/editor/preview")
+async def api_editor_preview(request: Request, file: UploadFile = File(...)):
+    """The Excel list of facilities matched against the platform (nothing is written): see app/editor.py."""
+    u = me(request)
+    if not auth.can_territories(u):
+        bad("Раздел «Территории» недоступен", 403)
+    data = await file.read(10_000_001)
+    if len(data) > 10_000_000:
+        bad("Файл больше 10 МБ")
+    def work():
+        c = connect()
+        try:
+            return editor.preview(c, u, data)
+        except editor.EditorError as e:
+            bad(e.message, e.status)
+        finally:
+            c.close()
+    return await run_in_threadpool(work)
+
+
+@app.post("/api/editor/apply")
+async def api_editor_apply(request: Request):
+    """What the person decided after the preview: correct the names, set the beds and the responsible persons, create, switch off. A region that is not the person's is refused row by row."""
+    u = me(request)
+    if not auth.can_territories(u):
+        bad("Раздел «Территории» недоступен", 403)
+    b = await jbody(request)
+    rows, disable = b.get("rows"), b.get("disable") or []
+    if not isinstance(rows, list) or not isinstance(disable, list):
+        bad("Ожидался список строк")
+    with tx() as c:
+        return editor.apply(c, u, [x for x in rows if isinstance(x, dict)], [int(x) for x in disable if str(x).isdigit()], actor=u["login"])
 
 
 @app.get("/api/facility-proposals")

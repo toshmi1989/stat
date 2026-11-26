@@ -454,35 +454,106 @@ async function staffBox() {
 }
 
 // ---------- territories
+const TERR = { cur: null, q: "", did: "" };      // the region opened on «Территории» (kept while the page is redrawn), the search and the district filter
+// phones: digits «998901234567» (the server keeps them so); a person writes them any way
+function phonesOf(raw) {
+  const out = [];
+  for (const part of String(raw || "").split(/[\n;,/]+|\s{3,}/)) {
+    const d = part.replace(/\D/g, ""); if (!d) continue;
+    let chunks = [d];
+    if (d.startsWith("998") && d.length > 12 && d.length % 12 === 0) chunks = d.match(/.{12}/g);
+    else if (!d.startsWith("998") && d.length > 9 && d.length % 9 === 0) chunks = d.match(/.{9}/g);
+    for (const x of chunks) out.push(x.length === 9 ? "998" + x : x);
+  }
+  return [...new Set(out)];
+}
+const fmtPhone = p => /^998\d{9}$/.test(p) ? `+998 ${p.slice(3, 5)} ${p.slice(5, 8)} ${p.slice(8, 10)} ${p.slice(10)}` : p;
+const showPhones = s => (Array.isArray(s) ? s : String(s || "").split(",")).filter(Boolean).map(fmtPhone).join(", ");
+const mainOf = x => (x.contacts || []).find(c => c.kind === "main") || { fio: "", phone: "" };
+const reserveOf = x => (x.contacts || []).find(c => c.kind === "reserve") || { fio: "", phone: "" };
 async function territories() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
   const SUP = ME.role === "super_admin";
-  if (nav !== NAVID) return; view.innerHTML = `<div class="card" id="tprop"><p class="muted">${T("Загрузка…")}</p></div><div class="card"><div class="row"><h2>${T("Территории")}</h2>${SUP ? `<button class="btn right" id="t-rep">${T("Загрузить данные из Excel (учреждения и показатели за 2 дня)")}</button><button class="btn" id="t-imp">${T("Импорт территорий")}</button><button class="btn pri" id="t-add">${T("+ Регион")}</button>` : ""}</div><p class="muted sm">${SUP ? T("Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять.") : T("Нажмите на регион: откроются его районы и учреждения, их можно добавлять, менять и удалять (только в ваших регионах).")}</p><div id="tt"></div></div>`;
-  let cur = null;
-  const load = async () => {
-    META = await api("/api/meta");
-    $("#tt").innerHTML = `<table><tr><th>${T("Регион")}</th><th>${T("Название (узб.)")}</th><th></th></tr>${META.regions.map(r => `<tr class="link${cur === r.id ? " sel" : ""}" data-id="${r.id}"><td>${esc(r.name_ru)}${r.active ? "" : ` <span class="pill critical">${T("отключён")}</span>`}</td><td>${esc(r.name_uz)}</td><td>${SUP ? `<button class="btn sm" data-er="${r.id}">${T("Изменить")}</button> <button class="btn sm bad" data-dr="${r.id}">${T("Удалить")}</button>` : ""}</td></tr>`).join("")}</table><div id="tsub"></div>`;
-    document.querySelectorAll("#tt tr[data-id]").forEach(tr => tr.onclick = ev => { if (ev.target.dataset.er || ev.target.dataset.dr) return; cur = +tr.dataset.id; load().then(() => regionView(cur)); });
-    document.querySelectorAll("[data-er]").forEach(b => b.onclick = () => nameDlg("regions", META.regions.find(r => r.id === +b.dataset.er), load));
-    document.querySelectorAll("[data-dr]").forEach(b => b.onclick = () => { const r = META.regions.find(x => x.id === +b.dataset.dr); confirmDlg(T("Удалить регион"), `<p>${T("Регион {name} будет удалён вместе с пустыми районами. Если в нём есть учреждения или доступы, система откажет: сначала удалите их.", { name: `<b>${esc(nm(r))}</b>` })}</p>`, T("Удалить регион"), async () => { await api("/api/regions/" + r.id, { method: "DELETE" }); closeModal(); if (cur === r.id) cur = null; toast(T("Регион удалён")); load(); }); });
+  if (nav !== NAVID) return;
+  view.innerHTML = `<div class="card" id="tprop"><p class="muted">${T("Загрузка…")}</p></div>
+    <div class="terr"><aside class="card terr-side"><div class="row"><h3 style="margin:0">${T("Регионы")}</h3>${SUP ? `<button class="btn sm right" id="t-add">${T("+ Регион")}</button>` : ""}</div><div id="tt"></div>
+      ${SUP ? `<details class="mt"><summary class="muted sm">${T("Другие загрузки из Excel")}</summary><div class="stack mt"><button class="btn sm" id="t-rep">${T("Учреждения и показатели за 2 дня")}</button><button class="btn sm" id="t-imp">${T("Импорт территорий")}</button></div></details>` : ""}</aside>
+      <section class="card terr-main" id="tsub"><p class="muted">${T("Выберите регион слева")}</p></section></div>`;
+  let cur = TERR.cur;
+  const sideRefresh = async () => {
+    let sm; try { sm = (await api("/api/territory-summary")).items; } catch (e) { return fail(e); }
+    if (!$("#tt")) return;
+    $("#tt").innerHTML = `<div class="rgl">${META.regions.map(r => { const t = sm[r.id] || { total: 0, with_contact: 0 }, pc = t.total ? Math.round(100 * t.with_contact / t.total) : 0;
+      return `<button class="rgb${cur === r.id ? " on" : ""}${r.active ? "" : " off"}" data-id="${r.id}" title="${esc(T("Учреждений: {n}, с ответственным: {k}", { n: t.total, k: t.with_contact }))}"><span class="rgb-n">${esc(rname(r.name_ru))}</span><span class="rgb-s">${t.with_contact}/${t.total}</span><i class="rgb-bar"><b style="width:${pc}%"></b></i></button>`; }).join("")}</div>`;
+    document.querySelectorAll("#tt .rgb").forEach(b => b.onclick = () => { cur = TERR.cur = +b.dataset.id; TERR.q = ""; TERR.did = ""; sideRefresh(); regionView(cur); });
   };
-  // the region opened: its districts and all its facilities in one place
-  const regionView = async (rid, q = "", did = "") => {
-    const [d, f] = await Promise.all([api("/api/districts?region_id=" + rid), api("/api/facilities?" + qs({ region_id: rid, district_id: did, q, size: 200 }))]);
-    if (!$("#tsub")) return;
-    $("#tsub").innerHTML = `<h3 class="mt">${T("Районы")} <button class="btn sm" id="d-add">${T("+ Район")}</button></h3>
-      <table><tr><th>${T("Район")}</th><th></th></tr>${d.items.map(x => `<tr><td>${esc(nm(x))}${x.active ? "" : " " + T("(отключён)")}</td><td><button class="btn sm" data-ed="${x.id}">${T("Изменить")}</button> <button class="btn sm bad" data-dd="${x.id}">${T("Удалить")}</button></td></tr>`).join("") || `<tr><td colspan="2" class="muted">${T("Районов нет")}</td></tr>`}</table>
-      <div class="row mt"><h3 style="margin:0">${T("Учреждения региона")} <span class="muted sm">(${f.total})</span></h3><select id="f-d"><option value="">${T("Все районы")}</option>${d.items.map(x => `<option value="${x.id}" ${String(x.id) === String(did) ? "selected" : ""}>${esc(nm(x))}</option>`).join("")}</select><input id="f-q" placeholder="${T("Поиск")}" value="${esc(q)}"><button class="btn pri right" id="f-add">${T("+ Учреждение")}</button></div>
-      <div class="scroll-x"><table><tr><th>${T("Учреждение")}</th><th>${T("Район")}</th><th>${T("Ответственные")}</th><th>${T("Отчётов")}</th><th></th></tr>${f.items.map(x => `<tr><td>${esc(nm(x))}${x.active ? "" : " " + T("(отключено)")}</td><td>${esc(x.district)}</td><td>${x.assignments.map(a => esc(a.fio || a.first_name || a.tg_id) + (a.kind === "reserve" ? " " + T("(резерв)") : "")).join(", ") || `<span class="muted">${T("нет")}</span>`}</td><td class="n">${x.reports}</td><td><button class="btn sm" data-ef="${x.id}">${T("Изменить")}</button> <button class="btn sm bad" data-df="${x.id}">${T("Удалить")}</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">${T("Учреждений нет")}</td></tr>`}</table></div>${f.total > f.items.length ? `<p class="muted sm">${T("Показаны первые {n} из {total}: уточните поиском или районом.", { n: f.items.length, total: f.total })}</p>` : ""}`;
-    const again = () => regionView(rid, $("#f-q") ? $("#f-q").value : q, $("#f-d") ? $("#f-d").value : did);
+  const load = async () => { META = await api("/api/meta"); await sideRefresh(); if (cur) regionView(cur); };
+  // the region opened: its districts and all its facilities in one table, every cell is edited in place and saved when the person leaves it
+  const regionView = async rid => {
+    const [d, f] = await Promise.all([api("/api/districts?region_id=" + rid), api("/api/facilities?" + qs({ region_id: rid, district_id: TERR.did, q: TERR.q, size: 200 }))]);
+    if (!$("#tsub") || cur !== rid) return;
+    const reg = META.regions.find(r => r.id === rid) || {};
+    const row = (x, i) => { const m = mainOf(x);
+      return `<tr data-id="${x.id}" class="${x.active ? "" : "off"}"><td class="n muted">${i + 1}</td>
+        <td><input class="ci" data-k="name" value="${esc(x.name_ru)}" title="${esc(nm(x))}"></td>
+        <td><select class="ci" data-k="district">${d.items.map(y => `<option value="${y.id}" ${y.id === x.district_id ? "selected" : ""}>${esc(nm(y))}</option>`).join("")}</select></td>
+        <td><input class="ci" data-k="fio" value="${esc(m.fio)}" placeholder="${T("Ф.И.Ш.")}"></td>
+        <td><input class="ci" data-k="phone" value="${esc(showPhones(m.phone))}" placeholder="+998 __ ___ __ __" inputmode="tel"></td>
+        <td><input class="ci num" data-k="beds" value="${x.beds ?? ""}" inputmode="numeric"></td>
+        <td class="c"><input type="checkbox" data-k="active" ${x.active ? "checked" : ""} title="${T("Активно (отключённое не входит в отчёты)")}"></td>
+        <td class="n">${x.reports}</td>
+        <td class="act"><span class="sv"></span><button class="btn sm" data-more="${x.id}" title="${T("Изменить")}">⋯</button><button class="btn sm bad" data-df="${x.id}" title="${T("Удалить")}">✕</button></td></tr>`; };
+    const withC = f.items.filter(x => mainOf(x).fio || mainOf(x).phone).length, withP = f.items.filter(x => mainOf(x).phone).length;
+    $("#tsub").innerHTML = `<div class="row"><h2 style="margin:0">${esc(rname(reg.name_ru || ""))}</h2>${SUP ? `<button class="btn sm" id="r-ed">${T("Изменить")}</button><button class="btn sm bad" id="r-del">${T("Удалить регион")}</button>` : ""}
+        <button class="btn pri right" id="f-add">${T("+ Учреждение")}</button></div>
+      <div class="row mt"><select id="f-d"><option value="">${T("Все районы")}</option>${d.items.map(x => `<option value="${x.id}" ${String(x.id) === String(TERR.did) ? "selected" : ""}>${esc(nm(x))}</option>`).join("")}</select><input id="f-q" type="search" placeholder="${T("Поиск")}" value="${esc(TERR.q)}">
+        <span class="muted sm">${T("Учреждений: {n} · с ответственным: {k} · с телефоном: {p}", { n: f.total, k: withC, p: withP })}</span></div>
+      <p class="muted sm" style="margin:6px 0">${T("Любую ячейку можно править прямо в таблице: изменение сохраняется, когда вы выходите из ячейки. «⋯» открывает все поля учреждения.")}</p>
+      <div class="scroll-x"><table class="ftab"><colgroup><col class="c-i"><col class="c-n"><col class="c-d"><col class="c-f"><col class="c-p"><col class="c-b"><col class="c-a"><col class="c-r"><col class="c-x"></colgroup>
+        <tr><th>#</th><th>${T("Учреждение")}</th><th>${T("Район")}</th><th>${T("Ответственный (Ф.И.Ш.)")}</th><th>${T("Телефон")}</th><th>${T("Койки")}</th><th>${T("Активно")}</th><th class="n">${T("Отчётов")}</th><th></th></tr>
+        ${f.items.map(row).join("") || `<tr><td colspan="9" class="muted">${T("Учреждений нет")}</td></tr>`}</table></div>
+      ${f.total > f.items.length ? `<p class="muted sm">${T("Показаны первые {n} из {total}: уточните поиском или районом.", { n: f.items.length, total: f.total })}</p>` : ""}
+      <details class="mt"${d.items.length ? "" : " open"}><summary><b>${T("Районы")}</b> <span class="muted sm">(${d.items.length})</span></summary>
+        <table class="mt"><tr><th>${T("Район")}</th><th></th></tr>${d.items.map(x => `<tr><td>${esc(nm(x))}${x.active ? "" : " " + T("(отключён)")}</td><td><button class="btn sm" data-ed="${x.id}">${T("Изменить")}</button> <button class="btn sm bad" data-dd="${x.id}">${T("Удалить")}</button></td></tr>`).join("") || `<tr><td colspan="2" class="muted">${T("Районов нет")}</td></tr>`}</table>
+        <button class="btn sm mt" id="d-add">${T("+ Район")}</button></details>`;
+    const again = () => { sideRefresh(); return regionView(rid); };
     $("#d-add").onclick = () => nameDlg("districts", { region_id: rid }, again, true);
     document.querySelectorAll("[data-ed]").forEach(b => b.onclick = () => nameDlg("districts", d.items.find(x => x.id === +b.dataset.ed), again));
     document.querySelectorAll("[data-dd]").forEach(b => b.onclick = () => { const x = d.items.find(y => y.id === +b.dataset.dd); confirmDlg(T("Удалить район"), `<p>${T("Район {name} будет удалён. Если в нём есть учреждения, система откажет: сначала удалите их.", { name: `<b>${esc(nm(x))}</b>` })}</p>`, T("Удалить район"), async () => { await api("/api/districts/" + x.id, { method: "DELETE" }); closeModal(); toast(T("Район удалён")); again(); }); });
-    $("#f-d").onchange = again; $("#f-q").oninput = () => { clearTimeout(DEB); DEB = setTimeout(async () => { const pos = $("#f-q").value; await again(); const el = $("#f-q"); if (el) { el.focus(); el.setSelectionRange(pos.length, pos.length); } }, 300); };
-    $("#f-add").onclick = () => facAddDlg(d.items.filter(x => x.active), did, again);
-    document.querySelectorAll("[data-ef]").forEach(b => b.onclick = () => nameDlg("facilities", f.items.find(x => x.id === +b.dataset.ef), again));
+    if (SUP) {
+      $("#r-ed").onclick = () => nameDlg("regions", reg, load);
+      $("#r-del").onclick = () => confirmDlg(T("Удалить регион"), `<p>${T("Регион {name} будет удалён вместе с пустыми районами. Если в нём есть учреждения или доступы, система откажет: сначала удалите их.", { name: `<b>${esc(nm(reg))}</b>` })}</p>`, T("Удалить регион"), async () => { await api("/api/regions/" + reg.id, { method: "DELETE" }); closeModal(); cur = TERR.cur = null; toast(T("Регион удалён")); $("#tsub").innerHTML = ""; load(); });
+    }
+    $("#f-d").onchange = () => { TERR.did = $("#f-d").value; regionView(rid); };
+    $("#f-q").oninput = () => { clearTimeout(DEB); DEB = setTimeout(async () => { TERR.q = $("#f-q").value; const pos = TERR.q.length; await regionView(rid); const el = $("#f-q"); if (el) { el.focus(); el.setSelectionRange(pos, pos); } }, 300); };
+    $("#f-add").onclick = () => facDlg(null, d.items.filter(x => x.active), TERR.did, again);
+    document.querySelectorAll("[data-more]").forEach(b => b.onclick = () => facDlg(f.items.find(x => x.id === +b.dataset.more), d.items, "", again));
     document.querySelectorAll("[data-df]").forEach(b => b.onclick = () => { const x = f.items.find(y => y.id === +b.dataset.df);
-      confirmDlg(T("Удалить учреждение"), `<p>${T("Учреждение {name} ({district}) будет удалено.", { name: `<b>${esc(nm(x))}</b>`, district: esc(x.district) })}</p><ul class="sm"><li>${T("Отчётов, которые удалятся вместе с ним: {n}", { n: `<b>${x.reports}</b>` })}</li><li>${T("Ответственных, у которых пропадёт привязка: {n} (в боте они останутся)", { n: `<b>${x.assignments.length}</b>` })}</li></ul><p class="muted sm">${T("Если нужно только скрыть учреждение из отчётности, используйте «Изменить» и снимите «Активно»: данные сохранятся.")}</p>`, T("Удалить безвозвратно"), async () => { await api("/api/facilities/" + x.id + "?force=1", { method: "DELETE" }); closeModal(); toast(T("Учреждение удалено")); again(); }); });
+      confirmDlg(T("Удалить учреждение"), `<p>${T("Учреждение {name} ({district}) будет удалено.", { name: `<b>${esc(nm(x))}</b>`, district: esc(x.district) })}</p><ul class="sm"><li>${T("Отчётов, которые удалятся вместе с ним: {n}", { n: `<b>${x.reports}</b>` })}</li><li>${T("Ответственных, у которых пропадёт привязка: {n} (в боте они останутся)", { n: `<b>${x.assignments.length}</b>` })}</li></ul><p class="muted sm">${T("Если нужно только скрыть учреждение из отчётности, снимите галочку «Активно»: данные сохранятся.")}</p>`, T("Удалить безвозвратно"), async () => { await api("/api/facilities/" + x.id + "?force=1", { method: "DELETE" }); closeModal(); toast(T("Учреждение удалено")); again(); }); });
+    // the cells: saved when the person leaves a cell (change), Enter leaves it
+    const tb = $("#tsub .ftab");
+    tb.onkeydown = e => { if (e.key === "Enter" && e.target.matches("input.ci")) { e.preventDefault(); e.target.blur(); } };
+    tb.onchange = e => {
+      const tr = e.target.closest("tr[data-id]"); if (!tr || !e.target.dataset.k) return;
+      const field = e.target.dataset.k;
+      // one row is saved one change after another, and every save sends what the cells hold at that moment
+      tr._q = (tr._q || Promise.resolve()).then(async () => {
+        const x = f.items.find(y => y.id === +tr.dataset.id), g = k => tr.querySelector(`[data-k="${k}"]`), sv = tr.querySelector(".sv");
+        const body = { name_ru: g("name").value.trim(), district_id: +g("district").value, active: g("active").checked, beds: g("beds").value.trim(), contacts: [{ kind: "main", fio: g("fio").value, phone: g("phone").value }, ...(x.contacts || []).filter(c => c.kind === "reserve")] };
+        if (!body.name_ru) { g("name").value = x.name_ru; return toast(T("Название не может быть пустым")); }
+        sv.textContent = "…";
+        try {
+          await api("/api/facilities/" + x.id, { method: "PATCH", body });
+          const ph = phonesOf(body.contacts[0].phone), fio = body.contacts[0].fio.trim().replace(/\s+/g, " ");
+          Object.assign(x, { name_ru: body.name_ru, district_id: body.district_id, active: body.active ? 1 : 0, beds: body.beds === "" ? null : +body.beds });
+          x.contacts = [{ kind: "main", fio, phone: ph.join(",") }, ...(x.contacts || []).filter(c => c.kind === "reserve")];
+          if (field === "phone" && g("phone").value === body.contacts[0].phone) g("phone").value = showPhones(ph);      // only the cell that was changed is rewritten, and only if the person has not typed on
+          if (field === "fio" && g("fio").value === body.contacts[0].fio) g("fio").value = fio;
+          tr.classList.toggle("off", !body.active);
+          sv.textContent = "✓"; setTimeout(() => { if (sv.textContent === "✓") sv.textContent = ""; }, 1500); clearTimeout(sideRefresh.t); sideRefresh.t = setTimeout(sideRefresh, 600);
+        } catch (er) { sv.textContent = "⚠"; fail(er); }
+      });
+    };
   };
   // the proposals of the people of the bot: add / remove a facility; the person with the section decides here (adds or removes it with the usual dialogs, or refuses)
   const loadProps = async () => {
@@ -522,6 +593,24 @@ function facAddDlg(districts, did, done, prefill = "") {
   modal(`<h2>${T("Добавить учреждение")}</h2><label>${T("Район")}<select id="fa-d">${districts.map(x => `<option value="${x.id}" ${String(x.id) === String(did) ? "selected" : ""}>${esc(nm(x))}</option>`).join("")}</select></label><label>${T("Название (рус.)")}<input id="fa-ru" value="${esc(prefill)}"></label><label>${T("Название (узб.)")}<input id="fa-uz"></label><div id="fa-err" class="err"></div><div class="row mt"><button class="btn pri" id="fa-ok">${T("Добавить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
   $("#fa-ok").onclick = async () => { try { const x = await api("/api/facilities", { method: "POST", body: { district_id: +$("#fa-d").value, name_ru: $("#fa-ru").value, name_uz: $("#fa-uz").value } }); closeModal(); toast(T("Учреждение добавлено")); done(x.id); } catch (e) { $("#fa-err").textContent = e.message; } };
 }
+// the whole facility in one dialog: names, district, beds, the responsible person and a reserve one (full name and phone), who is connected in the bot
+function facDlg(x, districts, did, done) {
+  if (!districts.length) { toast(T("Сначала добавьте район")); return; }
+  const isNew = !x, m = x ? mainOf(x) : { fio: "", phone: "" }, rv = x ? reserveOf(x) : { fio: "", phone: "" }, sel = x ? x.district_id : did;
+  modal(`<h2>${isNew ? T("Добавить учреждение") : T("Изменить")}</h2>
+    <label>${T("Район")}<select id="fd-d">${districts.map(y => `<option value="${y.id}" ${String(y.id) === String(sel) ? "selected" : ""}>${esc(nm(y))}</option>`).join("")}</select></label>
+    <label>${T("Название (рус.)")}<input id="fd-ru" value="${esc(x ? x.name_ru : "")}"></label><label>${T("Название (узб.)")}<input id="fd-uz" value="${esc(x ? x.name_uz : "")}"></label>
+    <div class="row"><label>${T("Койки")}<input id="fd-b" inputmode="numeric" value="${x && x.beds != null ? x.beds : ""}" style="width:110px"></label>${isNew ? "" : `<label class="chk"><input type="checkbox" id="fd-ac" ${x.active ? "checked" : ""} style="width:auto"> ${T("Активно (отключённое не входит в отчёты)")}</label>`}</div>
+    <h3>${T("Ответственный")}</h3><div class="row"><label>${T("Ф.И.Ш.")}<input id="fd-f1" value="${esc(m.fio)}"></label><label>${T("Телефон")}<input id="fd-p1" value="${esc(showPhones(m.phone))}" inputmode="tel" placeholder="+998 __ ___ __ __"></label></div>
+    <h3>${T("Резервный ответственный")}</h3><div class="row"><label>${T("Ф.И.Ш.")}<input id="fd-f2" value="${esc(rv.fio)}"></label><label>${T("Телефон")}<input id="fd-p2" value="${esc(showPhones(rv.phone))}" inputmode="tel" placeholder="+998 __ ___ __ __"></label></div>
+    ${!isNew && x.assignments.length ? `<p class="muted sm">${T("Подключены в боте")}: ${x.assignments.map(a => esc(a.fio || [a.first_name, a.last_name].filter(Boolean).join(" ") || a.tg_id) + (a.username ? " @" + esc(a.username) : "") + (a.kind === "reserve" ? " (" + T("резерв") + ")" : "")).join(", ")}</p>` : ""}
+    <div id="fd-err" class="err"></div><div class="row mt"><button class="btn pri" id="fd-ok">${T("Сохранить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
+  $("#fd-ok").onclick = async () => {
+    const body = { district_id: +$("#fd-d").value, name_ru: $("#fd-ru").value, name_uz: $("#fd-uz").value, beds: $("#fd-b").value.trim(), contacts: [{ kind: "main", fio: $("#fd-f1").value, phone: $("#fd-p1").value }, { kind: "reserve", fio: $("#fd-f2").value, phone: $("#fd-p2").value }] };
+    if (!isNew) body.active = $("#fd-ac").checked;
+    try { await api(isNew ? "/api/facilities" : "/api/facilities/" + x.id, { method: isNew ? "POST" : "PATCH", body }); closeModal(); toast(isNew ? T("Учреждение добавлено") : T("Сохранено")); done(); } catch (e) { $("#fd-err").textContent = e.message; }
+  };
+}
 function nameDlg(kind, o, done, isNew) {
   modal(`<h2>${isNew ? T("Добавить") : T("Изменить")}</h2><label>${T("Название (рус.)")}<input id="n-ru" value="${esc(o.name_ru || "")}"></label><label>${T("Название (узб.)")}<input id="n-uz" value="${esc(o.name_uz || "")}"></label>
   ${isNew ? "" : `<label><input type="checkbox" id="n-ac" ${o.active ? "checked" : ""} style="width:auto"> ${T("Активно (отключённое не входит в отчёты)")}</label>`}<div class="row mt"><button class="btn pri" id="n-ok">${T("Сохранить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
@@ -545,6 +634,86 @@ function importDlg(done) {
   $("#i-pre").onclick = () => run(1); $("#i-go").onclick = () => run(0);
 }
 
+// ---------- the editor of territories: an Excel list of facilities (region, name, beds, head physician, phone) matched with the facilities of the platform
+const ED = { data: null, rows: [], disable: new Set(), only: false };      // the preview of the list and what the person decided (kept while the page is redrawn)
+async function editorView() {
+  const nav = NAVID;
+  if (nav !== NAVID) return;
+  view.innerHTML = `<div class="card"><h2>${T("Редактор территорий")}</h2>
+    <p class="muted">${T("Загрузите Excel со списком учреждений (регион, учреждение, число коек, ответственный, телефон). Каждое учреждение из файла сопоставляется с учреждением платформы в том же регионе: если на платформе оно записано с ошибкой, название исправится на то, что в файле. Ничего не записывается, пока вы не нажмёте «Применить».")}</p>
+    <div class="row"><input type="file" id="ed-f" accept=".xlsx"><button class="btn pri" id="ed-go">${T("Проверить файл")}</button><span class="muted sm" id="ed-name"></span></div></div><div id="ed-r"></div>`;
+  const regionName = id => rname((META.regions.find(r => r.id === id) || {}).name_ru || "");
+  const facOf = (rid, id) => ((ED.data.facilities || {})[rid] || []).find(f => f.id === id);
+  const chosen = () => new Set(ED.rows.filter(r => r.action === "match" && r.facility_id).map(r => r.facility_id));
+  const render = () => {
+    const box = $("#ed-r"); if (!box || !ED.data) return;
+    const used = chosen(), dup = new Set(), seen = new Set();
+    ED.rows.forEach(r => { if (r.action === "match" && r.facility_id) { if (seen.has(r.facility_id)) dup.add(r.facility_id); seen.add(r.facility_id); } });
+    const st = r => r.action === "skip" ? "skip" : r.action === "new" ? "new" : r.action === "review" ? "review" : (r.current && r.current.name === r.name ? "ok" : "fix");
+    const cnt = { ok: 0, fix: 0, new: 0, skip: 0, review: 0 }; ED.rows.forEach(r => cnt[st(r)]++);
+    const attention = r => st(r) === "new" || st(r) === "review" || (r.action === "skip" && r.reason === "region") || dup.has(r.facility_id) || (r.warn.includes("phone") && !r.phone);
+    const regions = [...new Set(ED.rows.map(r => r.region_text))];
+    const left = rid => ((ED.data.facilities || {})[rid] || []).filter(f => !used.has(f.id));
+    const off = [...ED.disable].filter(id => !used.has(id)).length;
+    const rowHtml = (r, i) => { const s = st(r), fac = r.facility_id ? facOf(r.region_id, r.facility_id) : null;
+      const opts = [...(r.action === "review" ? [`<option value="" selected disabled>${T("— выберите —")}</option>`] : []), `<option value="new" ${r.action === "new" ? "selected" : ""}>${T("➕ Создать новое учреждение")}</option>`, `<option value="skip" ${r.action === "skip" ? "selected" : ""}>${T("⏭ Пропустить")}</option>`];
+      if (r.region_id && r.allowed) {
+        const all = (ED.data.facilities[r.region_id] || []), sug = new Map((r.candidates || []).map(c => [c.id, c.score]));
+        const o = f => `<option value="m:${f.id}" ${r.action === "match" && r.facility_id === f.id ? "selected" : ""}>${esc(f.name)}${sug.has(f.id) ? ` — ${Math.round(100 * sug.get(f.id))}%` : ""}${used.has(f.id) && r.facility_id !== f.id ? " ✓" : ""}</option>`;
+        const top = all.filter(f => sug.has(f.id)).sort((a, b) => sug.get(b.id) - sug.get(a.id));
+        if (top.length) opts.push(`<optgroup label="${T("Похожие")}">${top.map(o).join("")}</optgroup>`);
+        opts.push(`<optgroup label="${T("Все учреждения региона")}">${all.filter(f => !sug.has(f.id)).map(o).join("")}</optgroup>`);
+      }
+      const phones = r.phone ? r.phone.split(",").map(p => fmtPhone(p.trim())).join(", ") : "";
+      const result = s === "ok" ? `<span class="pill sent">${T("Совпадает")}</span>` : s === "fix" ? `<span class="pill warning">${T("Название исправится")}</span><div class="sm er-old"><s>${esc(r.current.name)}</s></div>` : s === "new" ? `<span class="pill normal">${T("Будет создано")}</span>` : s === "review" ? `<span class="pill critical">${T("Нужно решить")}</span><div class="sm muted">${T("Есть похожее учреждение: выберите его или «создать»")}</div>` : `<span class="pill">${r.reason === "placeholder" ? T("Шаблонная строка") : r.reason === "access" ? T("Не ваш регион") : r.reason === "region" ? T("Регион не распознан") : T("Пропуск")}</span>`;
+      const diff = [];
+      if (fac && r.action === "match") {
+        if (r.beds != null && fac.beds !== r.beds) diff.push(T("койки: {a} → {b}", { a: fac.beds ?? "—", b: r.beds }));
+        if ((r.fio && r.fio !== fac.fio) || (r.phone && r.phone.replace(/, /g, ",") !== fac.phone)) diff.push(T("ответственный будет записан"));
+      }
+      return `<tr class="er ${s}${dup.has(r.facility_id) ? " dup" : ""}" data-i="${i}"><td class="n muted">${r.row}</td>
+        <td><b>${esc(r.name)}</b><div class="sm muted">${r.beds != null ? T("коек: {n}", { n: r.beds }) + " · " : ""}${esc(r.fio) || `<span class="warn-t">${T("нет Ф.И.Ш.")}</span>`} · ${phones ? esc(phones) : `<span class="warn-t">${T("нет телефона")}</span>`}${r.warn.includes("phone_format") ? ` <span class="warn-t">${T("проверьте номер")}</span>` : ""}</div></td>
+        <td><select class="ci" data-pick="${i}" ${r.reason === "region" || r.reason === "access" ? "disabled" : ""}>${opts.join("")}</select>${dup.has(r.facility_id) ? `<div class="sm err">${T("Это учреждение выбрано для нескольких строк")}</div>` : ""}</td>
+        <td>${result}${diff.length ? `<div class="sm muted">${diff.map(esc).join("; ")}</div>` : ""}</td></tr>`; };
+    box.innerHTML = `<div class="card"><div class="row"><h3 style="margin:0">${T("Результат проверки")}</h3><span class="muted sm">${esc(ED.file || "")}</span>
+        <div class="seg right"><button data-only="0" class="${ED.only ? "" : "on"}">${T("Все строки")}</button><button data-only="1" class="${ED.only ? "on" : ""}">${T("Требуют внимания")}</button></div></div>
+      <div class="edsum"><span class="pill sent">${T("Совпадают: {n}", { n: cnt.ok })}</span><span class="pill warning">${T("Название исправится: {n}", { n: cnt.fix })}</span><span class="pill normal">${T("Будут созданы: {n}", { n: cnt.new })}</span><span class="pill">${T("Пропущены: {n}", { n: cnt.skip })}</span>${cnt.review ? `<span class="pill critical">${T("Нужно решить: {n}", { n: cnt.review })}</span>` : ""}${off ? `<span class="pill critical">${T("Будут отключены: {n}", { n: off })}</span>` : ""}</div>
+      ${ED.data.problems.length ? `<div class="alert critical">${ED.data.problems.map(p => T("Регион «{name}» не распознан: строки пропущены. Проверьте написание в файле.", { name: esc(p.text) })).join("<br>")}</div>` : ""}
+      <div class="row mt"><button class="btn pri" id="ed-apply">${T("Применить")}</button><button class="btn" id="ed-reset">${T("Сбросить")}</button><span class="muted sm">${T("Выбор в списке справа можно менять: «создать», «пропустить» или любое учреждение региона.")}</span></div></div>
+      ${regions.map(text => { const rs = ED.rows.map((r, i) => [r, i]).filter(([r]) => r.region_text === text), info = ED.data.regions.find(x => x.text === text) || {}, shown = rs.filter(([r]) => !ED.only || attention(r));
+        const rest = info.region_id && info.allowed ? left(info.region_id) : [];
+        return `<div class="card"><details ${shown.length || rest.length || !ED.only ? "open" : ""}><summary><b>${esc(info.region_id ? regionName(info.region_id) : text)}</b> <span class="muted sm">${T("строк: {n}", { n: rs.length })}${info.region_id && info.allowed ? " · " + T("учреждений на платформе: {n}", { n: info.facilities }) : ""}</span></summary>
+          <div class="scroll-x"><table class="edtab"><colgroup><col class="e-n"><col class="e-x"><col class="e-s"><col class="e-r"></colgroup><tr><th>${T("№")}</th><th>${T("Из файла")}</th><th>${T("Сопоставить с учреждением платформы")}</th><th>${T("Что будет")}</th></tr>${shown.map(([r, i]) => rowHtml(r, i)).join("") || `<tr><td colspan="4" class="muted">${T("Нет строк, требующих внимания")}</td></tr>`}</table></div>
+          ${rest.length ? `<details class="mt"><summary class="muted">${T("Есть на платформе, но не выбрано ни для одной строки: {n}", { n: rest.length })}</summary><table class="mt"><tr><th>${T("Учреждение")}</th><th>${T("Район")}</th><th>${T("Что сделать")}</th></tr>${rest.map(f => `<tr><td>${esc(f.name)}${f.active ? "" : ` <span class="pill critical">${T("отключено")}</span>`}</td><td>${esc(f.district)}</td><td><select class="ci" data-off="${f.id}"><option value="keep">${T("Оставить как есть")}</option><option value="off" ${ED.disable.has(f.id) ? "selected" : ""} ${f.active ? "" : "disabled"}>${T("Отключить (данные сохранятся)")}</option></select></td></tr>`).join("")}</table></details>` : ""}
+        </details></div>`; }).join("")}`;
+    box.querySelectorAll("[data-only]").forEach(b => b.onclick = () => { ED.only = b.dataset.only === "1"; render(); });
+    box.querySelectorAll("[data-pick]").forEach(sl => sl.onchange = () => { const r = ED.rows[+sl.dataset.pick], v = sl.value;
+      if (v === "new") { r.action = "new"; r.facility_id = null; r.current = null; r.reason = ""; } else if (v === "skip") { r.action = "skip"; r.facility_id = null; r.current = null; r.reason = "manual"; }
+      else { const f = facOf(r.region_id, +v.slice(2)); r.action = "match"; r.facility_id = f.id; r.reason = ""; r.current = { name: f.name, beds: f.beds, fio: f.fio, phone: f.phone, district: f.district }; ED.disable.delete(f.id); }
+      render(); });
+    box.querySelectorAll("[data-off]").forEach(sl => sl.onchange = () => { sl.value === "off" ? ED.disable.add(+sl.dataset.off) : ED.disable.delete(+sl.dataset.off); render(); });
+    $("#ed-reset").onclick = () => { ED.data = null; ED.rows = []; ED.disable = new Set(); box.innerHTML = ""; $("#ed-name").textContent = ""; };
+    $("#ed-apply").onclick = () => {
+      if (cnt.review) return toast(T("Сначала решите строки, отмеченные красным: {n}", { n: cnt.review }));
+      if (dup.size) return toast(T("Одно учреждение выбрано для нескольких строк: исправьте выбор"));
+      confirmDlg(T("Применить изменения"), `<p>${T("Будет сделано: названий исправить — {a}, создать — {b}, отключить — {c}. Ответственные и койки из файла запишутся для всех сопоставленных и созданных учреждений.", { a: cnt.fix, b: cnt.new, c: off })}</p><p class="muted sm">${T("Исправленные названия записываются в русское и узбекское поле; отчёты не затрагиваются. Изменения попадут в журнал.")}</p>`, T("Применить"), async () => {
+        const body = { rows: ED.rows.map(r => ({ region_id: r.region_id, name: r.name, beds: r.beds, fio: r.fio, phone: r.phone, action: r.action, facility_id: r.facility_id })), disable: [...ED.disable].filter(id => !used.has(id)) };
+        const res = await api("/api/editor/apply", { method: "POST", body }); closeModal();
+        ED.data = null; ED.rows = []; ED.disable = new Set();
+        box.innerHTML = `<div class="card"><h3>${T("Готово")}</h3><div class="edsum"><span class="pill warning">${T("Названий исправлено: {n}", { n: res.renamed })}</span><span class="pill sent">${T("Без изменений названия: {n}", { n: res.same })}</span><span class="pill normal">${T("Создано: {n}", { n: res.created })}</span><span class="pill">${T("Ответственных записано: {n}", { n: res.contacts })}</span><span class="pill critical">${T("Отключено: {n}", { n: res.disabled })}</span></div>
+          ${res.errors.length ? `<div class="alert critical mt"><b>${T("Не удалось применить: {n}", { n: res.errors.length })}</b><br>${res.errors.map(e => esc(e.name) + ": " + esc(TS(e.message))).join("<br>")}</div>` : ""}
+          <p class="mt"><a class="btn pri" href="#/territories">${T("Открыть учреждения")}</a></p></div>`; });
+    };
+  };
+  $("#ed-go").onclick = async () => {
+    const f = $("#ed-f").files[0]; if (!f) return toast(T("Выберите файл"));
+    const fd = new FormData(); fd.append("file", f); $("#ed-go").disabled = true; $("#ed-name").textContent = T("Проверяю…");
+    try { ED.data = await api("/api/editor/preview", { method: "POST", form: fd }); ED.rows = ED.data.rows; ED.file = f.name; ED.disable = new Set(); ED.only = false; $("#ed-name").textContent = ""; render(); }
+    catch (e) { $("#ed-name").textContent = ""; fail(e); }
+    $("#ed-go").disabled = false;
+  };
+  if (ED.data) render();
+}
 // ---------- indicators and rules
 async function indicators() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page
@@ -749,9 +918,9 @@ function badgeMessages() { const a = document.querySelector('#tabs a[data-t="mes
 // ---------- shell
 // [name, label, page, right, group]: the pages of a group share one tab of the menu and a row of sub-tabs under it (SUBTABS lists them in the order of the row)
 const TABS = [["dashboard", T("Панель"), dashboard, null], ["messages", T("Сообщения"), messagesView, "s"], ["forecast", T("Прогноз"), forecastView, null], ["reports", T("Отчёты"), reportsView, "w"], ["people", T("Доступы"), people, "u"],
-  ["export", T("Выгрузка"), exportView, null], ["territories", T("Территории"), territories, "t"], ["broadcast", T("Рассылка"), broadcastView, "u"],
+  ["export", T("Выгрузка"), exportView, null], ["territories", T("Территории"), territories, "t", "territories"], ["editor", T("Редактор"), editorView, "t", "territories"], ["broadcast", T("Рассылка"), broadcastView, "u"],
   ["settings", T("Настройки"), settings, "s", "settings"], ["control", T("Контроль"), control, "w", "settings"], ["indicators", T("Показатели"), indicators, "s", "settings"], ["audit", T("Журнал"), audit, "s"]];
-const SUBTABS = { settings: [["settings", T("Общие")], ["control", T("Контроль")], ["indicators", T("Показатели")]] };
+const SUBTABS = { territories: [["territories", T("Учреждения")], ["editor", T("Редактор")]], settings: [["settings", T("Общие")], ["control", T("Контроль")], ["indicators", T("Показатели")]] };
 function allowed(t) { return !t[3] || (t[3] === "s" && ME.role === "super_admin") || (t[3] === "w" && ME.role !== "viewer") || (t[3] === "u" && ME.role !== "viewer" && ME.can_manage_users) || (t[3] === "t" && ME.can_manage_territories); }
 const tabOf = name => TABS.find(t => t[0] === name);
 // the menu: a group is one tab (its label is its first page's) that leads to the first page of the group the person may open
