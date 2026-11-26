@@ -667,3 +667,65 @@ def test_broadcast_can_go_to_the_heads_of_regions_or_to_the_responsible_for_faci
     assert [p["tg_id"] for p in broadcast.recipients(c, regional, {"mode": "responsibles"})] == ["850002"]
     with __import__("pytest").raises(broadcast.BroadcastError):
         broadcast.recipients(c, regional, {"mode": "responsibles", "regions": [2]})
+
+
+def edited_questionnaire():
+    """As an administrator would edit it on the site: four questions switched off, an optional one added."""
+    from app.db import tx
+    with tx() as c:
+        for code in ("occ_pregnant", "occ_children", "extreme_pregnant", "extreme_children"):
+            c.execute("UPDATE indicators SET active=0 WHERE code=?", (code,))
+        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, agg, sort, required) VALUES ('q_opt','extra','Необязательный вопрос','Ixtiyoriy savol','Если знаете','Bilsangiz','sum',99,0)")
+
+
+def test_the_bot_asks_the_questionnaire_that_was_edited_on_the_site(bot):
+    from app.db import connect
+    edited_questionnaire()
+    f = make_facility(1, "Район А", "Больница В1"); assign(820001, f)
+    cb(bot, 820001, f"sf:{f}"); cb(bot, 820001, f"sd:{f}:2026-02-10")
+    asked = []
+    for a in ["100", "40", "50", "10", "6", "20", "5", "1"]:                                           # the eight core questions that are left, in their order
+        asked.append(last(820001)); msg(bot, 820001, a)
+    assert "Вопрос 1 из 10" in asked[0] and "Вопрос 8 из 10" in asked[7] and "Необязательный вопрос" in last(820001) and "Вопрос 9 из 10" in last(820001)      # 9 questions and the message to the Ministry
+    kb = [x["text"] for row in [m for c_, t_, m in SENT if c_ == "820001" and m][-1]["keyboard"] for x in row]
+    assert "⏭ Пропустить вопрос" in kb                                                                  # an optional question has a skip button
+    msg(bot, 820001, "⏭ Пропустить вопрос")
+    assert "сообщение" in last(820001).lower() and "Министерств" in last(820001)                       # then the last question
+    msg(bot, 820001, NOTE_SKIP)
+    cb(bot, 820001, "ok")
+    c = connect()
+    vals = {r["code"]: r["value"] for r in c.execute("SELECT code, value FROM report_values")}
+    assert vals["beds_total"] == 100 and vals["extreme"] == 1 and "q_opt" not in vals and "occ_pregnant" not in vals
+
+
+def test_the_limit_at_a_question_comes_from_the_rules_and_the_last_question_can_be_switched_off(bot):
+    from app.db import connect, tx
+    f = make_facility(1, "Район А", "Больница В2"); assign(820002, f)
+    cb(bot, 820002, f"sf:{f}"); cb(bot, 820002, f"sd:{f}:2026-02-10")
+    msg(bot, 820002, "100")
+    assert "Не больше" in last(820002) and "(вопрос 1)" in last(820002)                                # beds_flu <= beds_total is a rule of the system
+    msg(bot, 820002, "150")
+    assert any("не может быть больше" in t_ for c_, t_, m in SENT[-2:] if c_ == "820002")                # refused at once, and the same question again
+    with tx() as c:                                                                                    # the administrator removes the rule on the site: the limit is gone
+        c.execute("DELETE FROM rules WHERE expr='beds_flu <= beds_total'")
+        c.execute("INSERT INTO rules(kind, expr, message_ru, message_uz, sort) VALUES ('error','visits <= beds_flu','m','m',99)")      # and writes a new one
+    msg(bot, 820002, "150")
+    assert "Не больше" in last(820002) and "(вопрос 2)" in last(820002)                                # now the visits are limited by the second answer
+    with tx() as c:
+        c.execute("UPDATE settings SET value='0' WHERE key='note_enabled'")
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES ('q_hints','1')")
+    msg(bot, 820002, "10")
+    assert "Все койки" not in last(820002)
+    for a in ["10", "6", "20", "1", "1", "5", "1", "0", "0"]:
+        msg(bot, 820002, a)
+    assert "Проверьте" in last(820002) or "Отчёт" in last(820002)
+    assert "Министерств" not in last(820002)                                                           # no question and no line about the message to the Ministry
+
+
+def test_hints_are_shown_under_the_question_when_they_are_on(bot):
+    from app.db import tx
+    f = make_facility(1, "Район А", "Больница В3"); assign(820003, f)
+    with tx() as c:
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES ('q_hints','1')")
+    cb(bot, 820003, f"sf:{f}"); cb(bot, 820003, f"sd:{f}:2026-02-10")
+    assert "Все койки учреждения" in last(820003)

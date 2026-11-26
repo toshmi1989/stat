@@ -113,6 +113,7 @@ T["uz"].update({
 })
 
 T["ru"].update({
+    "skip_q": "⏭ Пропустить вопрос", "preview_fac": "Название учреждения",
     "m_later": "⏭ Позже", "ask_phone": "📱 <b>Отправьте свой номер телефона</b> кнопкой ниже: бот сверит его со списком ответственных и, если вы там есть, сразу откроет доступ к вашему учреждению или региону.\nНомер увидит только система.",
     "m_phone": "📱 Отправить мой номер телефона",
     "phone_linked": "✅ Номер принят. Вы подключены как ответственный: {where}.\nТеперь можно отправлять ежедневную сводку.",
@@ -121,6 +122,7 @@ T["ru"].update({
     "bad_contact": "⚠️ Нужен ваш собственный номер: нажмите кнопку «📱 Отправить мой номер телефона» (контакт другого человека не подходит).",
 })
 T["uz"].update({
+    "skip_q": "⏭ Саволни ўтказиб юбориш", "preview_fac": "Муассаса номи",
     "m_later": "⏭ Кейинроқ", "ask_phone": "📱 <b>Телефон рақамингизни юборинг</b> — пастдаги тугма орқали: бот уни масъул шахслар рўйхати билан солиштиради ва агар сиз рўйхатда бўлсангиз, муассасангиз ёки вилоятингизга дарҳол рухсат очади.\nРақамни фақат тизим кўради.",
     "m_phone": "📱 Телефон рақамимни юбориш",
     "phone_linked": "✅ Рақам қабул қилинди. Сиз масъул шахс сифатида уландингиз: {where}.\nЭнди кундалик маълумот юборишингиз мумкин.",
@@ -499,7 +501,7 @@ def show_history(c, user, chat, has) -> None:
 
 # ---------------------------------------------------------------- the daily report form
 def indicator_list(c) -> list:
-    return c.execute("SELECT code, name_ru, name_uz, hint_ru, hint_uz FROM indicators WHERE active=1 ORDER BY sort").fetchall()
+    return c.execute("SELECT code, name_ru, name_uz, hint_ru, hint_uz, required FROM indicators WHERE active=1 ORDER BY sort").fetchall()
 
 
 def begin_submit(c, user, chat, has) -> None:
@@ -803,20 +805,59 @@ def pick_date(c, user, chat, fid: int, d: str) -> None:
     ask(c, user, chat, get_state(c, user["tg_id"])["data"])
 
 
-# the questions that fall into the same part of the questionnaire, and the answer that limits another one (the rules of the system refuse a larger number anyway;
-# here the person is told at once, at the question)
-SECTION = {"beds_total": "beds", "beds_flu": "beds", "visits": "flow", "hosp": "flow", "disch": "flow", "beds_occupied": "occ", "occ_pregnant": "occ", "occ_children": "occ",
-           "severe": "sev", "extreme": "sev", "extreme_pregnant": "sev", "extreme_children": "sev"}
-BOUND = {"beds_flu": "beds_total", "occ_pregnant": "beds_occupied", "occ_children": "beds_occupied", "severe": "visits", "extreme": "visits",
-         "extreme_pregnant": "extreme", "extreme_children": "extreme"}
+# the answer that limits another one is read from the rules of the system («a <= b», an error): the person is told at once, at the question (the rules refuse a larger number anyway).
+# The rules are edited on the site, so the questionnaire needs no change in the code.
+def bounds(c) -> dict:
+    out = {}
+    for r in c.execute("SELECT expr FROM rules WHERE active=1 AND kind='error'"):
+        m = re.fullmatch(r"\s*([a-z][a-z0-9_]*)\s*<=\s*([a-z][a-z0-9_]*)\s*", r["expr"])
+        if m:
+            out[m.group(1)] = m.group(2)
+    return out
 
 
-def bound_of(data: dict, code: str):
+def bound_of(c, data: dict, code: str):
     """(the limit, the number of the question it was given at) when the answer to the limiting question is already known."""
-    b = BOUND.get(code)
+    b = bounds(c).get(code)
     if b and b in data["codes"] and data["values"].get(b) is not None:
         return data["values"][b], data["codes"].index(b) + 1
     return None
+
+
+def note_on(c) -> bool:
+    """The last question of the form: a confidential message for the Ministry. It can be switched off on the site."""
+    return all_settings(c)["note_enabled"] == "1"
+
+
+def question_text(c, lang: str, fac: str, date: str, i: int, n: int, ind, old=None, bound=None) -> str:
+    """The message of one question: where we are, the question, its hint (when the hints are on), a limit when one applies, the current value when there is one."""
+    bar = "▰" * (i + 1) + "▱" * (n - i - 1)
+    text = t(lang, "form_head", fac=fac, date=date, i=i + 1, n=n, bar=bar, name=esc(nm(ind, lang)))
+    hint = (lat(ind["hint_uz"]) if lang == "uz" else ind["hint_ru"]) if all_settings(c)["q_hints"] == "1" else ""
+    if hint:
+        text += "\n<i>" + esc(hint) + "</i>"
+    if bound:
+        text += "\n\n" + t(lang, "q_limit", n=bound[1], v=bound[0])
+    if old is not None:
+        text += ("\n" if bound else "\n\n") + t(lang, "q_old", old=old)
+    return text
+
+
+def questionnaire_preview(c, lang: str) -> dict:
+    """What the bot sends for every question (and for the last one) in this language: for the page where the questionnaire is edited."""
+    inds = indicator_list(c)
+    codes = [i["code"] for i in inds]
+    bd = bounds(c)
+    last = note_on(c)
+    n = len(inds) + (1 if last else 0)
+    items = []
+    for k, ind in enumerate(inds):
+        b = bd.get(ind["code"])
+        bound = ("…", codes.index(b) + 1) if b in codes and codes.index(b) < k else None
+        items.append({"code": ind["code"], "text": question_text(c, lang, t(lang, "preview_fac"), today().isoformat(), k, n, ind, None, bound), "required": bool(ind["required"])})
+    if last:
+        items.append({"code": "__note", "text": t(lang, "note_q", fac=t(lang, "preview_fac"), date=today().isoformat(), i=n, n=n, bar="▰" * n), "required": False})
+    return {"items": items, "lang": lang, "n": n}
 
 
 def ask(c, user, chat, data: dict) -> None:
@@ -828,15 +869,9 @@ def ask(c, user, chat, data: dict) -> None:
     ind = inds[data["codes"][i]]
     f = reports.facility_info(c, data["fid"])
     old = data["values"].get(ind["code"])
-    n = len(data["codes"]) + 1                                   # the numbers plus the last, optional message for the Ministry
-    bar = "▰" * (i + 1) + "▱" * (n - i - 1)
-    text = t(lang, "form_head", fac=esc(nm(f, lang)), date=data["date"], i=i + 1, n=n, bar=bar, name=esc(nm(ind, lang)))
-    bd = bound_of(data, ind["code"])
-    if bd:
-        text += "\n\n" + t(lang, "q_limit", n=bd[1], v=bd[0])
-    if old is not None:
-        text += ("\n" if bd else "\n\n") + t(lang, "q_old", old=old)
-    rows = ([[{"text": f"{t(lang, 'keep')}: {old}"}]] if old is not None else []) + [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]]
+    n = len(data["codes"]) + (1 if note_on(c) else 0)           # the numbers plus the last, optional message for the Ministry (when it is on)
+    text = question_text(c, lang, esc(nm(f, lang)), data["date"], i, n, ind, old, bound_of(c, data, ind["code"]))
+    rows = ([[{"text": f"{t(lang, 'keep')}: {old}"}]] if old is not None else []) + ([[{"text": t(lang, "skip_q")}]] if not ind["required"] else []) + [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]]
     tg.send(chat, text, {"keyboard": rows, "resize_keyboard": True, "input_field_placeholder": t(lang, "q_placeholder")})
 
 
@@ -856,18 +891,25 @@ def form_input(c, user, chat, st: dict, text: str, has: bool) -> None:
     s = text.replace(" ", "")
     if text.startswith(t(lang, "keep")) and data["values"].get(code) is not None:
         s = str(data["values"][code])
-    if not s.isdigit():
+    if text == t(lang, "skip_q") and not (c.execute("SELECT required FROM indicators WHERE code=?", (code,)).fetchone() or {"required": 1})["required"]:     # an optional question may be left empty
+        data["values"].pop(code, None)
+        s = None
+    elif not s.isdigit():
         return tg.send(chat, t(lang, "bad_number"))
-    bd = bound_of(data, code)
+    bd = bound_of(c, data, code) if s is not None else None
     if bd and int(s) > bd[0]:
         tg.send(chat, t(lang, "q_over", v=bd[0], n=bd[1]))
         return ask(c, user, chat, data) if st["state"] == "form" else tg.send(chat, t(lang, "q_limit", n=bd[1], v=bd[0]))
-    data["values"][code] = int(s)
+    if s is not None:
+        data["values"][code] = int(s)
     if st["state"] == "form":
         data["idx"] += 1
         if data["idx"] < len(data["codes"]):
             set_state(c, tid, "form", data)
             return ask(c, user, chat, data)
+        if not note_on(c):                                      # the last question is switched off: straight to the check
+            set_state(c, tid, "preview", data)
+            return preview(c, user, chat, data)
         set_state(c, tid, "note", data)                         # the last question: an optional confidential message for the Ministry
         return ask_note(c, user, chat, data)
     set_state(c, tid, "preview", data)
@@ -944,7 +986,8 @@ def preview(c, user, chat, data: dict, message_id=None) -> None:
             out.append(f"✏️ {k}. {esc(nm(i, lang))}: {old if old is not None else '—'} → <b>{new if new is not None else '—'}</b>")
         else:
             out.append(f"{k}. {esc(nm(i, lang))}: <b>{new if new is not None else '—'}</b>")
-    out.append(t(lang, "pv_note", text=esc(data["note"][:200] + ("…" if len(data["note"]) > 200 else ""))) if data.get("note") else t(lang, "pv_nonote"))
+    if note_on(c) or data.get("note"):
+        out.append(t(lang, "pv_note", text=esc(data["note"][:200] + ("…" if len(data["note"]) > 200 else ""))) if data.get("note") else t(lang, "pv_nonote"))
     res = rules.validate(c, data["values"], lang, data["fid"], data["date"])
     path = f"{esc(nm(f, lang, 'region'))} / {esc(nm(f, lang, 'district'))} / <b>{esc(nm(f, lang))}</b>"
     text = t(lang, "preview_fix" if orig is not None else "preview", path=path, date=data["date"], lines="\n".join(out))
@@ -1052,7 +1095,7 @@ def _callback_body(c, user, lang, has, chat, msg, data) -> None:
     if k == "ch":
         inds = indicator_list(c)
         set_state(c, user["tg_id"], "edit_pick", d)
-        return tg.send(chat, t(lang, "pick_field"), ik([[btn(f"{k}. {nm(i, lang)[:44]}: {d['values'].get(i['code'], '—')}", f"ef:{i['code']}")] for k, i in enumerate(inds, 1)] + [[btn(t(lang, "note_btn"), "ef:__note")]]))
+        return tg.send(chat, t(lang, "pick_field"), ik([[btn(f"{k}. {nm(i, lang)[:44]}: {d['values'].get(i['code'], '—')}", f"ef:{i['code']}")] for k, i in enumerate(inds, 1)] + ([[btn(t(lang, "note_btn"), "ef:__note")]] if note_on(c) else [])))
     if k == "ef" and p[1] == "__note":
         d["edit_code"] = "__note"
         set_state(c, user["tg_id"], "edit_field", d)
@@ -1062,7 +1105,7 @@ def _callback_body(c, user, lang, has, chat, msg, data) -> None:
         set_state(c, user["tg_id"], "edit_field", d)
         ind = c.execute("SELECT name_ru, name_uz FROM indicators WHERE code=?", (p[1],)).fetchone()
         kb = {"keyboard": [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]], "resize_keyboard": True}
-        bd = bound_of(d, p[1])
+        bd = bound_of(c, d, p[1])
         return tg.send(chat, f"<b>{esc(nm(ind, lang))}</b>\n\n" + (t(lang, "q_limit", n=bd[1], v=bd[0]) + "\n" if bd else "") + t(lang, "q_old", old=d["values"].get(p[1], "—")), {**kb, "input_field_placeholder": t(lang, "q_placeholder")})
     if k == "ok":
         return confirm(c, user, chat, d, has)

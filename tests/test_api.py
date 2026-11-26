@@ -119,7 +119,9 @@ def test_rules_and_indicators_admin(client):
     assert client.post("/api/rules", json={"expr": "__import__('os')", "kind": "error", "message_ru": "x"}).status_code == 400
     assert client.post("/api/rules", json={"expr": "visits >= severe", "kind": "warning", "message_ru": "m"}).status_code == 200
     assert client.post("/api/indicators", json={"code": "test_ind", "name_ru": "Тест", "agg": "sum"}).status_code == 200
-    assert client.patch("/api/indicators/visits", json={"active": False}).status_code == 400
+    assert client.patch("/api/indicators/visits", json={"active": False}).status_code == 200            # a question of the core may be switched off now (its figures stay in the reports)
+    assert client.patch("/api/indicators/visits", json={"active": True}).status_code == 200
+    assert client.delete("/api/indicators/visits").status_code == 409                                       # but not deleted
     assert client.post("/api/rules/test", json={"expr": "a <= b", "values": {}}).json()["ok"] is False
 
 

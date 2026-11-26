@@ -97,14 +97,14 @@ class _Safe(dict):
 
 def validate(c, values: dict, lang: str = "ru", facility_id: int | None = None, report_date: str | None = None, partial: bool = False) -> dict:
     """{'errors': [...], 'warnings': [...], 'fields': {code: message}} for the entered figures."""
-    ind = c.execute("SELECT code, name_ru, name_uz FROM indicators WHERE active=1 ORDER BY sort").fetchall()
+    ind = c.execute("SELECT code, name_ru, name_uz, required FROM indicators WHERE active=1 ORDER BY sort").fetchall()
     errors, warnings, fields = [], [], {}
     msg = (lambda r, k: (lat(r[f"{k}_uz"]) if lang == "uz" and r[f"{k}_uz"] else r[f"{k}_ru"]))     # Uzbek is written in Latin
     for i in ind:
         v = values.get(i["code"])
         name = msg(i, "name")
-        if v is None and partial:
-            continue   # an import may carry only part of the figures; the rules below skip what is absent
+        if v is None and (partial or not i["required"]):
+            continue   # an import may carry only part of the figures, and a question may be optional; the rules below skip what is absent
         if v is None:
             text = f"Не заполнено: {name}" if lang != "uz" else f"To‘ldirilmagan: {name}"
         elif isinstance(v, bool) or not isinstance(v, int):

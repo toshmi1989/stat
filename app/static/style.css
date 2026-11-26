@@ -255,3 +255,9 @@ details>summary{cursor:pointer}
 @media(max-width:700px){.bc-ta{grid-template-columns:minmax(0,1fr)}}
 
 .bc-count details.warn summary{color:var(--warn);cursor:pointer}.bc-count details.inl.warn{display:block;margin-top:6px}.bc-count ul{margin:4px 0 0 18px;padding:0}
+
+/* the questionnaire of the bot */
+.qsw{display:flex;gap:22px;flex-wrap:wrap;margin:10px 0}.qsw label{display:flex;gap:8px;align-items:center}.qsw input{width:auto}
+.qtab{table-layout:fixed;min-width:900px}.qtab col.c-i{width:40px}.qtab col.c-h{width:110px}.qtab col.c-l{width:220px}.qtab col.c-q{width:100px}.qtab col.c-a{width:60px}.qtab col.c-x{width:210px}
+.qtab td{vertical-align:middle}.qtab tr.off td{opacity:.5}.qtab td.c{text-align:center}.qtab td.act{white-space:nowrap;text-align:right}.qtab code{font-size:12px}
+.pvlist{max-height:62vh;overflow:auto;padding-right:4px}.pvlist .bcmsg{max-width:none;margin:6px 0}
