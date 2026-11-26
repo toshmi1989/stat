@@ -113,6 +113,7 @@ T["uz"].update({
 })
 
 T["ru"].update({
+    "m_later": "⏭ Позже", "ask_phone": "📱 <b>Отправьте свой номер телефона</b> кнопкой ниже: бот сверит его со списком ответственных и, если вы там есть, сразу откроет доступ к вашему учреждению или региону.\nНомер увидит только система.",
     "m_phone": "📱 Отправить мой номер телефона",
     "phone_linked": "✅ Номер принят. Вы подключены как ответственный: {where}.\nТеперь можно отправлять ежедневную сводку.",
     "phone_none": "✅ Номер принят, но в списках ответственных его нет. Если вы отвечаете за учреждение, нажмите «🔑 Запросить доступ» — администратор рассмотрит заявку.",
@@ -120,6 +121,7 @@ T["ru"].update({
     "bad_contact": "⚠️ Нужен ваш собственный номер: нажмите кнопку «📱 Отправить мой номер телефона» (контакт другого человека не подходит).",
 })
 T["uz"].update({
+    "m_later": "⏭ Кейинроқ", "ask_phone": "📱 <b>Телефон рақамингизни юборинг</b> — пастдаги тугма орқали: бот уни масъул шахслар рўйхати билан солиштиради ва агар сиз рўйхатда бўлсангиз, муассасангиз ёки вилоятингизга дарҳол рухсат очади.\nРақамни фақат тизим кўради.",
     "m_phone": "📱 Телефон рақамимни юбориш",
     "phone_linked": "✅ Рақам қабул қилинди. Сиз масъул шахс сифатида уландингиз: {where}.\nЭнди кундалик маълумот юборишингиз мумкин.",
     "phone_none": "✅ Рақам қабул қилинди, лекин масъул шахслар рўйхатида у йўқ. Агар сиз муассаса учун масъул бўлсангиз, «🔑 Рухсат сўраш» тугмасини босинг — администратор кўриб чиқади.",
@@ -208,7 +210,7 @@ T["uz"].update({
     "dl_today": "📅 Бугун, {d}", "dl_fmt": "<b>{scope}</b>, {date}\nҚандай кўринишда юборай?", "dl_none": "<b>{date}</b> санаси учун «{scope}» бўйича маълумот ҳали йўқ.",
     "dl_caption": "📥 Маълумот: <b>{scope}</b>\nСана: {date}\nЮборган муассасалар: {n}", "dl_fail": "⚠️ Файлни юбориб бўлмади: {why}", "dl_wait": "⏳ Файл тайёрланмоқда…",
 })
-MENU_KEYS = {"m_dl": "dl", "m_submit": "submit", "m_fac": "fac", "m_status": "status", "m_hist": "hist", "m_req": "req", "m_help": "help", "m_lang": "lang", "m_rights": "rights"}
+MENU_KEYS = {"m_dl": "dl", "m_submit": "submit", "m_fac": "fac", "m_status": "status", "m_hist": "hist", "m_req": "req", "m_help": "help", "m_lang": "lang", "m_rights": "rights", "m_later": "later"}
 MENU_TEXT = {txt: a for lang in T for k, a in MENU_KEYS.items() for txt in {T[lang][k], t(lang, k)}}      # the button as it is drawn now, and as it was drawn before
 CANCEL_TEXT = {txt for lang in T for txt in {T[lang]["cancel"], t(lang, "cancel")}}
 
@@ -337,7 +339,12 @@ def do_action(c, user, chat, action: str, has: bool) -> None:
     lang, tid = user["lang"], user["tg_id"]
     if action == "start":
         name = " ".join(x for x in (user["first_name"], user["last_name"]) if x) or user["username"] or tid
+        if not user["phone"]:                       # the first start: the phone is asked at once and compared with the lists of the responsible people
+            return tg.send(chat, t(lang, "hello", name=esc(name)) + "\n\n" + t(lang, "ask_phone"),
+                           {"keyboard": [[{"text": t(lang, "m_phone"), "request_contact": True}], [{"text": t(lang, "m_later")}]], "resize_keyboard": True, "one_time_keyboard": True})
         tg.send(chat, t(lang, "hello", name=esc(name)) + "\n\n" + (t(lang, "pick") if has else t(lang, "no_access")), main_kb(lang, has))
+    elif action == "later":
+        tg.send(chat, t(lang, "pick") if has else t(lang, "no_access"), main_kb(lang, has))
     elif action == "help":
         tg.send(chat, t(lang, "help"), main_kb(lang, has))
     elif action == "lang":
@@ -399,13 +406,28 @@ def _chunks(blocks: list[str], limit: int = 3800) -> list[str]:
     return out
 
 
+def contact_lines(c, facility_ids: list[int]) -> dict:
+    """facility id -> «👤 Full name +998 90 123 45 67» of its main responsible person (from the list of the administrator), for the lists of the status."""
+    from . import editor
+    out: dict = {}
+    for i in range(0, len(facility_ids), 500):
+        part = facility_ids[i:i + 500]
+        for k in c.execute(f"SELECT facility_id, kind, fio, phone FROM facility_contacts WHERE facility_id IN ({','.join('?' * len(part))}) ORDER BY kind, id", part):
+            if k["facility_id"] in out:
+                continue
+            ph = ", ".join(people.fmt_phone(x) for x in editor.phones(k["phone"]))
+            if k["fio"] or ph:
+                out[k["facility_id"]] = "👤 " + " · ".join(x for x in (esc(k["fio"]), ph) if x)
+    return out
+
+
 def status_blocks(c, user, lang: str) -> list[str]:
-    """The reporting status as blocks of text: for every region of the person and every day, who has NOT sent (numbered, always shown), who has sent (folded),
-    with a progress bar; for single facilities, the day-by-day status."""
+    """The reporting status for TODAY only: for every region of the person, who has NOT sent (numbered, with the responsible person and his phone), who was returned, who has
+    sent (folded), with a progress bar; for single facilities, the status of the day."""
     st = all_settings(c)
     facs = reports.user_facilities(c, user["tg_id"])
     regs = reports.user_regions(c, user["tg_id"])
-    dates = reports.allowed_dates(st)
+    dates = [today()]
     ref = dates[0]
     rel = {0: t(lang, "rel_today"), 1: t(lang, "rel_yday")}
     blocks = [t(lang, "st_title")]
@@ -413,10 +435,11 @@ def status_blocks(c, user, lang: str) -> list[str]:
     for rg in regs:
         fl = c.execute("""SELECT f.id, f.name_ru, f.name_uz FROM facilities f JOIN districts d ON d.id=f.district_id WHERE d.region_id=? AND f.active=1 AND d.active=1 ORDER BY f.name_ru""", (rg["id"],)).fetchall()
         covered |= {f["id"] for f in fl}
+        who = contact_lines(c, [f["id"] for f in fl])
         blocks.append(t(lang, "st_region", name=esc(nm(rg, lang)), n=len(fl)))
         for d in dates:
             iso = d.isoformat()
-            got = {r["facility_id"]: r for r in c.execute("SELECT rep.facility_id, rep.status, rep.submitted_at, rep.return_reason FROM reports rep JOIN facilities f ON f.id=rep.facility_id JOIN districts dd ON dd.id=f.district_id WHERE dd.region_id=? AND rep.report_date=?", (rg["id"], iso))}
+            got = {r["facility_id"]: r for r in c.execute("SELECT rep.facility_id, rep.status, rep.submitted_at, rep.return_reason FROM reports rep JOIN facilities f ON f.id=rep.facility_id JOIN districts dd ON dd.id=f.district_id WHERE dd.region_id=? AND rep.report_date=?", (rg["id"], iso)).fetchall()}
             missing = [f for f in fl if f["id"] not in got]
             returned = [f for f in fl if f["id"] in got and got[f["id"]]["status"] == "returned"]
             done = [f for f in fl if f["id"] in got and got[f["id"]]["status"] != "returned"]
@@ -425,14 +448,14 @@ def status_blocks(c, user, lang: str) -> list[str]:
             over = now_dt() > reports.deadline(st, d)
             if missing:
                 lines.append(t(lang, "st_missing", n=len(missing)) + (" " + t(lang, "st_overdue") if over else ""))
-                lines += [f"{k}. {esc(nm(f, lang))}" for k, f in enumerate(missing, 1)]
+                for k, f in enumerate(missing, 1):
+                    lines.append(f"{k}. {esc(nm(f, lang))}" + (f"\n     {who[f['id']]}" if f["id"] in who else ""))
             if returned:
                 lines.append(t(lang, "st_returned", n=len(returned)))
-                lines += [f"• {esc(nm(f, lang))}" for f in returned]
+                for f in returned:
+                    lines.append(f"• {esc(nm(f, lang))}" + (f"\n     {who[f['id']]}" if f["id"] in who else ""))
             if not missing and not returned:
                 lines.append(t(lang, "st_all_ok"))
-            elif not done:
-                pass
             blocks.append("\n".join(lines))
             if done:
                 blocks.append(t(lang, "st_done", n=len(done), date=d.strftime("%d.%m")) + "\n<blockquote expandable>" + "\n".join(f"• {esc(nm(f, lang))} · {got[f['id']]['submitted_at'][11:16]}" for f in done) + "</blockquote>")

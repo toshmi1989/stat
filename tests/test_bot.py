@@ -428,6 +428,9 @@ def test_new_users_get_uzbek_by_default_and_the_menu_buttons_work_in_latin(bot):
         people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, "990001", 1)     # with access the whole menu is drawn
     SENT.clear()
     msg(bot, 990001, "/start")
+    ask = [x for row in SENT[-1][2]["keyboard"] for x in row]
+    assert ask[0].get("request_contact") is True and "Keyinroq" in ask[1]["text"]                      # the first start asks for the phone, with a way to do it later
+    msg(bot, 990001, "⏭ Keyinroq")
     rows = [x for row in SENT[-1][2]["keyboard"] for x in row]
     assert rows[0].get("request_contact") is True                                                      # until he has sent his phone, the first button asks for it (Telegram sends his own contact)
     buttons = [x["text"] for x in rows if not x.get("request_contact")]
@@ -600,3 +603,66 @@ def test_the_head_of_a_region_gets_the_access_to_the_whole_region_by_his_phone(b
     assert [(r["region_id"], r["kind"]) for r in c.execute("SELECT region_id, kind FROM region_access WHERE tg_id='830001' AND active=1")] == [(1, "primary")]
     assert "подключены" in last(830001) and c.execute("SELECT COUNT(*) FROM audit WHERE action='phone.linked'").fetchone()[0] == 1
     assert bot.reports.has_access(c, "830001")
+
+
+def test_status_is_for_today_only_and_names_the_responsible_person_with_the_phone(bot):
+    from app import editor, people
+    from app.db import tx
+    f1, f2, f3 = (make_facility(1, "Район А", n) for n in ("Больница Т1", "Больница Т2", "Больница Т3"))
+    with tx() as c:
+        people.add_tg_user(c, "991003", "Руководитель")
+        people.assign_region(c, {"id": 1, "role": "super_admin", "regions": None}, "991003", 1)
+        editor.replace_contacts(c, f1, [{"kind": "main", "fio": "Иванов Иван", "phone": "90-123-45-67"}])
+        editor.replace_contacts(c, f2, [{"kind": "main", "fio": "Петров Пётр", "phone": "91-000-00-02\n93-000-00-03"}])
+    put_report(f3, "2026-02-10")                          # sent today
+    put_report(f1, "2026-02-09")                          # yesterday only: for today it still counts as not sent
+    SENT.clear()
+    msg(bot, 991003, "/status")
+    allt = "\n".join(t for c, t, m in SENT if c == "991003")
+    assert "Не сдали (2)" in allt and "1/3" in allt                                                # one of three has sent today
+    assert "Иванов Иван" in allt and "+998 90 123 45 67" in allt                                  # who to call, and the number
+    assert "Петров Пётр" in allt and "+998 91 000 00 02, +998 93 000 00 03" in allt
+    assert "09.02" not in allt and "вчера" not in allt                                            # nothing about yesterday
+    assert allt.count("📅") == 1                                                                  # one day only
+
+
+def test_the_first_start_asks_the_phone_and_the_answer_is_compared_with_the_lists(bot):
+    from app import editor
+    from app.db import connect, tx
+    f = make_facility(1, "Район А", "Больница С1")
+    with tx() as c:
+        editor.replace_contacts(c, f, [{"kind": "main", "fio": "Сидоров", "phone": "93-555-12-34"}])
+    SENT.clear()
+    msg(bot, 840001, "/start")
+    text, markup = SENT[-1][1], SENT[-1][2]
+    assert "номер телефона" in text and markup["keyboard"][0][0].get("request_contact") is True and markup.get("one_time_keyboard") is True
+    SENT.clear(); contact(bot, 840001, "+998935551234")
+    assert "подключены" in last(840001) and [r["facility_id"] for r in connect().execute("SELECT facility_id FROM assignments WHERE tg_id='840001' AND active=1")] == [f]
+    SENT.clear(); msg(bot, 840001, "/start")                                                      # the phone is known: no second question, the menu
+    assert not any(x.get("request_contact") for row in SENT[-1][2]["keyboard"] for x in row) and "номер телефона" not in SENT[-1][1]
+    msg(bot, 840002, "/start"); SENT.clear(); msg(bot, 840002, "⏭ Позже")                          # «later»: the menu, with the button of the phone kept
+    assert SENT[-1][2]["keyboard"][0][0].get("request_contact") is True
+
+
+def test_broadcast_can_go_to_the_heads_of_regions_or_to_the_responsible_for_facilities_only(client):
+    from app import broadcast, people
+    from app.db import connect, tx
+    f1, f2 = make_facility(1, "Район А", "Больница Б1"), make_facility(2, "Район В", "Больница Б2")
+    with tx() as c:
+        for tid in ("850001", "850002", "850003"):
+            people.add_tg_user(c, tid, "Человек" + tid)
+        su = {"id": 1, "role": "super_admin", "regions": None}
+        people.assign_region(c, su, "850001", 1)                          # the head of region 1
+        people.assign(c, su, "850002", f1)                                # responsible for a facility of region 1
+        people.assign(c, su, "850003", f2)                                # responsible for a facility of region 2
+    c = connect()
+    me = {"id": 1, "role": "super_admin", "regions": None}
+    ids = lambda spec: sorted(p["tg_id"] for p in broadcast.recipients(c, me, spec))
+    assert ids({"mode": "all"}) == ["850001", "850002", "850003"]
+    assert ids({"mode": "heads"}) == ["850001"] and ids({"mode": "responsibles"}) == ["850002", "850003"]
+    assert ids({"mode": "responsibles", "regions": [2]}) == ["850003"] and ids({"mode": "heads", "regions": [2]}) == []     # narrowed to a region
+    assert ids({"mode": "regions", "regions": [1]}) == ["850001", "850002"]
+    regional = {"id": 9, "role": "admin", "regions": [1]}                  # an administrator of region 1 never reaches region 2
+    assert [p["tg_id"] for p in broadcast.recipients(c, regional, {"mode": "responsibles"})] == ["850002"]
+    with __import__("pytest").raises(broadcast.BroadcastError):
+        broadcast.recipients(c, regional, {"mode": "responsibles", "regions": [2]})
