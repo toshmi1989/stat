@@ -175,4 +175,8 @@ Object.assign(window.UZ, {
   "Короткое название (рус.)": "Qisqa nomi (ruscha)",
   "Короткое название (узб.)": "Qisqa nomi (o‘zbekcha)",
   "для заголовка колонки в таблице": "jadval ustuni sarlavhasi uchun",
+  "Сводка": "Xulosa",
+  "Учреждений": "Muassasalar",
+  "Охват, %": "Qamrov, %",
+  "ИТОГО": "JAMI",
 })

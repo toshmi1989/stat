@@ -120,7 +120,8 @@ const KPI = [["reported", T("Сдали отчёт"), "✅", "ok"], ["visits", T
 // the exact wording of the questions (Uzbek) behind a card: shown on hover
 const KPI_CODES = { visits: ["visits"], severe: ["severe"], extreme: ["extreme"], occ_pc: ["occ_pregnant", "occ_children"], ext_pc: ["extreme_pregnant", "extreme_children"] };
 const askedAs = key => (KPI_CODES[key] || []).map(code => { const i = (META.indicators || []).find(x => x.code === code); return i ? `${META.indicators.filter(x => x.active).findIndex(x => x.code === code) + 1}. ${i.name_uz || i.name_ru}` : ""; }).filter(Boolean).join(" · ");
-const SORT = { key: "visits", asc: false }, DRILL = [];
+const SORT = { key: "visits", asc: false }, SORT2 = { key: "pct", asc: true }, DRILL = [];
+let RT_VIEW = "data";                                       // the card of the regions: the figures of the questionnaire, or the summary of the reporting
 const MONTHS = LANG === "uz" ? ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"] : ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
 const longDate = d => { const [y, m, dd] = d.split("-"); return LANG === "uz" ? `${y}-yil ${+dd}-${MONTHS[+m - 1]}` : `${+dd} ${MONTHS[+m - 1]} ${y}`; };
 function kpiValue(key, k) {
@@ -155,7 +156,7 @@ async function dashboard(silent) {
     <div id="alerts" data-keep></div>
     <div class="grid2"><div class="card"><h2>${T("Нагрузка по регионам")}</h2><div id="tiles" data-keep>…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>${T("норма до {n}%", { n: th.elevated })}</span><span><i style="background:var(--warn)"></i>${T("повышенная до {n}%", { n: th.critical })}</span><span><i style="background:var(--bad)"></i>${T("критическая от {n}%", { n: th.critical })}</span></div></div>
       <div class="card"><div class="row"><h2>${T("Лидеры по обращениям")}</h2></div><div id="rank" data-keep>…</div></div></div>
-    <div class="card"><div class="row"><h2>${T("Регионы")}</h2><input id="rt-q" placeholder="${T("Поиск")}" class="right"></div><div class="scroll-x" id="rt" data-keep></div></div>
+    <div class="card"><div class="row"><h2>${T("Регионы")}</h2><div class="seg" id="rt-v"><button data-v="data" class="${RT_VIEW === "data" ? "on" : ""}">${T("Показатели")}</button><button data-v="sum" class="${RT_VIEW === "sum" ? "on" : ""}">${T("Сводка")}</button></div><input id="rt-q" placeholder="${T("Поиск")}" class="right"></div><div class="scroll-x" id="rt" data-keep></div></div>
     <div class="grid2"><div class="card"><h3>${T("Динамика")}</h3><div class="lbl">${T("Показатель")}</div><div class="chips" id="dyn-m" data-keep></div><div class="lbl">${T("Сравнить регионы")} <span class="muted">${T("(до 5)")}</span></div><div class="chips" id="dyn-r" data-keep></div><div id="dyn" data-keep></div></div>
     <div class="card"><h3>${T("Госпитализации и выписки")}</h3><div id="hd" data-keep></div></div></div>
     <div class="card"><h3>${T("Баланс коек")}</h3><div class="scroll-x" id="beds" data-keep></div></div>`;
@@ -164,6 +165,7 @@ async function dashboard(silent) {
   const rem = $("#remind"); if (rem) rem.onclick = () => remindDlg(dash.requested);
   api("/api/alerts").then(a => $("#alerts") && ($("#alerts").innerHTML = a.items.slice(0, 6).map(x => `<div class="alert ${x.level}">${esc(TS(x.text))}</div>`).join("") + (a.items.length > 6 ? `<p class="muted sm">${T("Ещё предупреждений: {n} (раздел «Прогноз»)", { n: a.items.length - 6 })}</p>` : ""))).catch(fail);
   const [u1, u2] = dash.fallback ? [dash.used_date, dash.used_date] : [d1, d2];   // tables follow the day the KPI cards show
+  $("#rt-v").onclick = e => { const b = e.target.closest("[data-v]"); if (!b || b.dataset.v === RT_VIEW) return; RT_VIEW = b.dataset.v; document.querySelectorAll("#rt-v button").forEach(x => x.classList.toggle("on", x === b)); loadTable(u1, u2); };
   loadTable(u1, u2, silent); loadDyn(silent); loadHD(silent); loadBeds(u1, u2, silent); loadViz(u1, u2, silent);
 }
 async function loadViz(d1, d2, silent) {
@@ -245,7 +247,27 @@ async function loadTable(d1, d2, silent) {
   act.forEach(x => { cols.push([x.code, indShort(x)]); if (x.code === "beds_occupied") cols.push(occ[1], occ[2]); });
   if (hasOcc && !act.some(x => x.code === "beds_occupied")) cols.push(...occ);   // the occupied beds are no longer asked, but the days that have them are still shown
   const dn = x => level === "region" ? rname(x.name) : x.name;      // a region is shown in the language of the interface; facilities are named as they are
+  const drawSum = sl => {                                                  // the reporting: facilities, sent, not sent, the share with colours
+    const q = ($("#rt-q").value || "").toLowerCase();
+    const pc = x => x.facilities ? Math.round(1000 * x.reported / x.facilities) / 10 : null;
+    const lvl = p => p == null ? "" : p >= 80 ? "normal" : p >= 50 ? "elevated" : "critical";
+    const val = (x, k) => k === "name" ? dn(x) : k === "facilities" ? x.facilities : k === "reported" ? x.reported : k === "missing" ? x.facilities - x.reported : pc(x);
+    const rows = r.rows.filter(x => dn(x).toLowerCase().includes(q)).sort((a, b) => { const A = val(a, SORT2.key), B = val(b, SORT2.key); const c = typeof A === "string" ? A.localeCompare(B, LANG === "uz" ? "uz" : "ru") : (A ?? -1) - (B ?? -1); return SORT2.asc ? c : -c; });
+    const sum = k => rows.reduce((t, x) => t + val(x, k), 0), tf = sum("facilities"), tr = sum("reported"), tp = tf ? Math.round(1000 * tr / tf) / 10 : null;
+    const manyDistricts = new Set(r.rows.map(x => x.district)).size > 1;
+    const crumbs = `<div class="crumbs"><button class="btn sm${DRILL.length ? "" : " on"}" id="up0">${T("Республика")}</button>${DRILL.map((d, i) => `<span class="sep">›</span><button class="btn sm${i === DRILL.length - 1 ? " on" : ""}" data-up="${i}">${esc(rname(d.name))}</button>`).join("")}</div>`;
+    const heads = [["name", T("Название")], ["facilities", T("Учреждений")], ["reported", T("Сдали")], ["missing", T("Не сдали")], ["pct", T("Охват, %")]];
+    const bar = p => p == null ? "—" : `<div class="cov"><span class="pill ${lvl(p)}">${num(p)}%</span><div class="cbar"><i class="${lvl(p)}" style="width:${p}%"></i></div></div>`;
+    H($("#rt"), sl).innerHTML = crumbs + `<table class="rtab sumtab"><tr>${heads.map(([k, l]) => `<th data-s="${k}" class="${k !== "name" ? "n " : ""}${SORT2.key === k ? "on" + (SORT2.asc ? " asc" : "") : ""}">${esc(l)}</th>`).join("")}</tr>` +
+      rows.map(x => { const p = pc(x), miss = x.facilities - x.reported; return `<tr class="${level === "region" ? "link" : ""}" data-id="${x.id}" data-name="${esc(x.name)}"><td>${esc(dn(x))}${level === "rfac" && manyDistricts ? `<div class="muted sm">${esc(x.district || "")}</div>` : ""}</td><td class="n">${num(x.facilities)}</td><td class="n">${num(x.reported)}</td><td class="n ${miss ? "bad-t" : ""}">${num(miss)}</td><td class="cv2">${bar(p)}</td></tr>`; }).join("") +
+      `<tr class="total"><td>${T("ИТОГО")}</td><td class="n">${num(tf)}</td><td class="n">${num(tr)}</td><td class="n">${num(tf - tr)}</td><td class="cv2">${bar(tp)}</td></tr></table>`;
+    document.querySelectorAll("#rt th[data-s]").forEach(th => th.onclick = () => { SORT2.asc = SORT2.key === th.dataset.s ? !SORT2.asc : th.dataset.s === "name" || th.dataset.s === "pct"; SORT2.key = th.dataset.s; drawSum(); });
+    document.querySelectorAll("#rt tr.link").forEach(tr => tr.onclick = () => { DRILL.push({ id: tr.dataset.id, name: tr.dataset.name }); loadTable(d1, d2); });
+    $("#up0").onclick = e => { e.preventDefault(); DRILL.length = 0; loadTable(d1, d2); };
+    document.querySelectorAll("[data-up]").forEach(a => a.onclick = e => { e.preventDefault(); DRILL.length = +a.dataset.up + 1; loadTable(d1, d2); });
+  };
   const draw = sl => {
+    if (RT_VIEW === "sum") return drawSum(sl);
     const q = ($("#rt-q").value || "").toLowerCase();
     const val = (x, k) => k === "name" ? dn(x) : k === "reported" ? x.reported : x.values[k];
     const rows = r.rows.filter(x => dn(x).toLowerCase().includes(q)).sort((a, b) => { const A = val(a, SORT.key), B = val(b, SORT.key); const c = typeof A === "string" ? A.localeCompare(B, LANG === "uz" ? "uz" : "ru") : (A ?? -1) - (B ?? -1); return SORT.asc ? c : -c; });
