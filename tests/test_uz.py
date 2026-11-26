@@ -59,7 +59,7 @@ def test_exports_are_uzbek_by_default_and_russian_with_the_cookie(env):
     r = uz.get(f"/api/export?fmt=xlsx&{q}")
     assert r.headers["content-disposition"] == 'attachment; filename="hisobot_2026-02-01_2026-02-10.xlsx"'
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Umumiy ma’lumot", "Batafsil ma’lumot", "Dinamika", "Savollar"] and all(len(n) <= 31 and not re.search(r"[\[\]:*?/\\]", n) for n in wb.sheetnames)
+    assert wb.sheetnames == ["Rahbariyat uchun xulosa", "Umumiy ma’lumot", "Batafsil ma’lumot", "Dinamika", "Savollar"] and all(len(n) <= 31 and not re.search(r"[\[\]:*?/\\]", n) for n in wb.sheetnames)
     text = cells(wb)
     assert "Gripp va ORVI bo‘yicha haftalik yig‘ma hisobot" in text and "Imzo: ____________________________" in text and "O‘zbekiston Respublikasi Sog‘liqni saqlash vazirligi" in text
     assert not [t for t in text if CYR.search(t) and t != "Больница 1" and t != "Район А"]               # a facility without an Uzbek name keeps its Russian one; the rest is Uzbek
@@ -69,7 +69,7 @@ def test_exports_are_uzbek_by_default_and_russian_with_the_cookie(env):
     r = ru.get(f"/api/export?fmt=xlsx&{q}")
     assert 'filename="flu_2026-02-01_2026-02-10.xlsx"' in r.headers["content-disposition"]
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Сводная информация", "Детальная информация", "Динамика", "Вопросы"] and "Недельный сводный отчёт по гриппу и ОРВИ" in cells(wb)
+    assert wb.sheetnames == ["Сводка для руководства", "Сводная информация", "Детальная информация", "Динамика", "Вопросы"] and "Недельный сводный отчёт по гриппу и ОРВИ" in cells(wb)
     assert "Республика Каракалпакстан" in cells(wb) and wb.worksheets[0].oddFooter.center.text == "Страница &P из &N"
     # CSV and PDF
     assert uz.get(f"/api/export?fmt=csv&{q}").content.decode("utf-8-sig").splitlines()[0].startswith("Viloyat;Tuman;Muassasa;Davr boshi;Davr oxiri;Jami o‘rin;")
@@ -91,8 +91,8 @@ def test_export_functions_keep_the_russian_default_for_the_bot(env):
     put_report(f, "2026-02-09")
     c = connect()
     user = {"id": 1, "role": "super_admin", "regions": None}
-    assert openpyxl.load_workbook(io.BytesIO(exports.xlsx(c, user, "2026-02-09", "2026-02-09", kind="daily"))).sheetnames == ["Сводная информация", "Детальная информация", "Динамика", "Вопросы"]
-    assert openpyxl.load_workbook(io.BytesIO(exports.xlsx(c, user, "2026-02-09", "2026-02-09", kind="daily", lang="uz"))).sheetnames[0] == "Umumiy ma’lumot"
+    assert openpyxl.load_workbook(io.BytesIO(exports.xlsx(c, user, "2026-02-09", "2026-02-09", kind="daily"))).sheetnames == ["Сводка для руководства", "Сводная информация", "Детальная информация", "Динамика", "Вопросы"]
+    assert openpyxl.load_workbook(io.BytesIO(exports.xlsx(c, user, "2026-02-09", "2026-02-09", kind="daily", lang="uz"))).sheetnames[1] == "Umumiy ma’lumot"
     assert exports.pdf(c, user, "2026-02-09", "2026-02-09", kind="daily", lang="uz")[:4] == b"%PDF"
     assert exports.filename("ru", "2026-02-09", "2026-02-09", "xlsx") == "flu_2026-02-09.xlsx" and exports.filename("uz", "2026-02-09", "2026-02-10", "pdf") == "hisobot_2026-02-09_2026-02-10.pdf"
     c.close()

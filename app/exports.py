@@ -7,6 +7,11 @@ from datetime import date, datetime, timedelta
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.chart import BarChart, DoughnutChart, Reference
+from openpyxl.chart.series import DataPoint
+from openpyxl.chart.label import DataLabelList
+from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
+from openpyxl.worksheet.pagebreak import Break
 from openpyxl.utils import get_column_letter
 
 from . import stats
@@ -34,6 +39,12 @@ XU = {
     ": по учреждениям": ": muassasalar kesimida", "Динамика показателей": "Ko‘rsatkichlar dinamikasi", "Дата": "Sana", "Госпит. − выписки": "Yotqizilgan − chiqarilgan",
     "Сравнение с предыдущим периодом такой же длины": "Xuddi shu uzunlikdagi oldingi davr bilan solishtirish", "Этот период": "Joriy davr", "Предыдущий": "Oldingi", "Изменение, %": "O‘zgarish, %",
     "Период с": "Davr boshi", "Период по": "Davr oxiri",
+    "Сводка для руководства": "Rahbariyat uchun xulosa", "Охват отчётностью, %": "Hisobot qamrovi, %", "Охват отчётностью по регионам": "Viloyatlar bo‘yicha hisobot qamrovi",
+    "Доля учреждений, сдавших отчёт, %": "Hisobot topshirgan muassasalar ulushi, %", "Сдали и не сдали отчёт, по регионам": "Hisobot topshirgan va topshirmaganlar, viloyatlar bo‘yicha",
+    "Доля сдавших отчёт по дням, %": "Kunlar bo‘yicha hisobot topshirganlar ulushi, %", "Сдали": "Topshirdi", "Не сдали": "Topshirmadi", "Охват, %": "Qamrov, %",
+    "Календарь сдачи: какая доля учреждений региона сдала отчёт в этот день, %": "Topshirish kalendari: viloyat muassasalarining qancha qismi o‘sha kuni hisobot topshirdi, %",
+    "Не сдали отчёт за период": "Davr mobaynida hisobot topshirmaganlar", "Последний отчёт": "Oxirgi hisobot", "Все учреждения сдали отчёт": "Barcha muassasalar hisobot topshirdi",
+    "Всего": "Jami", "Учреждений": "Muassasalar", "Итоги по регионам: отчёты за период": "Viloyatlar bo‘yicha yakunlar: davr uchun hisobotlar",
     "Вопросы": "Savollar", "Вопрос": "Savol", "Название в таблицах": "Jadvallardagi nomi", "Формулировка вопроса": "Savol matni", "Уточняет вопрос": "Qaysi savolga qo‘shimcha",
     "Вопросы анкеты, по которым построены таблицы": "Jadvallar tuzilgan anketa savollari", "Свободные койки": "Bo‘sh o‘rinlar", "Занятость, %": "Band qilinganlik, %",
 }
@@ -131,6 +142,28 @@ def describe(c, region_id, district_id, facility_id, lang: str = "ru") -> str:
     return "; ".join(parts) or L("Вся доступная территория")
 
 
+def _coverage(c, user, d1: str, d2: str, region_id, district_id, facility_id, lang: str, fac: dict) -> dict:
+    """Who sent reports in the period: by region (facilities, sent, share), by day, and the facilities that sent nothing."""
+    w, a = stats._where(user, region_id, district_id, facility_id)
+    facs = c.execute(f"SELECT f.id, r.id AS rid FROM facilities f JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id WHERE {w}", a).fetchall()
+    sent = stats.load(c, user, d1, d2, region_id, district_id, facility_id)["data"]          # {facility: {date: values}}
+    days = stats.daterange(d1, d2)[-31:]
+    last = {r["facility_id"]: r["last"] for r in c.execute("SELECT facility_id, MAX(report_date) AS last FROM reports GROUP BY facility_id")}
+    regions = []
+    for r in c.execute("SELECT id, name_ru, name_uz FROM regions WHERE active=1 ORDER BY sort, id"):
+        mine = [f["id"] for f in facs if f["rid"] == r["id"]]
+        if not mine:
+            continue
+        done = [i for i in mine if i in sent]
+        by_day = {d: sum(1 for i in mine if d in sent.get(i, {})) for d in days}
+        regions.append({"id": r["id"], "name": (lat(r["name_uz"]) if lang == "uz" and r["name_uz"] else r["name_ru"]), "total": len(mine), "reported": len(done),
+                        "pct": round(100 * len(done) / len(mine), 1), "by_day": by_day})
+    total, reported = sum(x["total"] for x in regions), sum(x["reported"] for x in regions)
+    missing = sorted(([fac[f["id"]][0], fac[f["id"]][1], fac[f["id"]][2], last.get(f["id"], "")] for f in facs if f["id"] not in sent), key=lambda x: x[:3])
+    return {"regions": regions, "days": days, "total": total, "reported": reported, "pct": round(100 * reported / total, 1) if total else 0.0, "missing": missing,
+            "by_day": {d: sum(x["by_day"][d] for x in regions) for d in days}}
+
+
 def build(c, user, d1: str, d2: str, region_id=None, district_id=None, facility_id=None, lang: str = "ru") -> dict:
     fac, order = _names(c, lang)
     agg = stats.aggregate(c, user, d1, d2, "facility", region_id, district_id, facility_id)
@@ -161,7 +194,7 @@ def build(c, user, d1: str, d2: str, region_id=None, district_id=None, facility_
     flows = [(title, code) for title, code in cols if code in {q["code"] for q in qs if q["agg"] == "sum"}]      # the figures that are added up over days: compared with the previous period
     prev_sum = {k: sum(t.get(k, 0) for t in prev.values()) for _, k in flows}
     cur_sum = {k: sum(t.get(k, 0) for t in tot.values()) for _, k in flows}
-    return {"cols": cols, "questions": qs, "flows": flows, "rows": rows, "total": total, "regions": regions, "dynamics": dyn, "prev": prev_sum, "cur": cur_sum, "d1": d1, "d2": d2,
+    return {"coverage": _coverage(c, user, d1, d2, region_id, district_id, facility_id, lang, fac), "cols": cols, "questions": qs, "flows": flows, "rows": rows, "total": total, "regions": regions, "dynamics": dyn, "prev": prev_sum, "cur": cur_sum, "d1": d1, "d2": d2,
             "facilities_total": stats.facility_count(c, user, region_id, district_id, facility_id), "reported": total and len(rows),
             "filters": describe(c, region_id, district_id, facility_id, lang), "settings": all_settings(c)}
 
@@ -211,12 +244,12 @@ def _print(ws, header_row: int, last_col: int, landscape: bool = True, lang: str
     ws.oddFooter.center.text = tr(lang)("Страница &P из &N")
 
 
-def _table(ws, start: int, heads: list[str], body: list[list], total: list | None, widths: list[int] | None = None) -> int:
+def _table(ws, start: int, heads: list[str], body: list[list], total: list | None, widths: list[int] | None = None, head_h: int = 48) -> int:
     for j, h in enumerate(heads, 1):
         cell = ws.cell(row=start, column=j, value=h)
         cell.font, cell.fill, cell.border = Font(bold=True), HEAD_FILL, BORDER
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    ws.row_dimensions[start].height = 48
+    ws.row_dimensions[start].height = head_h
     r = start
     for row in body:
         r += 1
@@ -240,6 +273,174 @@ def _table(ws, start: int, heads: list[str], body: list[list], total: list | Non
     return r
 
 
+GREEN_C, RED_C, BLUE_C, AMBER_C = "2E9E6B", "E05A5A", "3B6CF6", "F2A93B"
+
+
+def _tile(ws, row: int, c1: int, c2: int, label: str, value, sub: str, color: str) -> None:
+    """A big figure for the heads: the label above, the number, a line under it; merged over the columns c1..c2."""
+    for k, (text, font, h) in enumerate(((label, Font(size=10, color="666666"), 18), (value, Font(size=26, bold=True, color=color), 40), (sub, Font(size=10, color="666666"), 18))):
+        ws.merge_cells(start_row=row + k, start_column=c1, end_row=row + k, end_column=c2)
+        cell = ws.cell(row=row + k, column=c1, value=text)
+        cell.font, cell.alignment = font, Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[row + k].height = h
+        for j in range(c1, c2 + 1):
+            ws.cell(row=row + k, column=j).fill = PatternFill("solid", fgColor="F4F6FB")
+            ws.cell(row=row + k, column=j).border = Border(left=Side(style="thin", color="FFFFFF") if j == c1 else None, right=Side(style="medium", color="FFFFFF") if j == c2 else None)
+
+
+def _bar(title: str, horizontal: bool, stacked: bool = False, height: float = 9.0, width: float = 17.5) -> BarChart:
+    ch = BarChart()
+    ch.type = "bar" if horizontal else "col"
+    ch.title = title
+    ch.height, ch.width = height, width
+    if stacked:
+        ch.grouping, ch.overlap = "stacked", 100
+    ch.x_axis.delete = ch.y_axis.delete = False
+    ch.gapWidth = 60
+    ch.x_axis.tickLblSkip = 1
+    return ch
+
+
+def _values_only() -> DataLabelList:
+    d = DataLabelList()
+    d.showVal, d.showSerName, d.showCatName, d.showLegendKey, d.showPercent = True, False, False, False, False
+    return d
+
+
+def _leadership(ws, b: dict, L, lang: str, org: str, title: str, period: str) -> None:
+    """The sheet for the heads: the picture of the reporting. Tiles (facilities / sent / not sent / share), two charts by region, the table with data bars,
+    the calendar of sending (region x day, red to green) with its chart, and the list of the facilities that sent nothing."""
+    cv = b["coverage"]
+    regs = sorted(cv["regions"], key=lambda x: (-x["pct"], x["name"]))
+    ws.title = L("Сводка для руководства")
+    ws.sheet_view.showGridLines = False
+    for col, w in {"A": 5, "B": 30}.items():
+        ws.column_dimensions[col].width = w
+    for j in range(3, 17):
+        ws.column_dimensions[get_column_letter(j)].width = 12.5
+    _sheet_title(ws, L("Охват отчётностью по регионам"), period, b["filters"], org, 16, lang)
+    ws["A2"].value = title + ". " + L("Охват отчётностью по регионам")
+    not_sent = cv["total"] - cv["reported"]
+    level = GREEN_C if cv["pct"] >= 80 else AMBER_C if cv["pct"] >= 50 else RED_C
+    _tile(ws, 6, 1, 2, L("Учреждений в системе"), cv["total"], "", BLUE_C)
+    _tile(ws, 6, 3, 5, L("Предоставили отчёт"), cv["reported"], f"{cv['pct']:g}%", GREEN_C)
+    _tile(ws, 6, 6, 8, L("Не предоставили"), not_sent, f"{round(100 - cv['pct'], 1):g}%", RED_C if not_sent else GREEN_C)
+    _tile(ws, 6, 9, 11, L("Охват отчётностью, %"), f"{cv['pct']:g}%", f"{cv['reported']} / {cv['total']}", level)
+    # the table of the regions (also the data of the charts below it)
+    top = 31
+    ws.row_breaks.append(Break(id=top - 3))                                                         # the picture on the first page, the tables on the next
+    ws.cell(row=top - 1, column=1, value=L("Итоги по регионам: отчёты за период")).font = Font(bold=True, size=12)
+    heads = ["№", L("Регион"), L("Учреждений"), L("Сдали"), L("Не сдали"), L("Охват, %")]
+    body = [[i, x["name"], x["total"], x["reported"], x["total"] - x["reported"], x["pct"]] for i, x in enumerate(regs, 1)]
+    end = _table(ws, top, heads, body, ["", L("ИТОГО"), cv["total"], cv["reported"], not_sent, cv["pct"]], None, 32)
+    ws.freeze_panes = None
+    ws.auto_filter.ref = None
+    first, last = top + 1, top + len(regs)
+    for r in range(first, end + 1):
+        ws.cell(row=r, column=6).number_format = '0.0"%"'
+        ws.cell(row=r, column=6).alignment = Alignment(horizontal="right")
+    if regs:
+        ws.conditional_formatting.add(f"F{first}:F{last}", DataBarRule(start_type="num", start_value=0, end_type="num", end_value=100, color="7FA6F8", showValue=True))
+        ws.conditional_formatting.add(f"E{first}:E{last}", ColorScaleRule(start_type="num", start_value=0, start_color="FFFFFF", end_type="max", end_color="F8B4B4"))
+        cats = Reference(ws, min_col=2, min_row=first, max_row=last)
+        c1 = _bar(L("Доля учреждений, сдавших отчёт, %"), True)                                   # the share by region: the best at the top
+        c1.add_data(Reference(ws, min_col=6, min_row=top, max_row=last), titles_from_data=True)
+        c1.set_categories(cats)
+        c1.x_axis.scaling.orientation = "maxMin"
+        c1.y_axis.scaling.min, c1.y_axis.scaling.max = 0, 100
+        c1.legend = None
+        c1.series[0].graphicalProperties.solidFill = BLUE_C
+        c1.dataLabels = _values_only()
+        ws.add_chart(c1, "A11")
+        c2 = _bar(L("Сдали и не сдали отчёт, по регионам"), True, stacked=True)
+        c2.add_data(Reference(ws, min_col=4, max_col=5, min_row=top, max_row=last), titles_from_data=True)
+        c2.set_categories(cats)
+        c2.x_axis.scaling.orientation = "maxMin"
+        c2.series[0].graphicalProperties.solidFill, c2.series[1].graphicalProperties.solidFill = GREEN_C, RED_C
+        c2.legend.position = "b"
+        ws.add_chart(c2, "H11")
+    # the calendar of sending: the share of the facilities of a region that sent a report on that day (for a period of several days)
+    days = cv["days"][-14:]
+    many = len(cv["days"]) > 1
+    r = end
+    if not many and regs:                                                                          # one day: the share of the sent and the not sent as a ring next to the table
+        c3 = DoughnutChart()
+        c3.title, c3.holeSize, c3.height, c3.width = L("Охват отчётностью, %"), 55, 9.0, 11
+        c3.add_data(Reference(ws, min_col=4, max_col=5, min_row=end, max_row=end), from_rows=True, titles_from_data=False)
+        c3.set_categories(Reference(ws, min_col=4, max_col=5, min_row=top))
+        for idx, color in enumerate((GREEN_C, RED_C)):
+            pt = DataPoint(idx=idx)
+            pt.graphicalProperties.solidFill = color
+            c3.series[0].dPt.append(pt)
+        c3.dataLabels = _values_only()
+        c3.legend.position = "b"
+        ws.add_chart(c3, f"I{top}")
+    if many:
+        row = max(end, top + 18) + 3
+        ws.cell(row=row - 1, column=1, value=L("Календарь сдачи: какая доля учреждений региона сдала отчёт в этот день, %")).font = Font(bold=True, size=12)
+        dd = lambda d: f"{d[8:10]}.{d[5:7]}"
+        hrow = row
+        for j, h in enumerate(["№", L("Регион")] + [dd(d) for d in days], 1):
+            cell = ws.cell(row=hrow, column=j, value=h)
+            cell.font, cell.fill, cell.border = Font(bold=True), HEAD_FILL, BORDER
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        r = hrow
+        for i, x in enumerate(regs, 1):
+            r += 1
+            ws.cell(row=r, column=1, value=i).border = BORDER
+            ws.cell(row=r, column=2, value=x["name"]).border = BORDER
+            for j, d in enumerate(days, 3):
+                cell = ws.cell(row=r, column=j, value=round(100 * x["by_day"][d] / x["total"]))
+                cell.number_format, cell.border, cell.alignment = '0"%"', BORDER, Alignment(horizontal="center")
+        r += 1
+        totals_row = r
+        ws.cell(row=r, column=2, value=L("Всего")).font = Font(bold=True)
+        for j, d in enumerate(days, 3):
+            cell = ws.cell(row=r, column=j, value=round(100 * cv["by_day"][d] / cv["total"]) if cv["total"] else 0)
+            cell.font, cell.fill, cell.border, cell.alignment, cell.number_format = Font(bold=True), TOTAL_FILL, BORDER, Alignment(horizontal="center"), '0"%"'
+        for j in (1, 2):
+            ws.cell(row=r, column=j).fill, ws.cell(row=r, column=j).border = TOTAL_FILL, BORDER
+        if regs and days:
+            ws.conditional_formatting.add(f"C{hrow + 1}:{get_column_letter(2 + len(days))}{r}", ColorScaleRule(start_type="num", start_value=0, start_color="F8696B", mid_type="num", mid_value=50, mid_color="FFEB84", end_type="num", end_value=100, end_color="63BE7B"))
+        if regs:                                                                                   # the course of the share over the days, next to the table of the regions
+            c3 = _bar(L("Доля сдавших отчёт по дням, %"), False)
+            c3.add_data(Reference(ws, min_col=2, max_col=2 + len(days), min_row=totals_row), from_rows=True, titles_from_data=True)
+            c3.set_categories(Reference(ws, min_col=3, max_col=2 + len(days), min_row=hrow))
+            c3.y_axis.scaling.min, c3.y_axis.scaling.max = 0, 100
+            c3.legend = None
+            c3.series[0].graphicalProperties.solidFill = BLUE_C
+            c3.dataLabels = _values_only()
+            ws.add_chart(c3, f"I{top}")
+    # the facilities that sent nothing in the period
+    row = r + 3
+    miss = cv["missing"]
+    ws.cell(row=row - 1, column=1, value=f"{L('Не сдали отчёт за период')} ({len(miss)})").font = Font(bold=True, size=12)
+    if not miss:
+        ws.cell(row=row, column=2, value=L("Все учреждения сдали отчёт")).font = Font(italic=True, color="2E9E6B")
+        end2 = row
+    else:
+        shown = miss[:300]
+        end2 = _table(ws, row, ["№", L("Регион"), L("Район"), "", L("Учреждение"), "", "", L("Последний отчёт")],
+                      [[i, x[0], x[1], "", x[2], "", "", x[3] or "—"] for i, x in enumerate(shown, 1)], None, None, 24)
+        for i in range(row + 1, end2 + 1):                                                         # the district and the facility need more room than one narrow column
+            ws.merge_cells(start_row=i, start_column=3, end_row=i, end_column=4)
+            ws.merge_cells(start_row=i, start_column=5, end_row=i, end_column=7)
+        ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=4)
+        ws.merge_cells(start_row=row, start_column=5, end_row=row, end_column=7)
+        ws.freeze_panes = None
+        ws.auto_filter.ref = None
+        if len(miss) > len(shown):
+            ws.cell(row=end2 + 1, column=2, value=f"+ {len(miss) - len(shown)}").font = Font(italic=True)
+    _signatures(ws, end2, 12, lang)
+    ws.page_setup.paperSize = 9
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_area = f"A1:P{ws.max_row}"
+    ws.page_margins.left = ws.page_margins.right = 0.4
+    ws.oddFooter.center.text = L("Страница &P из &N")
+
+
 def xlsx(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, kind: str = "custom", lang: str = "ru") -> bytes:
     """The Excel workbook (three sheets). lang is 'ru' (the original wording) or 'uz' (Uzbek in Latin: titles, sheet names, headers, names of the territories)."""
     L = tr(lang)
@@ -248,28 +449,18 @@ def xlsx(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, ki
     period = d1 if d1 == d2 else f"{d1} — {d2}"
     title = report_title(kind, lang)
     wb = Workbook()
-    # ---- sheet 1: the summary
-    ws = wb.active
-    ws.title = L("Сводная информация")
+    # ---- sheet 1: for the heads (how the reporting looks), then the totals by region
     t = b["total"]
-    full = {q["code"]: q["full"] for q in b["questions"]}
-    r0 = _sheet_title(ws, title, period, b["filters"], org, max(9, len(cols) + 3), lang)
-    ws.cell(row=r0, column=1, value=L("Основные показатели")).font = Font(bold=True)
-    head = [(L("Учреждений в системе"), b["facilities_total"]), (L("Предоставили отчёт"), b["reported"] or 0), (L("Не предоставили"), max(b["facilities_total"] - (b["reported"] or 0), 0))]
-    head += [(full.get(code, title_), t.get(code)) for title_, code in cols]                  # every figure of the questionnaire, with the full wording of the question
-    r = r0 + 1
-    for k, v in head:
-        ws.cell(row=r, column=1, value=k).border = BORDER
-        ws.cell(row=r, column=2, value=v if v is not None else "—").border = BORDER
-        r += 1
-    r += 1
-    ws.cell(row=r, column=1, value=L("Итоги по регионам")).font = Font(bold=True)
+    _leadership(wb.active, b, L, lang, org, title, period)
+    ws = wb.create_sheet(L("Сводная информация"))
+    r0 = _sheet_title(ws, title, period, b["filters"], org, len(cols) + 3, lang)
+    ws.cell(row=r0, column=1, value=L("Итоги по регионам")).font = Font(bold=True)
     heads = ["№", L("Регион"), L("Отчётов")] + [x for x, _ in cols]
     body = [[i, x["name"], x["v"].get("reported", 0)] + [_cell(x["v"], code) for _, code in cols] for i, x in enumerate(b["regions"], 1)]
     total = ["", L("ИТОГО"), sum(x[2] for x in body)] + [_cell(t, code) for _, code in cols]
-    end = _table(ws, r + 1, heads, body, total, [34, 30, 12] + [14] * len(cols))
+    end = _table(ws, r0 + 1, heads, body, total, [5, 30, 11] + [15] * len(cols), 64)
     _signatures(ws, end, len(heads), lang)
-    _print(ws, r + 1, len(heads), lang=lang)
+    _print(ws, r0 + 1, len(heads), lang=lang)
     # ---- sheet 2: the detail by facility
     ws2 = wb.create_sheet(L("Детальная информация"))
     heads2 = ["№", L("Регион"), L("Район"), L("Учреждение")] + [x for x, _ in cols]
@@ -277,7 +468,7 @@ def xlsx(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, ki
     body2 = [[i, x["region"], x["district"], x["facility"]] + [_cell(x["v"], code) for _, code in cols] for i, x in enumerate(b["rows"], 1)]
     total2 = ["", L("ИТОГО"), "", ""] + [_cell(t, code) for _, code in cols]
     widths = [5, 26, 24, 38] + [13] * len(cols)
-    end = _table(ws2, r0, heads2, body2, total2, widths)
+    end = _table(ws2, r0, heads2, body2, total2, widths, 64)
     _signatures(ws2, end, len(heads2), lang)
     _print(ws2, r0, len(heads2), lang=lang)
     # ---- sheet 3: the dynamics
@@ -289,7 +480,7 @@ def xlsx(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, ki
     for x in b["dynamics"]:
         v = x["v"] or {}
         body3.append([x["date"], v.get("n", 0)] + [_cell(v, code) for _, code in cols] + ([(v["hosp"] - v["disch"]) if "hosp" in v and "disch" in v else ""] if both else []))
-    end = _table(ws3, r0, heads3, body3, None, [14, 10] + [13] * (len(heads3) - 2))
+    end = _table(ws3, r0, heads3, body3, None, [14, 10] + [14] * (len(heads3) - 2), 64)
     end += 2
     ws3.cell(row=end, column=1, value=L("Сравнение с предыдущим периодом такой же длины")).font = Font(bold=True)
     ws3.cell(row=end + 1, column=2, value=L("Этот период")).font = Font(bold=True)

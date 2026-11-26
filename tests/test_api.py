@@ -144,7 +144,7 @@ def test_exports(client):
     assert r.status_code == 200
     import openpyxl
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
-    assert len(wb.sheetnames) == 4
+    assert len(wb.sheetnames) == 5
     ws = wb.worksheets[0]
     assert ws.page_setup.paperSize == 9 and ws.page_setup.orientation == "landscape" and ws.sheet_properties.pageSetUpPr.fitToPage
     assert any("одпис" in str(c.value or "") for row in ws.iter_rows() for c in row)

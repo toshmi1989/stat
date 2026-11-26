@@ -150,3 +150,21 @@ def test_no_bed_forecast_without_occupied_beds(client):
     r = client.get("/api/forecast?ref=2026-02-09").json()
     assert r["beds"] is None and "visits_flu" in r["metrics"] and "hosp_flu" in r["metrics"]
     assert client.get("/api/alerts").status_code == 200
+
+
+def test_the_sheet_for_the_heads_shows_who_sent_the_reports(client):
+    from conftest import make_facility, put_report
+    a, b = make_facility(1, "Район А", "Больница 1"), make_facility(1, "Район А", "Больница 2")
+    make_facility(2, "Район Б", "Больница 3")
+    put_report(a, "2026-02-09"); put_report(a, "2026-02-10"); put_report(b, "2026-02-10")
+    wb = _book(client, "d1=2026-02-09&d2=2026-02-10&lang=ru")
+    assert wb.sheetnames[0] == "Сводка для руководства" and "Основные показатели" not in [c.value for ws in wb for row in ws.iter_rows() for c in row]
+    ws = wb.worksheets[0]
+    assert len(ws._charts) == 3                                                                       # the share by region, sent / not sent, the days
+    rows = [[c.value for c in r] for r in ws.iter_rows()]
+    reg = next(r for r in rows if r[1] == "Республика Каракалпакстан")
+    assert reg[2:5] == [2, 2, 0] and reg[5] == 100.0                                                   # facilities, sent, not sent, share
+    other = next(r for r in rows if r[1] and "Больница 3" in str(r))                                   # the facility that sent nothing is in the list
+    assert other and any(r[4] == "Больница 3" for r in rows if len(r) > 4)
+    one = _book(client, "d1=2026-02-10&d2=2026-02-10&lang=ru").worksheets[0]
+    assert len(one._charts) == 3                                                                      # one day: the ring instead of the course by days
