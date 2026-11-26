@@ -136,6 +136,18 @@ Object.assign(window.UZ, {
   "Предложение не найдено": "Taklif topilmadi",
   "Предложение уже обработано": "Taklif allaqachon ko‘rib chiqilgan",
   "Учреждение должно быть из того же региона": "Muassasa shu viloyatdan bo‘lishi kerak",
+  "Число коек: целое число от 0": "O‘rinlar soni: 0 dan boshlab butun son",
+  "Ожидался список строк": "Qatorlar ro‘yxati kutilgan edi",
+  "Не удалось прочитать файл: нужен Excel (.xlsx)": "Faylni o‘qib bo‘lmadi: Excel (.xlsx) kerak",
+  "В файле не нашлось учреждений: нужны столбцы «Муассаса», «Койка сони», «Бош шифокор ФИШ», «Тел рақами» и названия регионов отдельными строками": "Faylda muassasalar topilmadi: «Muassasa», «O‘rinlar soni», «Bosh shifokor F.I.SH.», «Telefon raqami» ustunlari va viloyat nomlari alohida qatorlarda bo‘lishi kerak",
+  "Не указан регион": "Viloyat ko‘rsatilmagan",
+  "Название слишком короткое": "Nom juda qisqa",
+  "Учреждение не найдено в этом регионе": "Muassasa bu viloyatda topilmadi",
+  "В регионе уже есть другое учреждение с таким названием": "Viloyatda bunday nomli boshqa muassasa allaqachon bor",
+  "Такое учреждение уже есть в регионе: выберите его в списке": "Bunday muassasa viloyatda allaqachon bor: uni ro‘yxatdan tanlang",
+  "Неизвестное действие": "Noma’lum amal",
+  "Учреждение не найдено или не из вашего региона": "Muassasa topilmadi yoki sizning viloyatingizdan emas",
+  "Строка не решена: выберите учреждение, «создать» или «пропустить»": "Qator hal qilinmagan: muassasani, «yaratish» yoki «o‘tkazib yuborish»ni tanlang",
 });
 window.UZP.push(
   // with a number or a name inside

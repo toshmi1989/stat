@@ -63,6 +63,14 @@ CREATE TABLE IF NOT EXISTS facilities (
     created_at TEXT NOT NULL DEFAULT ''
 );
 
+-- the person responsible for a facility (the head physician or whoever the administrator names): full name and phone, whether or not he is already in the bot
+CREATE TABLE IF NOT EXISTS facility_contacts (
+    id INTEGER PRIMARY KEY,
+    facility_id INTEGER NOT NULL REFERENCES facilities(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'main',                        -- main | reserve
+    fio TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',   -- phone: digits only, 998XXXXXXXXX (several numbers: separated by a comma)
+    created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS tg_users (
     tg_id TEXT PRIMARY KEY,
     first_name TEXT NOT NULL DEFAULT '', last_name TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '',
@@ -217,6 +225,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_preapp ON preapproved(username, region_id,
 CREATE INDEX IF NOT EXISTS idx_assign_fac ON assignments(facility_id);
 CREATE INDEX IF NOT EXISTS idx_regacc_tg ON region_access(tg_id);
 CREATE INDEX IF NOT EXISTS idx_versions_report ON report_versions(report_id, id);
+CREATE INDEX IF NOT EXISTS idx_fcontacts ON facility_contacts(facility_id);
 CREATE INDEX IF NOT EXISTS idx_notify ON notify_log(kind, day, tg_id, slot);
 """
 TRIGGERS = """
@@ -331,6 +340,8 @@ def init_db() -> None:
         c.execute("UPDATE ministry_messages SET thread_id=id WHERE thread_id IS NULL")
         if "can_manage_territories" not in {r["name"] for r in c.execute("PRAGMA table_info(staff)")}:      # a database made before the territories of the administrators
             c.execute("ALTER TABLE staff ADD COLUMN can_manage_territories INTEGER NOT NULL DEFAULT 0")
+        if "beds" not in {r["name"] for r in c.execute("PRAGMA table_info(facilities)")}:                  # a database made before the editor of territories
+            c.execute("ALTER TABLE facilities ADD COLUMN beds INTEGER")
         if "heartbeat" not in {r["name"] for r in c.execute("PRAGMA table_info(broadcasts)")}:
             c.execute("ALTER TABLE broadcasts ADD COLUMN heartbeat TEXT NOT NULL DEFAULT ''")
         questionnaire_v2(c)
@@ -451,6 +462,7 @@ def delete_facilities(c, ids: list[int], reason: str = "") -> dict:
         if not f:
             continue
         c.execute("DELETE FROM assignments WHERE facility_id=?", (i,))
+        c.execute("DELETE FROM facility_contacts WHERE facility_id=?", (i,))
         c.execute("UPDATE access_requests SET facility_id=NULL WHERE facility_id=?", (i,))
         c.execute("DELETE FROM preapproved WHERE facility_id=?", (i,))
         c.execute("DELETE FROM ministry_messages WHERE facility_id=?", (i,))

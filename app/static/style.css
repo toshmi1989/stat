@@ -212,3 +212,24 @@ tr.link.sel td:first-child{font-weight:700;box-shadow:inset 3px 0 var(--pri)}
 /* proposals of the bot's people on the page «Территории» */
 .prop{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:8px 0;background:var(--card)}.prop.new{border-color:var(--pri);box-shadow:0 0 0 3px color-mix(in srgb,var(--pri) 12%,transparent)}
 .prop-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.prop-c{margin:6px 0;padding:6px 10px;background:var(--grey);border-radius:8px;white-space:pre-wrap}
+
+/* «Территории»: the list of regions on the left, the facilities of the opened region in one table that is edited in place */
+.terr{display:grid;grid-template-columns:230px minmax(0,1fr);gap:14px;align-items:start}.terr-side{position:sticky;top:12px;margin-bottom:0}.terr-main{margin-bottom:0;min-width:0}
+.rgl{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.rgb{position:relative;display:grid;grid-template-columns:1fr auto;gap:2px 8px;text-align:left;border:1px solid transparent;background:var(--grey);color:var(--ink);border-radius:10px;padding:8px 10px 11px;cursor:pointer;font:inherit}
+.rgb:hover{border-color:var(--line);background:color-mix(in srgb,var(--pri) 8%,var(--grey))}.rgb.on{background:color-mix(in srgb,var(--pri) 14%,var(--card));border-color:var(--pri)}.rgb.off{opacity:.55}
+.rgb-n{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rgb-s{font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums}
+.rgb-bar{position:absolute;left:10px;right:10px;bottom:5px;height:3px;border-radius:3px;background:var(--line);overflow:hidden}.rgb-bar b{display:block;height:100%;background:var(--ok);border-radius:3px}
+.stack{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.ftab{table-layout:fixed;min-width:1080px}.ftab col.c-i{width:34px}.ftab col.c-d{width:110px}.ftab col.c-f{width:185px}.ftab col.c-p{width:172px}.ftab col.c-b{width:62px}.ftab col.c-a{width:58px}.ftab col.c-r{width:58px}.ftab col.c-x{width:98px}
+.ftab th{text-transform:none;letter-spacing:0;font-size:12px}.ftab th,.ftab td{padding:4px 4px;vertical-align:middle}.ftab td.c{text-align:center}.ftab tr.off input.ci,.ftab tr.off select.ci{opacity:.55}
+.ftab .ci{width:100%;box-sizing:border-box;border:1px solid transparent;background:transparent;padding:6px 8px;border-radius:7px;font:inherit;color:var(--ink);text-overflow:ellipsis}
+.ftab .ci:hover{border-color:var(--line)}.ftab .ci:focus{border-color:var(--pri);background:var(--card);outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--pri) 15%,transparent)}.ftab .ci.num{text-align:right}
+.ftab td.act{white-space:nowrap;text-align:right}.ftab .sv{display:inline-block;width:18px;text-align:center;color:var(--ok);font-weight:700}
+@media(max-width:900px){.terr{grid-template-columns:minmax(0,1fr)}.terr-side{position:static}.rgl{flex-direction:row;flex-wrap:wrap}.rgb{flex:1 1 150px}}
+
+/* the editor of territories */
+.edsum{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.edtab{table-layout:fixed;min-width:900px}.edtab col.e-n{width:44px}.edtab col.e-x{width:34%}.edtab col.e-s{width:36%}.edtab col.e-r{width:auto}
+.edtab th,.edtab td{vertical-align:top;padding:6px 8px}.edtab tr.er.ok td{background:color-mix(in srgb,var(--ok) 5%,transparent)}.edtab tr.er.fix td{background:color-mix(in srgb,var(--warn) 8%,transparent)}.edtab tr.er.new td{background:color-mix(in srgb,var(--pri) 7%,transparent)}.edtab tr.er.skip td{opacity:.7}.edtab tr.er.review td{background:var(--badbg)}.edtab tr.er.dup td{background:var(--badbg)}
+.edtab select.ci{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--ink);font:inherit}.er-old{margin-top:3px;color:var(--mut)}.warn-t{color:var(--bad)}
+details>summary{cursor:pointer}
