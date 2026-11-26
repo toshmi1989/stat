@@ -15,12 +15,6 @@ from .translit import lat
 
 FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 PERIOD_NAMES = {"daily": "Ежедневный сводный отчёт", "weekly": "Недельный сводный отчёт", "monthly": "Месячный сводный отчёт", "custom": "Сводный отчёт за период"}
-# column definitions of the detail table: (title, code or special key)
-BASE_COLS = [("Всего коек", "beds_total"), ("Выделено для гриппа и ОРВИ", "beds_flu"), ("Обращения", "visits"), ("Госпитализации", "hosp"), ("Выписки", "disch"), ("Занято коек", "beds_occupied"),
-             ("в т.ч. беременные", "occ_pregnant"), ("в т.ч. дети", "occ_children"), ("Тяжёлые", "severe"), ("Крайне тяжёлые", "extreme"), ("из них беременные", "extreme_pregnant"),
-             ("из них дети", "extreme_children"), ("Свободные койки", "beds_free")]
-
-
 # Uzbek (Latin) for the texts of the files; Russian is the key, so the Russian output is unchanged. See tools/uz-glossary.md.
 XU = {
     "Ежедневный сводный отчёт": "Kunlik yig‘ma hisobot", "Недельный сводный отчёт": "Haftalik yig‘ma hisobot", "Месячный сводный отчёт": "Oylik yig‘ma hisobot", "Сводный отчёт за период": "Davr uchun yig‘ma hisobot",
@@ -40,6 +34,8 @@ XU = {
     ": по учреждениям": ": muassasalar kesimida", "Динамика показателей": "Ko‘rsatkichlar dinamikasi", "Дата": "Sana", "Госпит. − выписки": "Yotqizilgan − chiqarilgan",
     "Сравнение с предыдущим периодом такой же длины": "Xuddi shu uzunlikdagi oldingi davr bilan solishtirish", "Этот период": "Joriy davr", "Предыдущий": "Oldingi", "Изменение, %": "O‘zgarish, %",
     "Период с": "Davr boshi", "Период по": "Davr oxiri",
+    "Вопросы": "Savollar", "Вопрос": "Savol", "Название в таблицах": "Jadvallardagi nomi", "Формулировка вопроса": "Savol matni", "Уточняет вопрос": "Qaysi savolga qo‘shimcha",
+    "Вопросы анкеты, по которым построены таблицы": "Jadvallar tuzilgan anketa savollari", "Свободные койки": "Bo‘sh o‘rinlar", "Занятость, %": "Band qilinganlik, %",
 }
 UZ_ORG = "O‘zbekiston Respublikasi Sog‘liqni saqlash vazirligi"
 
@@ -83,15 +79,44 @@ def _names(c, lang: str = "ru"):
     return names, order
 
 
-def columns(c, lang: str = "ru") -> list[tuple[str, str]]:
-    """The base columns (when the indicator is active) and every other active indicator after them: new figures appear in exports automatically.
-    In Uzbek the figures added later carry their Uzbek name (the Russian one when there is none)."""
+def _heading(r, lang: str, full: bool = False) -> str:
+    """The name of a question in the language: the short one (the head of a column) or the full wording."""
+    if lang == "uz":
+        names = (r["name_uz"],) if full else (r["short_uz"], r["name_uz"])
+        return next((lat(x) for x in names if x), r["name_ru"] if full else (r["short_ru"] or r["name_ru"]))
+    return r["name_ru"] if full else (r["short_ru"] or r["name_ru"])
+
+
+def columns(c, lang: str = "ru", occupancy: bool = False) -> list[tuple[str, str]]:
+    """The columns follow the questionnaire: its switched-on questions in their order, with their short names, so a changed questionnaire changes the files.
+    «Свободные койки» and «Занятость, %» follow the occupied beds; when that question is switched off but the period has such data, the block is added at the end."""
     L = tr(lang)
-    active = {r["code"]: r for r in c.execute("SELECT code, name_ru FROM indicators WHERE active=1")}
-    cols = [(L(t), code) for t, code in BASE_COLS if code in active or code == "beds_free"]
-    known = {code for _, code in BASE_COLS}
-    cols += [((lat(r["name_uz"]) if lang == "uz" and r["name_uz"] else r["name_ru"]), r["code"]) for r in c.execute("SELECT code, name_ru, name_uz FROM indicators WHERE active=1 ORDER BY sort") if r["code"] not in known]
+    rows = c.execute("SELECT code, name_ru, name_uz, short_ru, short_uz, active FROM indicators ORDER BY sort").fetchall()
+    extra = [(L("Свободные койки"), "beds_free"), (L("Занятость, %"), "occupancy")]
+    cols = []
+    for r in rows:
+        if r["active"]:
+            cols.append((_heading(r, lang), r["code"]))
+            if r["code"] == "beds_occupied":
+                cols += extra
+    if occupancy and not any(code == "beds_occupied" for _, code in cols):
+        occ = next((r for r in rows if r["code"] == "beds_occupied"), None)
+        if occ:
+            cols += [(_heading(occ, lang), "beds_occupied")] + extra
     return cols
+
+
+def questions(c, lang: str = "ru") -> list[dict]:
+    """The switched-on questions as the bot numbers them: number, short name, the full wording, the number of the question it adds to."""
+    rows = [r for r in c.execute("SELECT code, name_ru, name_uz, short_ru, short_uz, parent_code, agg FROM indicators WHERE active=1 ORDER BY sort")]
+    no = {r["code"]: i for i, r in enumerate(rows, 1)}
+    return [{"no": i, "code": r["code"], "short": _heading(r, lang), "full": _heading(r, lang, True), "parent": no.get(r["parent_code"], ""), "agg": r["agg"]} for i, r in enumerate(rows, 1)]
+
+
+def _cell(v: dict, code: str):
+    """A figure for a file: empty when there is none (not reported, or not computable)."""
+    x = v.get(code)
+    return "" if x is None else x
 
 
 def describe(c, region_id, district_id, facility_id, lang: str = "ru") -> str:
@@ -107,9 +132,10 @@ def describe(c, region_id, district_id, facility_id, lang: str = "ru") -> str:
 
 
 def build(c, user, d1: str, d2: str, region_id=None, district_id=None, facility_id=None, lang: str = "ru") -> dict:
-    cols = columns(c, lang)
     fac, order = _names(c, lang)
     agg = stats.aggregate(c, user, d1, d2, "facility", region_id, district_id, facility_id)
+    cols = columns(c, lang, occupancy=any("beds_occupied" in t for t in agg.values()))
+    qs = questions(c, lang)
     rows = []
     for fid, t in sorted(agg.items(), key=lambda kv: (fac if lang == "uz" else order).get(kv[0], ("", "", ""))):
         reg, dist, name = fac[fid]
@@ -117,9 +143,13 @@ def build(c, user, d1: str, d2: str, region_id=None, district_id=None, facility_
     total = {}
     for r in rows:
         for code, v in r["v"].items():
-            if code not in ("occupancy", "reported"):
+            if code not in ("occupancy", "reported") and v is not None:
                 total[code] = total.get(code, 0) + v
-    total["occupancy"] = round(100 * total.get("beds_occupied", 0) / total["beds_flu"], 1) if total.get("beds_flu") else None
+    if "beds_occupied" in total:
+        total["occupancy"] = round(100 * total["beds_occupied"] / total["beds_flu"], 1) if total.get("beds_flu") else None
+    else:
+        total["occupancy"] = None
+        total.pop("beds_free", None)
     by_region = stats.aggregate(c, user, d1, d2, "region", region_id, district_id, facility_id)
     rnames = {r["id"]: (lat(r["name_uz"]) if lang == "uz" and r["name_uz"] else r["name_ru"]) for r in c.execute("SELECT id, name_ru, name_uz FROM regions")}
     regions = [{"name": rnames[k], "v": v} for k, v in sorted(by_region.items(), key=lambda kv: kv[0])]
@@ -128,15 +158,12 @@ def build(c, user, d1: str, d2: str, region_id=None, district_id=None, facility_
     span = len(days)
     prev = stats.daily_totals(c, user, (date.fromisoformat(d1) - timedelta(days=span)).isoformat(), (date.fromisoformat(d1) - timedelta(days=1)).isoformat(), region_id, district_id, facility_id) if span else {}
     dyn = [{"date": d, "v": tot.get(d)} for d in days]
-    prev_sum = {k: sum(t.get(k, 0) for t in prev.values()) for k in ("visits", "hosp", "disch")}
-    cur_sum = {k: sum(t.get(k, 0) for t in tot.values()) for k in ("visits", "hosp", "disch")}
-    return {"cols": cols, "rows": rows, "total": total, "regions": regions, "dynamics": dyn, "prev": prev_sum, "cur": cur_sum, "d1": d1, "d2": d2,
+    flows = [(title, code) for title, code in cols if code in {q["code"] for q in qs if q["agg"] == "sum"}]      # the figures that are added up over days: compared with the previous period
+    prev_sum = {k: sum(t.get(k, 0) for t in prev.values()) for _, k in flows}
+    cur_sum = {k: sum(t.get(k, 0) for t in tot.values()) for _, k in flows}
+    return {"cols": cols, "questions": qs, "flows": flows, "rows": rows, "total": total, "regions": regions, "dynamics": dyn, "prev": prev_sum, "cur": cur_sum, "d1": d1, "d2": d2,
             "facilities_total": stats.facility_count(c, user, region_id, district_id, facility_id), "reported": total and len(rows),
             "filters": describe(c, region_id, district_id, facility_id, lang), "settings": all_settings(c)}
-
-
-def _val(v: dict, code: str):
-    return v.get(code, None)
 
 
 # ---------------------------------------------------------------- Excel
@@ -225,12 +252,11 @@ def xlsx(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, ki
     ws = wb.active
     ws.title = L("Сводная информация")
     t = b["total"]
-    r0 = _sheet_title(ws, title, period, b["filters"], org, 9, lang)
+    full = {q["code"]: q["full"] for q in b["questions"]}
+    r0 = _sheet_title(ws, title, period, b["filters"], org, max(9, len(cols) + 3), lang)
     ws.cell(row=r0, column=1, value=L("Основные показатели")).font = Font(bold=True)
-    head = [(L("Учреждений в системе"), b["facilities_total"]), (L("Предоставили отчёт"), b["reported"] or 0), (L("Не предоставили"), max(b["facilities_total"] - (b["reported"] or 0), 0)),
-            (L("Обращения"), t.get("visits", 0)), (L("Госпитализации"), t.get("hosp", 0)), (L("Выписки"), t.get("disch", 0)), (L("Тяжёлые пациенты"), t.get("severe", 0)),
-            (L("Крайне тяжёлые пациенты"), t.get("extreme", 0)), (L("Выделено коек для гриппа и ОРВИ"), t.get("beds_flu", 0)), (L("Занято коек"), t.get("beds_occupied", 0)),
-            (L("Свободные койки"), t.get("beds_free", 0)), (L("Занятость коечного фонда, %"), t.get("occupancy"))]
+    head = [(L("Учреждений в системе"), b["facilities_total"]), (L("Предоставили отчёт"), b["reported"] or 0), (L("Не предоставили"), max(b["facilities_total"] - (b["reported"] or 0), 0))]
+    head += [(full.get(code, title_), t.get(code)) for title_, code in cols]                  # every figure of the questionnaire, with the full wording of the question
     r = r0 + 1
     for k, v in head:
         ws.cell(row=r, column=1, value=k).border = BORDER
@@ -238,48 +264,56 @@ def xlsx(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, ki
         r += 1
     r += 1
     ws.cell(row=r, column=1, value=L("Итоги по регионам")).font = Font(bold=True)
-    heads = [L(h) for h in ("№", "Регион", "Отчётов", "Обращения", "Тяжёлые", "Крайне тяжёлые", "Госпитализации", "Выписки", "Выделено коек", "Занято", "Свободные койки", "Занятость, %")]
-    body = [[i, x["name"], x["v"].get("reported", 0), x["v"].get("visits", 0), x["v"].get("severe", 0), x["v"].get("extreme", 0), x["v"].get("hosp", 0), x["v"].get("disch", 0),
-             x["v"].get("beds_flu", 0), x["v"].get("beds_occupied", 0), x["v"].get("beds_free", 0), x["v"].get("occupancy")] for i, x in enumerate(b["regions"], 1)]
-    total = ["", L("ИТОГО"), sum(x[2] for x in body), sum(x[3] for x in body), sum(x[4] for x in body), sum(x[5] for x in body), sum(x[6] for x in body), sum(x[7] for x in body),
-             sum(x[8] for x in body), sum(x[9] for x in body), sum(x[10] for x in body), t.get("occupancy")]
-    end = _table(ws, r + 1, heads, body, total, [34, 30, 12, 12, 12, 14, 14, 12, 14, 12, 14, 14])
+    heads = ["№", L("Регион"), L("Отчётов")] + [x for x, _ in cols]
+    body = [[i, x["name"], x["v"].get("reported", 0)] + [_cell(x["v"], code) for _, code in cols] for i, x in enumerate(b["regions"], 1)]
+    total = ["", L("ИТОГО"), sum(x[2] for x in body)] + [_cell(t, code) for _, code in cols]
+    end = _table(ws, r + 1, heads, body, total, [34, 30, 12] + [14] * len(cols))
     _signatures(ws, end, len(heads), lang)
     _print(ws, r + 1, len(heads), lang=lang)
     # ---- sheet 2: the detail by facility
     ws2 = wb.create_sheet(L("Детальная информация"))
     heads2 = ["№", L("Регион"), L("Район"), L("Учреждение")] + [x for x, _ in cols]
     r0 = _sheet_title(ws2, title + L(": по учреждениям"), period, b["filters"], org, len(heads2), lang)
-    body2 = [[i, x["region"], x["district"], x["facility"]] + [_val(x["v"], code) if _val(x["v"], code) is not None else "" for _, code in cols] for i, x in enumerate(b["rows"], 1)]
-    total2 = ["", L("ИТОГО"), "", ""] + [t.get(code) if t.get(code) is not None else "" for _, code in cols]
+    body2 = [[i, x["region"], x["district"], x["facility"]] + [_cell(x["v"], code) for _, code in cols] for i, x in enumerate(b["rows"], 1)]
+    total2 = ["", L("ИТОГО"), "", ""] + [_cell(t, code) for _, code in cols]
     widths = [5, 26, 24, 38] + [13] * len(cols)
     end = _table(ws2, r0, heads2, body2, total2, widths)
     _signatures(ws2, end, len(heads2), lang)
     _print(ws2, r0, len(heads2), lang=lang)
     # ---- sheet 3: the dynamics
     ws3 = wb.create_sheet(L("Динамика"))
-    heads3 = [L(h) for h in ("Дата", "Отчётов", "Обращения", "Тяжёлые", "Крайне тяжёлые", "Госпитализации", "Выписки", "Госпит. − выписки", "Занято коек", "Свободные койки", "Занятость, %")]
+    both = {code for _, code in cols} >= {"hosp", "disch"}
+    heads3 = [L("Дата"), L("Отчётов")] + [x for x, _ in cols] + ([L("Госпит. − выписки")] if both else [])
     r0 = _sheet_title(ws3, L("Динамика показателей"), period, b["filters"], org, len(heads3), lang)
     body3 = []
     for x in b["dynamics"]:
-        v = x["v"]
-        body3.append([x["date"], (v or {}).get("n", 0), (v or {}).get("visits", ""), (v or {}).get("severe", ""), (v or {}).get("extreme", ""), (v or {}).get("hosp", ""), (v or {}).get("disch", ""),
-                      (v["hosp"] - v["disch"]) if v and "hosp" in v and "disch" in v else "", (v or {}).get("beds_occupied", ""), (v or {}).get("beds_free", ""), (v or {}).get("occupancy") if v and v.get("occupancy") is not None else ""])
-    end = _table(ws3, r0, heads3, body3, None, [14, 10, 12, 10, 14, 14, 10, 16, 12, 14, 14])
+        v = x["v"] or {}
+        body3.append([x["date"], v.get("n", 0)] + [_cell(v, code) for _, code in cols] + ([(v["hosp"] - v["disch"]) if "hosp" in v and "disch" in v else ""] if both else []))
+    end = _table(ws3, r0, heads3, body3, None, [14, 10] + [13] * (len(heads3) - 2))
     end += 2
     ws3.cell(row=end, column=1, value=L("Сравнение с предыдущим периодом такой же длины")).font = Font(bold=True)
-    for k, label in (("visits", "Обращения"), ("hosp", "Госпитализации"), ("disch", "Выписки")):
+    ws3.cell(row=end + 1, column=2, value=L("Этот период")).font = Font(bold=True)
+    ws3.cell(row=end + 1, column=3, value=L("Предыдущий")).font = Font(bold=True)
+    ws3.cell(row=end + 1, column=4, value=L("Изменение, %")).font = Font(bold=True)
+    end += 1
+    for label, k in b["flows"]:                                                                 # the figures that are added up over the days
         end += 1
         cur, prev = b["cur"][k], b["prev"][k]
-        ws3.cell(row=end, column=1, value=L(label))
+        ws3.cell(row=end, column=1, value=label)
         ws3.cell(row=end, column=2, value=cur)
         ws3.cell(row=end, column=3, value=prev)
         ws3.cell(row=end, column=4, value=(round(100 * (cur - prev) / prev, 1) if prev else "—"))
-    ws3.cell(row=end - 3, column=2, value=L("Этот период")).font = Font(bold=True)
-    ws3.cell(row=end - 3, column=3, value=L("Предыдущий")).font = Font(bold=True)
-    ws3.cell(row=end - 3, column=4, value=L("Изменение, %")).font = Font(bold=True)
     _signatures(ws3, end, len(heads3), lang)
     _print(ws3, r0, len(heads3), lang=lang)
+    # ---- sheet 4: the questions: which wording stands behind the head of a column
+    ws4 = wb.create_sheet(L("Вопросы"))
+    heads4 = ["№", L("Название в таблицах"), L("Формулировка вопроса"), L("Уточняет вопрос")]
+    r0 = _sheet_title(ws4, L("Вопросы анкеты, по которым построены таблицы"), period, b["filters"], org, len(heads4), lang)
+    body4 = [[q["no"], q["short"], q["full"], q["parent"]] for q in b["questions"]]
+    _table(ws4, r0, heads4, body4, None, [6, 34, 80, 18])
+    ws4.freeze_panes = None
+    ws4.auto_filter.ref = None
+    _print(ws4, r0, len(heads4), lang=lang)
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()
@@ -293,7 +327,7 @@ def csv_bytes(c, user, d1, d2, region_id=None, district_id=None, facility_id=Non
     w = csv.writer(out, delimiter=";")
     w.writerow([L("Регион"), L("Район"), L("Учреждение"), L("Период с"), L("Период по")] + [x for x, _ in b["cols"]])
     for r in b["rows"]:
-        w.writerow([r["region"], r["district"], r["facility"], d1, d2] + [r["v"].get(code, "") for _, code in b["cols"]])
+        w.writerow([r["region"], r["district"], r["facility"], d1, d2] + [_cell(r["v"], code) for _, code in b["cols"]])
     return ("﻿" + out.getvalue()).encode("utf-8")
 
 
@@ -329,9 +363,9 @@ def pdf(c, user, d1, d2, region_id=None, district_id=None, facility_id=None, kin
     head = [Paragraph(x, st_hc) for x in ["№", L("Регион"), L("Район"), L("Учреждение")] + [x for x, _ in cols]]
     data = [head]
     for i, r in enumerate(b["rows"], 1):
-        data.append([Paragraph(str(i), st_c), Paragraph(r["region"], st_c), Paragraph(r["district"], st_c), Paragraph(r["facility"], st_c)] + [Paragraph(str(r["v"].get(code, "")), st_c) for _, code in cols])
+        data.append([Paragraph(str(i), st_c), Paragraph(r["region"], st_c), Paragraph(r["district"], st_c), Paragraph(r["facility"], st_c)] + [Paragraph(str(_cell(r["v"], code)), st_c) for _, code in cols])
     t = b["total"]
-    data.append([Paragraph("", st_c), Paragraph("<b>" + L("ИТОГО") + "</b>", st_c), "", ""] + [Paragraph(f"<b>{t.get(code, '')}</b>", st_c) for _, code in cols])
+    data.append([Paragraph("", st_c), Paragraph("<b>" + L("ИТОГО") + "</b>", st_c), "", ""] + [Paragraph(f"<b>{_cell(t, code)}</b>", st_c) for _, code in cols])
     table = Table(data, colWidths=fixed + [rest] * len(cols), repeatRows=1)
     table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.grey), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DCE6F1")), ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#F2F2F2")),
                                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2)]))

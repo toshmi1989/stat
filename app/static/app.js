@@ -278,7 +278,7 @@ async function forecastView() {
     const rel = { low: "critical", medium: "warning", high: "normal" };
     let h = `<h2>${T("Прогноз на 3 и 7 дней")}</h2><p class="note">${T("Это инструмент оперативного планирования, а не эпидемиологический вывод. Метод: {method}. Серая зона — 90% интервал.", { method: esc(TS(Object.values(fc.metrics)[0]?.method || "")) })}</p>`;
     for (const [code, m] of Object.entries(fc.metrics)) {
-      h += `<h3>${T(NAMES[code])}</h3>`;
+      h += `<h3>${esc(labelOf(code))}</h3>`;
       if (!m.ok) { h += `<p class="muted">${esc(TS(m.reliability_text))}</p>`; continue; }
       h += `<p>${T("Последнее значение {cur} ({date}). Через 3 дня: <b>{v3}</b> ({l3}–{h3}); через 7 дней: <b>{v7}</b> ({l7}–{h7}). Надёжность: {rel}", { cur: num(m.current), date: m.current_date, v3: num(m.days[2].value), l3: num(m.days[2].low), h3: num(m.days[2].high), v7: num(m.days[6].value), l7: num(m.days[6].low), h7: num(m.days[6].high), rel: `<span class="pill ${rel[m.reliability]}">${esc(TS(m.reliability_text))}</span>` })}</p>`;
     }

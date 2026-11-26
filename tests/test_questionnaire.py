@@ -99,3 +99,54 @@ def test_short_names_of_the_questions_head_the_columns(client):
         c.execute("DELETE FROM settings WHERE key='questionnaire_short_v1'")
     init_db()
     assert cn().execute("SELECT short_ru FROM indicators WHERE code='hosp'").fetchone()["short_ru"] == "Госп."      # a name written on the site is not overwritten
+
+
+def _book(client, q="d1=2026-02-09&d2=2026-02-09&lang=ru"):
+    import io, openpyxl
+    r = client.get(f"/api/export?fmt=xlsx&{q}")
+    assert r.status_code == 200
+    return openpyxl.load_workbook(io.BytesIO(r.content))
+
+
+def _heads(ws):
+    row = next(r for r in ws.iter_rows() if r[0].value == "№")
+    return [c.value for c in row if c.value]
+
+
+def test_excel_follows_the_questionnaire(client):
+    from conftest import make_facility, put_report
+    f = make_facility(1, "Район А", "Больница 1")
+    put_report(f, "2026-02-09", visits_flu=7, hosp_flu=3)
+    wb = _book(client)
+    detail = _heads(wb["Детальная информация"])
+    assert detail[:7] == ["№", "Регион", "Район", "Учреждение", "Коек всего", "Для гриппа и ОРВИ", "Обращения"] and "Обращения: грипп и ОРВИ" in detail and "Госпитализ.: грипп и ОРВИ" in detail
+    assert "Занято" in detail and "Занятость, %" in detail                                       # the occupied beds have data in this period: their block is shown
+    q = [[c.value for c in r] for r in wb["Вопросы"].iter_rows()]
+    assert any(r[1] == "Обращения: грипп и ОРВИ" and r[2].startswith("Из них обращений больных гриппом") and r[3] == 3 for r in q if len(r) > 3 and isinstance(r[3], int))   # the number of the question it adds to
+    # the questionnaire is edited on the site: a question switched off disappears from the files, a new one appears with its short name
+    client.patch("/api/indicators/severe", json={"active": False})
+    client.post("/api/indicators", json={"name_ru": "Новый показатель", "short_ru": "Новый", "agg": "sum"})
+    detail = _heads(_book(client)["Детальная информация"])
+    assert "Тяжёлые" not in detail and "Новый" in detail
+    # the occupied beds are not asked any more and the period has no such data: no empty columns and no failure
+    from app.db import tx
+    with tx() as c:
+        c.execute("DELETE FROM report_values WHERE code='beds_occupied'")
+    wb = _book(client)
+    detail = _heads(wb["Детальная информация"])
+    assert "Занято" not in detail and "Занятость, %" not in detail and "Свободные койки" not in detail
+    assert client.get("/api/export?fmt=csv&d1=2026-02-09&d2=2026-02-09&lang=ru").status_code == 200 and client.get("/api/export?fmt=pdf&d1=2026-02-09&d2=2026-02-09&lang=ru").content[:4] == b"%PDF"
+    assert "None" not in [c.value for ws in wb for row in ws.iter_rows() for c in row]
+
+
+def test_no_bed_forecast_without_occupied_beds(client):
+    from conftest import make_facility, put_report
+    from app.db import tx
+    f = make_facility(1, "Район А", "Больница 1")
+    for d in ("2026-02-05", "2026-02-06", "2026-02-07", "2026-02-08", "2026-02-09"):
+        put_report(f, d)
+    with tx() as c:
+        c.execute("DELETE FROM report_values WHERE code='beds_occupied'")
+    r = client.get("/api/forecast?ref=2026-02-09").json()
+    assert r["beds"] is None and "visits_flu" in r["metrics"] and "hosp_flu" in r["metrics"]
+    assert client.get("/api/alerts").status_code == 200
