@@ -162,6 +162,8 @@ Object.assign(window.UZ, {
   "По этому вопросу уже есть данные в отчётах: отключите его, данные сохранятся": "Bu savol bo‘yicha hisobotlarda ma’lumot bor: uni o‘chirib qo‘ying, ma’lumotlar saqlanadi",
   "Вопрос используется в основных правилах проверки: удалять нельзя, только выключить": "Savol asosiy tekshiruv qoidalarida ishlatilgan: o‘chirib bo‘lmaydi, faqat o‘chirib qo‘yish mumkin",
   "Неверный порядок вопросов": "Savollar tartibi noto‘g‘ri",
+  "Уточнение: выберите другой существующий вопрос": "Qo‘shimcha: boshqa mavjud savolni tanlang",
+  "Вопросы не могут быть уточнениями друг друга по кругу": "Savollar bir-birining qo‘shimchasi bo‘la olmaydi (aylana bo‘lib qoladi)",
 });
 window.UZP.push(
   // with a number or a name inside

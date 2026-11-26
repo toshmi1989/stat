@@ -113,6 +113,7 @@ T["uz"].update({
 })
 
 T["ru"].update({
+    "q_parent": "↳ <i>Уточнение к вопросу {n}:</i> {name}: <b>{v}</b>",
     "skip_q": "⏭ Пропустить вопрос", "preview_fac": "Название учреждения",
     "m_later": "⏭ Позже", "ask_phone": "📱 <b>Отправьте свой номер телефона</b> кнопкой ниже: бот сверит его со списком ответственных и, если вы там есть, сразу откроет доступ к вашему учреждению или региону.\nНомер увидит только система.",
     "m_phone": "📱 Отправить мой номер телефона",
@@ -122,6 +123,7 @@ T["ru"].update({
     "bad_contact": "⚠️ Нужен ваш собственный номер: нажмите кнопку «📱 Отправить мой номер телефона» (контакт другого человека не подходит).",
 })
 T["uz"].update({
+    "q_parent": "↳ <i>{n}-savolga qo‘shimcha:</i> {name}: <b>{v}</b>",
     "skip_q": "⏭ Саволни ўтказиб юбориш", "preview_fac": "Муассаса номи",
     "m_later": "⏭ Кейинроқ", "ask_phone": "📱 <b>Телефон рақамингизни юборинг</b> — пастдаги тугма орқали: бот уни масъул шахслар рўйхати билан солиштиради ва агар сиз рўйхатда бўлсангиз, муассасангиз ёки вилоятингизга дарҳол рухсат очади.\nРақамни фақат тизим кўради.",
     "m_phone": "📱 Телефон рақамимни юбориш",
@@ -501,7 +503,7 @@ def show_history(c, user, chat, has) -> None:
 
 # ---------------------------------------------------------------- the daily report form
 def indicator_list(c) -> list:
-    return c.execute("SELECT code, name_ru, name_uz, hint_ru, hint_uz, required FROM indicators WHERE active=1 ORDER BY sort").fetchall()
+    return c.execute("SELECT code, name_ru, name_uz, hint_ru, hint_uz, required, parent_code FROM indicators WHERE active=1 ORDER BY sort").fetchall()
 
 
 def begin_submit(c, user, chat, has) -> None:
@@ -829,18 +831,31 @@ def note_on(c) -> bool:
     return all_settings(c)["note_enabled"] == "1"
 
 
-def question_text(c, lang: str, fac: str, date: str, i: int, n: int, ind, old=None, bound=None) -> str:
-    """The message of one question: where we are, the question, its hint (when the hints are on), a limit when one applies, the current value when there is one."""
+def question_text(c, lang: str, fac: str, date: str, i: int, n: int, ind, old=None, bound=None, parent=None) -> str:
+    """The message of one question: where we are, the question, what it adds to («of them»: the question and its answer), its hint (when the hints are on), a limit when one applies
+    and is not the same as that, the current value when there is one."""
     bar = "▰" * (i + 1) + "▱" * (n - i - 1)
     text = t(lang, "form_head", fac=fac, date=date, i=i + 1, n=n, bar=bar, name=esc(nm(ind, lang)))
+    if parent:
+        text += "\n\n" + t(lang, "q_parent", n=parent[0], name=esc(parent[1]), v=parent[2])
     hint = (lat(ind["hint_uz"]) if lang == "uz" else ind["hint_ru"]) if all_settings(c)["q_hints"] == "1" else ""
     if hint:
-        text += "\n<i>" + esc(hint) + "</i>"
-    if bound:
+        text += ("\n" if parent else "\n\n") + "<i>" + esc(hint) + "</i>"
+    if bound and not (parent and bound[1] == parent[0]):
         text += "\n\n" + t(lang, "q_limit", n=bound[1], v=bound[0])
     if old is not None:
-        text += ("\n" if bound else "\n\n") + t(lang, "q_old", old=old)
+        text += ("\n" if (bound or parent or hint) else "\n\n") + t(lang, "q_old", old=old)
     return text
+
+
+def parent_of(c, data: dict, ind, lang: str):
+    """(number, name, answer) of the question that this one is an addition to, when it is asked in this form."""
+    p = ind["parent_code"]
+    if not p or p not in data["codes"]:
+        return None
+    row = c.execute("SELECT name_ru, name_uz FROM indicators WHERE code=?", (p,)).fetchone()
+    v = data["values"].get(p)
+    return (data["codes"].index(p) + 1, nm(row, lang), "—" if v is None else v)
 
 
 def questionnaire_preview(c, lang: str) -> dict:
@@ -854,7 +869,11 @@ def questionnaire_preview(c, lang: str) -> dict:
     for k, ind in enumerate(inds):
         b = bd.get(ind["code"])
         bound = ("…", codes.index(b) + 1) if b in codes and codes.index(b) < k else None
-        items.append({"code": ind["code"], "text": question_text(c, lang, t(lang, "preview_fac"), today().isoformat(), k, n, ind, None, bound), "required": bool(ind["required"])})
+        par = None
+        if ind["parent_code"] in codes and codes.index(ind["parent_code"]) < k:
+            prow = next(x for x in inds if x["code"] == ind["parent_code"])
+            par = (codes.index(ind["parent_code"]) + 1, nm(prow, lang), "…")
+        items.append({"code": ind["code"], "parent": ind["parent_code"], "text": question_text(c, lang, t(lang, "preview_fac"), today().isoformat(), k, n, ind, None, bound, par), "required": bool(ind["required"])})
     if last:
         items.append({"code": "__note", "text": t(lang, "note_q", fac=t(lang, "preview_fac"), date=today().isoformat(), i=n, n=n, bar="▰" * n), "required": False})
     return {"items": items, "lang": lang, "n": n}
@@ -870,7 +889,7 @@ def ask(c, user, chat, data: dict) -> None:
     f = reports.facility_info(c, data["fid"])
     old = data["values"].get(ind["code"])
     n = len(data["codes"]) + (1 if note_on(c) else 0)           # the numbers plus the last, optional message for the Ministry (when it is on)
-    text = question_text(c, lang, esc(nm(f, lang)), data["date"], i, n, ind, old, bound_of(c, data, ind["code"]))
+    text = question_text(c, lang, esc(nm(f, lang)), data["date"], i, n, ind, old, bound_of(c, data, ind["code"]), parent_of(c, data, ind, lang))
     rows = ([[{"text": f"{t(lang, 'keep')}: {old}"}]] if old is not None else []) + ([[{"text": t(lang, "skip_q")}]] if not ind["required"] else []) + [[{"text": t(lang, "back")}, {"text": t(lang, "cancel")}]]
     tg.send(chat, text, {"keyboard": rows, "resize_keyboard": True, "input_field_placeholder": t(lang, "q_placeholder")})
 

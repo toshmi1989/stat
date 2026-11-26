@@ -168,4 +168,8 @@ Object.assign(window.UZ, {
   "Они получат рассылку, когда напишут боту /start и отправят свой номер телефона кнопкой.": "Ular botga /start yozib, telefon raqamini tugma orqali yuborganlarida xabarnomani oladi.",
   "Руководитель региона: основной человек из списка региона (один на регион), подтверждённый номером телефона в боте.": "Viloyat rahbari: viloyat ro‘yxatidagi asosiy shaxs (viloyatga bittadan), botda telefon raqami bilan tasdiqlangan.",
   "Ответственные: все остальные, у кого есть доступ к региону или к учреждению.": "Mas’ullar: viloyatga yoki muassasaga kirish huquqi bor boshqa barcha shaxslar.",
+  "уточняет вопрос": "savolga qo‘shimcha",
+  "Уточняет вопрос («Шундан…»: бот показывает его вместе с ответом на тот вопрос)": "Qaysi savolga qo‘shimcha («Shundan…»: bot uni o‘sha savolga berilgan javob bilan birga ko‘rsatadi)",
+  "— самостоятельный вопрос —": "— mustaqil savol —",
+  "Выделено коек для гриппа и ОРВИ: <b>{b}</b> · данные о занятых койках не собираются": "Gripp va ORVI uchun ajratilgan o‘rinlar: <b>{b}</b> · band o‘rinlar haqidagi ma’lumot yig‘ilmaydi",
 })

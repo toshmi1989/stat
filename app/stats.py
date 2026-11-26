@@ -22,7 +22,8 @@ def _where(user, region_id=None, district_id=None, facility_id=None):
 
 
 def indicators(c) -> list:
-    return c.execute("SELECT * FROM indicators WHERE active=1 ORDER BY sort").fetchall()
+    # Switched-off questions stay in the analytics: the history that was collected under them must not vanish.
+    return c.execute("SELECT * FROM indicators ORDER BY sort").fetchall()
 
 
 def facility_count(c, user, region_id=None, district_id=None, facility_id=None) -> int:
@@ -57,7 +58,11 @@ def facility_totals(days: dict, inds) -> dict:
 
 
 def derive(t: dict) -> dict:
-    flu, occ = t.get("beds_flu", 0), t.get("beds_occupied", 0)
+    flu = t.get("beds_flu", 0)
+    if "beds_occupied" not in t:  # nobody reported occupied beds (the question is switched off): no occupancy, no free beds
+        t["beds_free"], t["occupancy"] = None, None
+        return t
+    occ = t["beds_occupied"]
     t["beds_free"] = max(flu - occ, 0)
     t["occupancy"] = round(100 * occ / flu, 1) if flu else None
     return t

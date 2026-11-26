@@ -67,7 +67,7 @@ def demo() -> int:
                 visits = int(30 + (14 - day) * rnd.uniform(1, 3) + rnd.randint(0, 15))
                 hosp, disch = rnd.randint(2, 10), rnd.randint(2, 9)
                 occ = max(0, min(beds, occ + hosp - disch))
-                reports.admin_save(c, fid, d, {"beds_total": beds * 3, "beds_flu": beds, "beds_occupied": occ, "visits": visits, "severe": visits // 8, "occ_pregnant": min(1, occ), "occ_children": min(visits // 20, occ),
+                reports.admin_save(c, fid, d, {"beds_total": beds * 3, "beds_flu": beds, "beds_occupied": occ, "visits": visits, "visits_flu": visits // 2, "hosp_flu": min(hosp, 1 + hosp // 2), "severe": visits // 8, "occ_pregnant": min(1, hosp // 3), "occ_children": min(hosp // 3, 1 + hosp // 2),
                                                "extreme": visits // 25, "extreme_pregnant": 0, "extreme_children": 0, "hosp": hosp, "disch": disch}, "демо", by)
     print("Добавлено учреждений:", len(fids))
     return 0

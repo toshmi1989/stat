@@ -5,7 +5,7 @@ let ME = null, META = null, DEB = null;
 // the names from the database: a region by its Russian name or an object with name_ru / name_uz, in the language of the interface (the Uzbek one when there is one)
 const rname = s => LANG === "uz" && META && (META.regions || []).some(r => r.name_ru === s && r.name_uz) ? META.regions.find(r => r.name_ru === s).name_uz : s;
 const nm = o => (LANG === "uz" && o.name_uz) || o.name_ru || o.name || "";
-const NAMES = { beds_total: T("Всего коек"), occ_pregnant: T("Занято: беременные"), occ_children: T("Занято: дети"), extreme_pregnant: T("Крайне тяжёлые: беременные"), extreme_children: T("Крайне тяжёлые: дети"), visits: T("Обращения"), severe: T("Тяжёлые"), extreme: T("Крайне тяжёлые"), hosp: T("Госпитализации"), disch: T("Выписки"), beds_occupied: T("Занято коек"), occupancy: T("Загрузка, %"), beds_free: T("Свободно коек"), beds_flu: T("Коек для гриппа и ОРВИ") };
+const NAMES = { beds_total: T("Всего коек"), occ_pregnant: T("Госпитализированы: беременные"), occ_children: T("Госпитализированы: дети"), extreme_pregnant: T("Крайне тяжёлые: беременные"), extreme_children: T("Крайне тяжёлые: дети"), visits: T("Обращения"), severe: T("Тяжёлые"), extreme: T("Крайне тяжёлые"), hosp: T("Госпитализации"), disch: T("Выписки"), beds_occupied: T("Занято коек"), occupancy: T("Загрузка, %"), beds_free: T("Свободно коек"), beds_flu: T("Коек для гриппа и ОРВИ") };
 const STATE = { sent: T("Отправлен"), corrected: T("Исправлен"), returned: T("Возвращён"), not_sent: T("Не отправлен"), overdue: T("Просрочен"), normal: T("Норма"), elevated: T("Повышенная"), critical: T("Критическая"), none: "—" };
 
 async function api(path, opt = {}) {
@@ -113,7 +113,7 @@ async function filterBar(onChange, opt = {}) {
 // ---------- dashboard
 // only what no other card shows: the beds are in the gauge, admitted/discharged in the flow card, who has not reported follows from "сдали отчёт"
 const KPI = [["reported", T("Сдали отчёт"), "✅", "ok"], ["visits", T("Обращения"), "🚶", "pri"], ["severe", T("Тяжёлые"), "🩺", "warn"], ["extreme", T("Крайне тяжёлые"), "🚨", "bad"],
-  ["occ_pc", T("Занято коек: беременные / дети"), "🤰", "pur"], ["ext_pc", T("Крайне тяжёлые: беременные / дети"), "👶", "pur"]];
+  ["occ_pc", T("Госпитализированы: беременные / дети"), "🤰", "pur"], ["ext_pc", T("Крайне тяжёлые: беременные / дети"), "👶", "pur"]];
 // the exact wording of the questions (Uzbek) behind a card: shown on hover
 const KPI_CODES = { visits: ["visits"], severe: ["severe"], extreme: ["extreme"], occ_pc: ["occ_pregnant", "occ_children"], ext_pc: ["extreme_pregnant", "extreme_children"] };
 const askedAs = key => (KPI_CODES[key] || []).map(code => { const i = (META.indicators || []).find(x => x.code === code); return i ? `${META.indicators.filter(x => x.active).findIndex(x => x.code === code) + 1}. ${i.name_uz || i.name_ru}` : ""; }).filter(Boolean).join(" · ");
@@ -147,7 +147,7 @@ async function dashboard(silent) {
     ${canWrite && isToday && owe > 0 ? `<div class="cta"><span style="font-size:22px">⏰</span><div><b>${T("{n} учреждений ещё не сдали сводку за сегодня", { n: owe })}</b><div class="sub muted">${T("Бот напомнит ответственным одним сообщением с кнопкой отправки")}</div></div><div class="acts"><button class="btn warn" id="remind">${T("🔔 Отправить уведомление не сдавшим")}</button></div></div>` : ""}
     <div class="kpis">${KPI.map(([key, label, ic, tone], i) => `<div class="kpi tilt" data-t="${tone}" style="--i:${i}" title="${esc(askedAs(key))}"><div class="ic">${ic}</div><div class="v">${kpiValue(key, k)}</div><div class="l">${label}</div></div>`).join("")}</div>
     <div class="topgrid">${mapCard()}<div class="sidecol">
-      <div class="card vcard"><h3>${T("Загрузка коек")}</h3>${gaugeChart(t.occupancy, th)}<div class="cap">${T("Занято <b>{a}</b> из <b>{b}</b> выделенных · свободно <b>{c}</b>", { a: num(t.beds_occupied), b: num(t.beds_flu), c: num(t.beds_free) })}<br>${T("Всего коек в учреждениях: <b>{n}</b>", { n: num(t.beds_total) })}</div></div>
+      <div class="card vcard"><h3>${T("Загрузка коек")}</h3>${gaugeChart(t.occupancy, th)}<div class="cap">${t.occupancy == null && t.beds_occupied == null ? T("Выделено коек для гриппа и ОРВИ: <b>{b}</b> · данные о занятых койках не собираются", { b: num(t.beds_flu) }) : T("Занято <b>{a}</b> из <b>{b}</b> выделенных · свободно <b>{c}</b>", { a: num(t.beds_occupied), b: num(t.beds_flu), c: num(t.beds_free) })}<br>${T("Всего коек в учреждениях: <b>{n}</b>", { n: num(t.beds_total) })}</div></div>
       <div class="card vcard"><h3>${T("Поступили и выписаны")}</h3>${flowCard(t.hosp, t.disch)}</div></div></div>
     <div id="alerts" data-keep></div>
     <div class="grid2"><div class="card"><h2>${T("Нагрузка по регионам")}</h2><div id="tiles" data-keep>…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>${T("норма до {n}%", { n: th.elevated })}</span><span><i style="background:var(--warn)"></i>${T("повышенная до {n}%", { n: th.critical })}</span><span><i style="background:var(--bad)"></i>${T("критическая от {n}%", { n: th.critical })}</span></div></div>
@@ -759,7 +759,7 @@ async function indicators() {
   const limitOf = code => { const x = r.rules.find(q => q.active && q.kind === "error" && new RegExp(`^\\s*${code}\\s*<=\\s*([a-z][a-z0-9_]*)\\s*$`).test(q.expr)); return x ? x.expr.split("<=")[1].trim() : ""; };
   const words = expr => esc(expr).replace(/\b[a-z][a-z0-9_]*\b/g, m => byCode[m] ? `«${esc(qn(byCode[m]))}»` : m);
   const row = i => `<tr class="${i.active ? "" : "off"}" data-i="${i.code}"><td class="n muted">${pos[i.code] || "—"}</td>
-      <td><b>${esc(i.name_ru)}</b>${i.name_uz ? `<div class="muted sm">${esc(i.name_uz)}</div>` : `<div class="sm warn-t">${T("нет узбекского названия")}</div>`}<div class="muted sm"><code>${esc(i.code)}</code>${i.core ? " 🔒" : ""}</div></td>
+      <td><b>${esc(i.name_ru)}</b>${i.name_uz ? `<div class="muted sm">${esc(i.name_uz)}</div>` : `<div class="sm warn-t">${T("нет узбекского названия")}</div>`}${i.parent_code && byCode[i.parent_code] ? `<div class="sm">↳ ${T("уточняет вопрос")} ${pos[i.parent_code] || "—"}: ${esc(qn(byCode[i.parent_code]))}</div>` : ""}<div class="muted sm"><code>${esc(i.code)}</code>${i.core ? " 🔒" : ""}</div></td>
       <td class="sm">${i.hint_ru ? "RU ✓" : "RU —"} · ${i.hint_uz ? "UZ ✓" : "UZ —"}</td>
       <td class="sm">${limitOf(i.code) && byCode[limitOf(i.code)] ? "≤ " + esc(qn(byCode[limitOf(i.code)])) : '<span class="muted">—</span>'}</td>
       <td class="sm">${i.required ? T("да") : `<span class="muted">${T("нет")}</span>`}</td>
@@ -803,11 +803,12 @@ function indDlg(i, items, rules, done) {
     <div class="grid2"><label>${T("Подсказка (рус.)")}<textarea id="p-h" rows="2">${esc(i?.hint_ru || "")}</textarea></label><label>${T("Подсказка (узб.)")}<textarea id="p-hu" rows="2">${esc(i?.hint_uz || "")}</textarea></label></div>
     <label>${T("Как складывать по периоду")}<select id="p-a">${Object.entries(AGG).map(([k, l]) => `<option value="${k}" ${(i?.agg || "sum") === k ? "selected" : ""}>${k} — ${l}</option>`).join("")}</select></label>
     <label>${T("Ответ не может быть больше ответа на вопрос")}<select id="p-lim"><option value="">${T("— без ограничения —")}</option>${others.map(x => `<option value="${x.code}" ${cur === x.code ? "selected" : ""}>${esc(x.name_ru)}</option>`).join("")}</select></label>
+    <label>${T("Уточняет вопрос («Шундан…»: бот показывает его вместе с ответом на тот вопрос)")}<select id="p-par"><option value="">${T("— самостоятельный вопрос —")}</option>${others.map(x => `<option value="${x.code}" ${i?.parent_code === x.code ? "selected" : ""}>${esc(x.name_ru)}</option>`).join("")}</select></label>
     <div class="row"><label class="chk"><input type="checkbox" id="p-rq" ${!i || i.required ? "checked" : ""} style="width:auto"> ${T("Обязательный (без ответа нельзя отправить сводку)")}</label>${i ? `<label class="chk"><input type="checkbox" id="p-ac" ${i.active ? "checked" : ""} style="width:auto"> ${T("Включён")}</label>` : ""}</div>
     ${i ? "" : `<details><summary class="muted sm">${T("Код (латиница), если нужен свой")}</summary><label><input id="p-c" placeholder="${T("создастся сам из названия")}"></label></details>`}
     <div id="p-err" class="err"></div><div class="row mt"><button class="btn pri" id="p-ok">${T("Сохранить")}</button><button class="btn right" data-close>${T("Отмена")}</button></div>`);
   $("#p-ok").onclick = async () => {
-    const body = { name_ru: $("#p-n").value, name_uz: $("#p-u").value, hint_ru: $("#p-h").value, hint_uz: $("#p-hu").value, agg: $("#p-a").value, required: $("#p-rq").checked };
+    const body = { name_ru: $("#p-n").value, name_uz: $("#p-u").value, hint_ru: $("#p-h").value, hint_uz: $("#p-hu").value, agg: $("#p-a").value, required: $("#p-rq").checked, parent_code: $("#p-par").value };
     if (i) body.active = $("#p-ac").checked; else body.code = ($("#p-c") || { value: "" }).value;
     try {
       const x = await api(i ? "/api/indicators/" + i.code : "/api/indicators", { method: i ? "PATCH" : "POST", body }), code = i ? i.code : x.code, want = $("#p-lim").value;

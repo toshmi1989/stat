@@ -184,7 +184,9 @@ CREATE TABLE IF NOT EXISTS indicators (
     agg TEXT NOT NULL DEFAULT 'sum' CHECK (agg IN ('sum','last','max')),
     sort INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1,
-    core INTEGER NOT NULL DEFAULT 0
+    core INTEGER NOT NULL DEFAULT 0,
+    required INTEGER NOT NULL DEFAULT 1,
+    parent_code TEXT NOT NULL DEFAULT ''                      -- «of them»: the question this one is an addition to (its answer cannot be larger); shown with it in the bot
 );
 CREATE TABLE IF NOT EXISTS rules (
     id INTEGER PRIMARY KEY,
@@ -265,43 +267,46 @@ REGIONS = [("Республика Каракалпакстан", "Қорақал
 # The questionnaire (the order is the order of the questions in the bot). code, group, name_ru, name_uz, hint_ru, hint_uz, aggregation
 # (sum = a flow added over days, last = a state taken on the latest day). The Uzbek text is the official wording of the questions, in Latin.
 INDICATORS = [
-    ("beds_total", "beds", "Общее количество коек", "Jami o‘rinlar soni",
-     "Все койки учреждения, в том числе не отведённые под грипп и ОРВИ.", "Muassasadagi barcha o‘rinlar (koykalar) soni, gripp va ORVI uchun ajratilmaganlari ham.", "last"),
-    ("beds_flu", "beds", "Из них выделено для больных гриппом и ОРВИ", "Shundan gripp va ORVI bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni",
-     "Из общего числа коек — те, что отведены больным гриппом и ОРВИ.", "Jami o‘rinlardan gripp va ORVI bilan kasallangan bemorlar uchun ajratilganlari.", "last"),
-    ("visits", "visits", "Общее количество обращений", "Jami murojaatlar soni",
-     "Сколько всего человек обратились за отчётный день.", "Hisobot kuni davomida murojaat qilgan bemorlarning umumiy soni.", "sum"),
-    ("hosp", "hosp", "Количество пациентов, госпитализированных за отчётный день", "Hisobot kuni davomida shifoxonaga yotqizilgan bemorlar soni",
-     "Сколько пациентов поступило в стационар за отчётный день.", "Hisobot kuni davomida shifoxonaga yangi yotqizilgan bemorlar.", "sum"),
-    ("disch", "hosp", "Количество пациентов, выписанных из стационара за отчётный день", "Hisobot kuni davomida shifoxonadan chiqarilgan bemorlar soni",
-     "Сколько пациентов выписано из стационара за отчётный день.", "Hisobot kuni davomida shifoxonadan chiqarilgan bemorlar.", "sum"),
-    ("beds_occupied", "beds", "Количество коек, занятых больными гриппом и ОРВИ на конец отчётного дня", "Hisobot kuni yakunida gripp va ORVI bilan kasallangan bemorlar band qilgan o‘rinlar soni",
-     "Сколько коек занято больными гриппом и ОРВИ на конец дня.", "Hisobot kuni oxirida gripp va ORVI bilan kasallangan bemorlar yotgan o‘rinlar.", "last"),
-    ("occ_pregnant", "beds", "Из них беременные женщины", "Shundan homilador ayollar",
-     "Из занятых коек — те, на которых лежат беременные женщины.", "Band qilingan o‘rinlardan homilador ayollar yotganlari.", "last"),
-    ("occ_children", "beds", "Из них дети", "Shundan bolalar",
-     "Из занятых коек — те, на которых лежат дети.", "Band qilingan o‘rinlardan bolalar yotganlari.", "last"),
-    ("severe", "visits", "Количество пациентов в тяжёлом состоянии", "Og‘ir ahvoldagi bemorlar soni",
-     "Сколько пациентов в тяжёлом состоянии.", "Og‘ir ahvoldagi bemorlar soni.", "last"),
-    ("extreme", "visits", "Количество пациентов в крайне тяжёлом состоянии", "O‘ta og‘ir ahvoldagi bemorlar soni",
-     "Сколько пациентов в крайне тяжёлом состоянии.", "O‘ta og‘ir ahvoldagi bemorlar soni.", "last"),
-    ("extreme_pregnant", "visits", "Из них беременные в крайне тяжёлом состоянии", "Shundan o‘ta og‘ir ahvoldagi homilador ayollar",
-     "Из крайне тяжёлых — беременные женщины.", "O‘ta og‘ir ahvoldagi bemorlardan homilador ayollar.", "last"),
-    ("extreme_children", "visits", "Из них дети в крайне тяжёлом состоянии", "Shundan o‘ta og‘ir ahvoldagi bolalar",
-     "Из крайне тяжёлых — дети.", "O‘ta og‘ir ahvoldagi bemorlardan bolalar.", "last"),
+    ('beds_total', 'beds', 'Общее количество коек', 'Jami o‘rinlar soni',
+     'Все койки учреждения, в том числе не отведённые под грипп и ОРВИ.', 'Muassasadagi barcha o‘rinlar (koykalar) soni, gripp va ORVI uchun ajratilmaganlari ham.', 'last'),
+    ('beds_flu', 'beds', 'Из них выделено для больных гриппом и ОРВИ', 'Shundan gripp va ORVI bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni',
+     'Из общего числа коек — те, что отведены больным гриппом и ОРВИ.', 'Jami o‘rinlardan gripp va ORVI bilan kasallangan bemorlar uchun ajratilganlari.', 'last'),
+    ('visits', 'visits', 'Общее количество обращений', 'Jami murojaatlar soni',
+     'Сколько всего человек обратились за отчётный день.', 'Hisobot kuni davomida murojaat qilgan bemorlarning umumiy soni.', 'sum'),
+    ('visits_flu', 'visits', 'Из них обращений больных гриппом и ОРВИ', 'Shundan gripp va ORVI bilan kasallangan bemorlar murojaatlari soni',
+     'Из общего числа обращений — обращения больных гриппом и ОРВИ.', 'Jami murojaatlardan gripp va ORVI bilan kasallangan bemorlar murojaatlari.', 'sum'),
+    ('hosp', 'hosp', 'Количество пациентов, госпитализированных за отчётный день', 'Hisobot kuni davomida shifoxonaga yotqizilgan bemorlar soni',
+     'Сколько пациентов поступило в стационар за отчётный день.', 'Hisobot kuni davomida shifoxonaga yangi yotqizilgan bemorlar.', 'sum'),
+    ('hosp_flu', 'hosp', 'Из них больных гриппом и ОРВИ', 'Shundan gripp va ORVI bilan kasallangan bemorlar soni',
+     'Из госпитализированных за отчётный день — больные гриппом и ОРВИ.', 'Hisobot kuni yotqizilganlardan gripp va ORVI bilan kasallangan bemorlar.', 'sum'),
+    ('occ_pregnant', 'hosp', 'Из них беременные женщины', 'Shundan homilador ayollar',
+     'Из госпитализированных с гриппом и ОРВИ — беременные женщины.', 'Gripp va ORVI bilan yotqizilganlardan homilador ayollar.', 'sum'),
+    ('occ_children', 'hosp', 'Из них дети', 'Shundan bolalar',
+     'Из госпитализированных с гриппом и ОРВИ — дети.', 'Gripp va ORVI bilan yotqizilganlardan bolalar.', 'sum'),
+    ('severe', 'visits', 'Количество пациентов в тяжёлом состоянии', 'Og‘ir ahvoldagi bemorlar soni',
+     'Сколько пациентов в тяжёлом состоянии.', 'Og‘ir ahvoldagi bemorlar soni.', 'last'),
+    ('extreme', 'visits', 'Количество пациентов в крайне тяжёлом состоянии', 'O‘ta og‘ir ahvoldagi bemorlar soni',
+     'Сколько пациентов в крайне тяжёлом состоянии.', 'O‘ta og‘ir ahvoldagi bemorlar soni.', 'last'),
+    ('extreme_pregnant', 'visits', 'Из них беременные в крайне тяжёлом состоянии', 'Shundan o‘ta og‘ir ahvoldagi homilador ayollar',
+     'Из крайне тяжёлых — беременные женщины.', 'O‘ta og‘ir ahvoldagi bemorlardan homilador ayollar.', 'last'),
+    ('extreme_children', 'visits', 'Из них дети в крайне тяжёлом состоянии', 'Shundan o‘ta og‘ir ahvoldagi bolalar',
+     'Из крайне тяжёлых — дети.', 'O‘ta og‘ir ahvoldagi bemorlardan bolalar.', 'last'),
+    ('disch', 'hosp', 'Количество пациентов, выписанных из стационара за отчётный день', 'Hisobot kuni davomida shifoxonadan chiqarilgan bemorlar soni',
+     'Сколько пациентов выписано из стационара за отчётный день.', 'Hisobot kuni davomida shifoxonadan chiqarilgan bemorlar.', 'sum'),
 ]
 RETIRED = ("severe_pregnant", "severe_children")   # asked before the questionnaire of v2; kept (hidden) so that the old reports still show them
 
 RULES = [
     ("error", "beds_flu <= beds_total", "Коек для больных гриппом и ОРВИ ({beds_flu}) больше общего числа коек ({beds_total}).", "Грипп ва ОРВИ учун ажратилган ўринлар ({beds_flu}) жами ўринлардан ({beds_total}) кўп."),
+    ("error", "visits_flu <= visits", "Обращений больных гриппом и ОРВИ ({visits_flu}) больше, чем всего обращений ({visits}).", "Gripp va ORVI bilan kasallangan bemorlar murojaatlari ({visits_flu}) jami murojaatlardan ({visits}) ko‘p."),
+    ("error", "hosp_flu <= hosp", "Госпитализированных с гриппом и ОРВИ ({hosp_flu}) больше, чем всего госпитализированных ({hosp}).", "Gripp va ORVI bilan yotqizilganlar ({hosp_flu}) jami yotqizilganlardan ({hosp}) ko‘p."),
+    ("error", "occ_pregnant <= hosp_flu", "Беременных ({occ_pregnant}) больше, чем госпитализированных с гриппом и ОРВИ ({hosp_flu}).", "Homilador ayollar ({occ_pregnant}) gripp va ORVI bilan yotqizilganlardan ({hosp_flu}) ko‘p."),
+    ("error", "occ_children <= hosp_flu", "Детей ({occ_children}) больше, чем госпитализированных с гриппом и ОРВИ ({hosp_flu}).", "Bolalar ({occ_children}) gripp va ORVI bilan yotqizilganlardan ({hosp_flu}) ko‘p."),
     ("error", "severe <= visits", "Тяжёлых пациентов ({severe}) больше, чем обращений ({visits}).", "Оғир беморлар ({severe}) мурожаатлардан ({visits}) кўп."),
     ("error", "extreme <= visits", "Крайне тяжёлых пациентов ({extreme}) больше, чем обращений ({visits}).", "Ўта оғир беморлар ({extreme}) мурожаатлардан ({visits}) кўп."),
-    ("error", "occ_pregnant <= beds_occupied", "Беременных среди занятых коек ({occ_pregnant}) больше, чем занято коек ({beds_occupied}).", "Band o‘rinlardagi homilador ayollar ({occ_pregnant}) band o‘rinlardan ({beds_occupied}) ko‘p."),
-    ("error", "occ_children <= beds_occupied", "Детей среди занятых коек ({occ_children}) больше, чем занято коек ({beds_occupied}).", "Band o‘rinlardagi bolalar ({occ_children}) band o‘rinlardan ({beds_occupied}) ko‘p."),
     ("error", "extreme_pregnant <= extreme", "Беременных в крайне тяжёлом состоянии ({extreme_pregnant}) больше, чем крайне тяжёлых ({extreme}).", "Ўта оғир аҳволдаги ҳомиладорлар ({extreme_pregnant}) ўта оғир беморлардан ({extreme}) кўп."),
     ("error", "extreme_children <= extreme", "Детей в крайне тяжёлом состоянии ({extreme_children}) больше, чем крайне тяжёлых ({extreme}).", "Ўта оғир аҳволдаги болалар ({extreme_children}) ўта оғир беморлардан ({extreme}) кўп."),
     ("warning", "hosp <= visits", "Госпитализаций ({hosp}) больше, чем обращений ({visits}). Проверьте данные.", "Ётқизилганлар ({hosp}) мурожаатлардан ({visits}) кўп. Маълумотларни текширинг."),
-    ("warning", "disch <= beds_occupied + hosp", "Выписано ({disch}) больше, чем было занято и поступило ({beds_occupied} + {hosp}). Проверьте данные.", "Чиқарилганлар ({disch}) банд ва ётқизилганлардан ({beds_occupied} + {hosp}) кўп. Маълумотларни текширинг."),
     ("warning", "severe + extreme <= visits", "Тяжёлых и крайне тяжёлых вместе ({severe} + {extreme}) больше, чем обращений ({visits}).", "Оғир ва ўта оғир беморлар биргаликда ({severe} + {extreme}) мурожаатлардан ({visits}) кўп."),
 ]
 SETTINGS = {
@@ -363,6 +368,8 @@ def init_db() -> None:
             c.execute("ALTER TABLE staff ADD COLUMN can_manage_territories INTEGER NOT NULL DEFAULT 0")
         if "required" not in {r["name"] for r in c.execute("PRAGMA table_info(indicators)")}:                # a database made before the editor of the questionnaire
             c.execute("ALTER TABLE indicators ADD COLUMN required INTEGER NOT NULL DEFAULT 1")
+        if "parent_code" not in {r["name"] for r in c.execute("PRAGMA table_info(indicators)")}:
+            c.execute("ALTER TABLE indicators ADD COLUMN parent_code TEXT NOT NULL DEFAULT ''")
         if "beds" not in {r["name"] for r in c.execute("PRAGMA table_info(facilities)")}:                  # a database made before the editor of territories
             c.execute("ALTER TABLE facilities ADD COLUMN beds INTEGER")
         if "heartbeat" not in {r["name"] for r in c.execute("PRAGMA table_info(broadcasts)")}:
@@ -370,6 +377,7 @@ def init_db() -> None:
         questionnaire_v2(c)
         region_heads_v1(c)
         questionnaire_texts_v3(c)
+        questionnaire_v4(c)
         occupied_unbounded_v4(c)
         if not c.execute("SELECT 1 FROM settings WHERE key='default_lang_uz_v1'").fetchone():     # one time: a database made earlier still has the old default
             c.execute("UPDATE settings SET value='uz' WHERE key='default_lang'")
@@ -455,6 +463,41 @@ def region_heads_v1(c) -> None:
         if reg and not c.execute("SELECT 1 FROM region_contacts WHERE region_id=?", (reg["id"],)).fetchone():
             c.execute("INSERT INTO region_contacts(region_id, kind, fio, phone, created_at, updated_at) VALUES (?,?,?,?,?,?)", (reg["id"], "main", fio, ",".join(editor.phones(phone)), now(), now()))
     c.execute("INSERT INTO settings(key, value) VALUES ('region_heads_v1', ?)", (now(),))
+
+
+# The questionnaire of the Ministry (13 questions): two new ones (flu visits, flu hospitalized), the discharged moved to the end, «of them» questions tied to the one they add to;
+# the question about the occupied beds is no longer asked (it stays, switched off, with its figures).
+PARENT = {"beds_flu": "beds_total", "visits_flu": "visits", "hosp_flu": "hosp", "occ_pregnant": "hosp_flu", "occ_children": "hosp_flu", "extreme_pregnant": "extreme", "extreme_children": "extreme"}
+OCCUPIED = ("beds_occupied", "beds", "Количество коек, занятых больными гриппом и ОРВИ на конец отчётного дня",
+            "Hisobot kuni yakunida gripp va ORVI bilan kasallangan bemorlar band qilgan o‘rinlar soni", "Сколько коек занято больными гриппом и ОРВИ на конец дня.",
+            "Hisobot kuni oxirida gripp va ORVI bilan kasallangan bemorlar yotgan o‘rinlar.", "last")
+
+
+def questionnaire_v4(c) -> None:
+    """One time: the questionnaire of the Ministry (see INDICATORS): texts, order, the «of them» links, the new questions, the rules; the occupied beds switched off."""
+    if c.execute("SELECT 1 FROM settings WHERE key='questionnaire_v4'").fetchone():
+        return
+    for i, (code, grp, ru, uz, hru, huz, agg) in enumerate(INDICATORS, 1):
+        if c.execute("SELECT 1 FROM indicators WHERE code=?", (code,)).fetchone():
+            c.execute("UPDATE indicators SET grp=?, name_ru=?, name_uz=?, hint_ru=?, hint_uz=?, agg=?, sort=?, active=1, core=1, required=1, parent_code=? WHERE code=?",
+                      (grp, ru, uz, hru, huz, agg, i, PARENT.get(code, ""), code))
+        else:
+            c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, agg, sort, core, required, parent_code) VALUES (?,?,?,?,?,?,?,?,1,1,?)", (code, grp, ru, uz, hru, huz, agg, i, PARENT.get(code, "")))
+    code, grp, ru, uz, hru, huz, agg = OCCUPIED
+    if c.execute("SELECT 1 FROM indicators WHERE code=?", (code,)).fetchone():
+        c.execute("UPDATE indicators SET active=0, sort=900, parent_code='' WHERE code=?", (code,))
+    else:
+        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, agg, sort, active, core, required) VALUES (?,?,?,?,?,?,?,900,0,1,1)", (code, grp, ru, uz, hru, huz, agg))
+    for r in c.execute("SELECT id, expr FROM rules WHERE core=1").fetchall():                  # the rules about the occupied beds go
+        if "beds_occupied" in r["expr"]:
+            c.execute("DELETE FROM rules WHERE id=?", (r["id"],))
+    have = {r["expr"] for r in c.execute("SELECT expr FROM rules")}
+    mx = c.execute("SELECT COALESCE(MAX(sort),0) FROM rules").fetchone()[0]
+    for kind, expr, ru, uz in RULES:
+        if expr not in have:
+            mx += 1
+            c.execute("INSERT INTO rules(kind, expr, message_ru, message_uz, sort, core) VALUES (?,?,?,?,?,1)", (kind, expr, ru, lat(uz), mx))
+    c.execute("INSERT INTO settings(key, value) VALUES ('questionnaire_v4', ?)", (now(),))
 
 
 def all_settings(c=None) -> dict:
