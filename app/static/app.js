@@ -142,24 +142,26 @@ async function dashboard(silent) {
   try { dash = await api("/api/dashboard?" + (F.preset === "day" ? qs({ date: d1, region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }) : scopeQ())); } catch (e) { return fail(e); }
   if (nav !== NAVID || !$("#dash")) return;                          // moved to another page while the data was coming
   const k = dash.kpis, th = ME.thresholds, t = k.totals;
+  NO_OCC = t.occupancy == null && t.beds_occupied == null;                 // no data about the occupied beds: the cards about the occupancy are not drawn
   const occState = t.occupancy == null ? "" : t.occupancy >= th.critical ? "critical" : t.occupancy >= th.elevated ? "warning" : "";
   const isToday = F.preset === "day" && dash.requested === ME.today;
   const canWrite = ME.role !== "viewer";
   const owe = dash.control ? dash.control.not_sent + dash.control.overdue : 0;   // those who still owe today's report (also when nobody has reported yet)
+  const rankCard = `<div class="card"><div class="row"><h2>${T("Лидеры по обращениям")}</h2></div><div id="rank" data-keep>…</div></div>`;
   H($("#dash"), silent).innerHTML = `<div class="hero"><div><h1>${F.preset === "day" ? T("Сводка за {date}", { date: longDate(dash.used_date) }) : T("Сводка за период {d1} — {d2}", { d1, d2 })}</h1><div class="sub">${ME.org ? esc(T(ME.org)) + " · " : ""}${T("по {a} из {b} учреждений", { a: k.reported, b: k.facilities })}${dash.fallback ? " · " + T("данных за выбранный день нет, показан последний день с данными") : ""}</div></div>
     <div class="acts"><a class="btn" href="#/export">${T("⬇ Выгрузка")}</a></div></div>
     ${canWrite && isToday && owe > 0 ? `<div class="cta"><span style="font-size:22px">⏰</span><div><b>${T("{n} учреждений ещё не сдали сводку за сегодня", { n: owe })}</b><div class="sub muted">${T("Бот напомнит ответственным одним сообщением с кнопкой отправки")}</div></div><div class="acts"><button class="btn warn" id="remind">${T("🔔 Отправить уведомление не сдавшим")}</button></div></div>` : ""}
     <div class="kpis">${KPI.map(([key, label, ic, tone], i) => `<div class="kpi tilt" data-t="${tone}" style="--i:${i}" title="${esc(askedAs(key))}"><div class="ic">${ic}</div><div class="v">${kpiValue(key, k)}</div><div class="l">${label}</div></div>`).join("")}</div>
     <div class="topgrid">${mapCard()}<div class="sidecol">
-      <div class="card vcard"><h3>${T("Загрузка коек")}</h3>${gaugeChart(t.occupancy, th)}<div class="cap">${t.occupancy == null && t.beds_occupied == null ? T("Выделено коек для гриппа и ОРВИ: <b>{b}</b> · данные о занятых койках не собираются", { b: num(t.beds_flu) }) : T("Занято <b>{a}</b> из <b>{b}</b> выделенных · свободно <b>{c}</b>", { a: num(t.beds_occupied), b: num(t.beds_flu), c: num(t.beds_free) })}<br>${T("Всего коек в учреждениях: <b>{n}</b>", { n: num(t.beds_total) })}</div></div>
+      ${NO_OCC ? `<div class="card vcard"><h3>${T("Койки")}</h3><div class="cap" style="margin-top:8px">${T("Выделено коек для гриппа и ОРВИ: <b>{b}</b>", { b: num(t.beds_flu) })}<br>${T("Всего коек в учреждениях: <b>{n}</b>", { n: num(t.beds_total) })}</div></div>`
+        : `<div class="card vcard"><h3>${T("Загрузка коек")}</h3>${gaugeChart(t.occupancy, th)}<div class="cap">${T("Занято <b>{a}</b> из <b>{b}</b> выделенных · свободно <b>{c}</b>", { a: num(t.beds_occupied), b: num(t.beds_flu), c: num(t.beds_free) })}<br>${T("Всего коек в учреждениях: <b>{n}</b>", { n: num(t.beds_total) })}</div></div>`}
       <div class="card vcard"><h3>${T("Поступили и выписаны")}</h3>${flowCard(t.hosp, t.disch)}</div></div></div>
     <div id="alerts" data-keep></div>
-    <div class="grid2"><div class="card"><h2>${T("Нагрузка по регионам")}</h2><div id="tiles" data-keep>…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>${T("норма до {n}%", { n: th.elevated })}</span><span><i style="background:var(--warn)"></i>${T("повышенная до {n}%", { n: th.critical })}</span><span><i style="background:var(--bad)"></i>${T("критическая от {n}%", { n: th.critical })}</span></div></div>
-      <div class="card"><div class="row"><h2>${T("Лидеры по обращениям")}</h2></div><div id="rank" data-keep>…</div></div></div>
+    ${NO_OCC ? rankCard : `<div class="grid2"><div class="card"><h2>${T("Нагрузка по регионам")}</h2><div id="tiles" data-keep>…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>${T("норма до {n}%", { n: th.elevated })}</span><span><i style="background:var(--warn)"></i>${T("повышенная до {n}%", { n: th.critical })}</span><span><i style="background:var(--bad)"></i>${T("критическая от {n}%", { n: th.critical })}</span></div></div>${rankCard}</div>`}
     <div class="card"><div class="row"><h2>${T("Регионы")}</h2><div class="seg" id="rt-v"><button data-v="data" class="${RT_VIEW === "data" ? "on" : ""}">${T("Показатели")}</button><button data-v="sum" class="${RT_VIEW === "sum" ? "on" : ""}">${T("Сводка")}</button></div><input id="rt-q" placeholder="${T("Поиск")}" class="right"></div><div class="scroll-x" id="rt" data-keep></div></div>
     <div class="grid2"><div class="card"><h3>${T("Динамика")}</h3><div class="lbl">${T("Показатель")}</div><div class="chips" id="dyn-m" data-keep></div><div class="lbl">${T("Сравнить регионы")} <span class="muted">${T("(до 5)")}</span></div><div class="chips" id="dyn-r" data-keep></div><div id="dyn" data-keep></div></div>
     <div class="card"><h3>${T("Госпитализации и выписки")}</h3><div id="hd" data-keep></div></div></div>
-    <div class="card"><h3>${T("Баланс коек")}</h3><div class="scroll-x" id="beds" data-keep></div></div>`;
+    ${NO_OCC ? "" : `<div class="card"><h3>${T("Баланс коек")}</h3><div class="scroll-x" id="beds" data-keep></div></div>`}`;
   if (!silent) countUp($("#dash"));
   tilt($("#dash"));
   const rem = $("#remind"); if (rem) rem.onclick = () => remindDlg(dash.requested);
@@ -171,8 +173,8 @@ async function dashboard(silent) {
 async function loadViz(d1, d2, silent) {
   try {
     const r = await api("/api/regions-table?" + qs({ d1, d2, level: "region" })); const th = ME.thresholds;
-    if (!$("#tiles")) return;
-    H($("#tiles"), silent).innerHTML = heatTiles(r.rows.slice().sort((a, b) => (b.values.occupancy ?? -1) - (a.values.occupancy ?? -1)), th);
+    if (!$("#rank")) return;
+    if ($("#tiles")) H($("#tiles"), silent).innerHTML = heatTiles(r.rows.slice().sort((a, b) => (b.values.occupancy ?? -1) - (a.values.occupancy ?? -1)), th);
     H($("#rank"), silent).innerHTML = rankBars(r.rows, "visits");
     const pick = rid => { F.region_id = rid; F.district_id = F.facility_id = ""; dashboard(); };
     document.querySelectorAll("#tiles .tile, #rank .rk").forEach(el => el.onclick = () => pick(el.dataset.rid));
