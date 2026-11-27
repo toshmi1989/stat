@@ -179,4 +179,5 @@ Object.assign(window.UZ, {
   "Учреждений": "Muassasalar",
   "Охват, %": "Qamrov, %",
   "ИТОГО": "JAMI",
+  "Выделено коек для гриппа и ОРВИ: <b>{b}</b>": "Gripp va ORVI uchun ajratilgan o‘rinlar: <b>{b}</b>",
 })

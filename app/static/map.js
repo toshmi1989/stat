@@ -1,6 +1,7 @@
 // Map of Uzbekistan: regions pulse by the numbers the regions report. Outlines: uzmap.js (tools/build_map.py).
 const MAP_METRICS = [["occupancy", T("Загрузка коек"), "%"], ["visits", T("Обращения"), ""], ["severe", T("Тяжёлые"), ""], ["extreme", T("Крайне тяжёлые"), ""], ["not_reported", T("Не сдали отчёт"), ""]];
-let MAPM = "occupancy";
+let MAPM = "occupancy", NO_OCC = false;                       // NO_OCC: nobody reports the occupied beds (the question is switched off): no occupancy view
+const mapMetrics = () => NO_OCC ? MAP_METRICS.filter(x => x[0] !== "occupancy") : MAP_METRICS;
 // The views change by themselves every 3 seconds; a view the person picks stays for a minute, then the changing goes on.
 const MAP_AUTO = { every: 3, pinSec: 60, tick: 0, pinnedUntil: 0, draw: null, timer: null };
 const mapCaption = () => { const left = Math.ceil((MAP_AUTO.pinnedUntil - Date.now()) / 1000);
@@ -13,7 +14,7 @@ function mapAutoStart() {
     if (MAP_AUTO.pinnedUntil - Date.now() > 0 || RM || box.matches(":hover")) { MAP_AUTO.tick = 0; return; }   // pinned, reduced motion, or the pointer is on the map: nothing changes under it
     if (++MAP_AUTO.tick >= MAP_AUTO.every) {
       MAP_AUTO.tick = 0;
-      const i = MAP_METRICS.findIndex(x => x[0] === MAPM); MAPM = MAP_METRICS[(i + 1) % MAP_METRICS.length][0]; MAP_AUTO.draw();
+      const ms = mapMetrics(), i = ms.findIndex(x => x[0] === MAPM); MAPM = ms[(i + 1) % ms.length][0]; MAP_AUTO.draw();
     }
   }, 1000);
 }
@@ -71,8 +72,9 @@ function mapCard() { return `<div class="card mapcard"><div class="row"><h2>${T(
   <div class="mapwrap"><div class="mapbox"><div id="map" data-keep></div><div class="maptip" id="map-tip" data-keep hidden></div></div><div class="mapside" id="map-side" data-keep></div></div><div class="legend-dots" id="map-leg" data-keep></div></div>`; }
 function bindMap(rows, th, onPick, silent) {
   const box = $("#map"); if (!box) return;
+  if (NO_OCC && MAPM === "occupancy") MAPM = "visits";
   const draw = () => {
-    H($("#map-m"), true).innerHTML = MAP_METRICS.map(([k, l]) => `<button class="chip${k === MAPM ? " on" : ""}" data-m="${k}">${l}</button>`).join("");
+    H($("#map-m"), true).innerHTML = mapMetrics().map(([k, l]) => `<button class="chip${k === MAPM ? " on" : ""}" data-m="${k}">${l}</button>`).join("");
     H(box, true).innerHTML = uzMap(rows, MAPM, th, F.region_id);          // patched: the map is not redrawn, only the regions that changed
     const S = mapStates(rows, MAPM, th), unit = MAP_METRICS.find(x => x[0] === MAPM)[2], hot = S.filter(s => s.st === "critical" || s.st === "warning").sort((a, b) => b.k - a.k);
     H($("#map-side"), true).innerHTML = `<h3>${T("Требуют внимания")}</h3>` + (hot.length ? hot.slice(0, 6).map(s => `<button class="mrow st-${s.st}" data-rid="${s.r.id}"><i></i><span>${esc(mapShort(s.r.name))}</span><b>${Math.round(s.v).toLocaleString(LOCALE)}${unit}</b></button>`).join("") : `<p class="muted sm">${T("Нет регионов с повышенными значениями.")}</p>`);
