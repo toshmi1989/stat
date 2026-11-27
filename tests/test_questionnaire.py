@@ -134,7 +134,7 @@ def test_excel_follows_the_questionnaire(client):
         c.execute("DELETE FROM report_values WHERE code='beds_occupied'")
     wb = _book(client)
     detail = _heads(wb["Детальная информация"])
-    assert "Занято" not in detail and "Занятость, %" not in detail and "Свободные койки" not in detail
+    assert "Занято (расч.)" in detail and "Занятость, % (расч.)" in detail          # no reported occupied beds, but the admissions of the flu patients are known: the block is counted and says so
     assert client.get("/api/export?fmt=csv&d1=2026-02-09&d2=2026-02-09&lang=ru").status_code == 200 and client.get("/api/export?fmt=pdf&d1=2026-02-09&d2=2026-02-09&lang=ru").content[:4] == b"%PDF"
     assert "None" not in [c.value for ws in wb for row in ws.iter_rows() for c in row]
 
@@ -168,3 +168,27 @@ def test_the_sheet_for_the_heads_shows_who_sent_the_reports(client):
     assert other and any(r[4] == "Больница 3" for r in rows if len(r) > 4)
     one = _book(client, "d1=2026-02-10&d2=2026-02-10&lang=ru").worksheets[0]
     assert len(one._charts) == 3                                                                      # one day: the ring instead of the course by days
+
+
+def test_occupancy_is_counted_from_the_admissions_when_the_occupied_beds_are_not_reported(client):
+    from conftest import make_facility, put_report
+    from app import stats
+    from app.db import connect, tx
+    f = make_facility(1, "Район А", "Больница 1")
+    g = make_facility(1, "Район А", "Больница 2")
+    for d, h in (("2026-02-03", 9), ("2026-02-05", 3), ("2026-02-07", 4), ("2026-02-09", 2), ("2026-02-10", 5)):          # five days of the average stay: from 02-06 to 02-10
+        put_report(f, d, hosp_flu=h, beds_flu=40)
+    put_report(g, "2026-02-10", hosp_flu=1, beds_flu=10, beds_occupied=7)                                              # this one reports the occupied beds itself
+    with tx() as c:
+        c.execute("DELETE FROM report_values WHERE code='beds_occupied' AND report_id IN (SELECT id FROM reports WHERE facility_id=?)", (f,))
+    c = connect()
+    user = {"id": 1, "role": "super_admin", "regions": None}
+    t = stats.aggregate(c, user, "2026-02-10", "2026-02-10", "all")["all"]
+    assert t["beds_occupied"] == 4 + 2 + 5 + 7 and t["occ_estimated"] is True                                        # 4+2+5 admitted in the last 5 days, and the reported 7
+    assert t["occupancy"] == round(100 * 18 / 50, 1)
+    one = stats.aggregate(c, user, "2026-02-10", "2026-02-10", "facility")[g]
+    assert one["beds_occupied"] == 7 and not one["occ_estimated"]                                                    # a reported figure is never replaced
+    assert client.get("/api/me").json()["thresholds"]["stay_days"] == 5
+    client.put("/api/settings", json={"stay_days": "3"})
+    assert stats.aggregate(connect(), user, "2026-02-10", "2026-02-10", "all")["all"]["beds_occupied"] == 2 + 5 + 7
+    assert not [a for a in client.get("/api/alerts").json()["items"] if a["kind"] in ("occupancy", "facility_occupancy")]   # an estimate gives no alarm

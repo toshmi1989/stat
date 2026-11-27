@@ -57,7 +57,23 @@ def facility_totals(days: dict, inds) -> dict:
     return out
 
 
+def stay_days(c) -> int:
+    try:
+        return max(1, min(30, int(float(all_settings(c).get("stay_days", 5)))))
+    except (TypeError, ValueError):
+        return 5
+
+
+def occupied_estimate(days: dict, last: str, stay: int):
+    """The occupied beds of a facility on its latest day, counted from the admissions of patients with flu and ARVI over the last `stay` days
+    (a patient who came less than the average stay ago is still in hospital). None when the facility did not report those admissions."""
+    lo = (date.fromisoformat(last) - timedelta(days=stay - 1)).isoformat()
+    vals = [v["hosp_flu"] for dt, v in days.items() if lo <= dt <= last and "hosp_flu" in v]
+    return sum(vals) if vals else None
+
+
 def derive(t: dict) -> dict:
+    t["occ_estimated"] = t.get("occ_est_n", 0) > 0          # the occupied beds are counted from the admissions, not reported
     flu = t.get("beds_flu", 0)
     if "beds_occupied" not in t:  # nobody reported occupied beds (the question is switched off): no occupancy, no free beds
         t["beds_free"], t["occupancy"] = None, None
@@ -77,14 +93,24 @@ def add(total: dict, part: dict, inds) -> None:
 def aggregate(c, user, d1: str, d2: str, group: str = "all", region_id=None, district_id=None, facility_id=None) -> dict:
     """{key: {code: value, 'beds_free', 'occupancy', 'reported'}} grouped by 'all' | 'region' | 'district' | 'facility'."""
     inds = indicators(c)
-    ld = load(c, user, d1, d2, region_id, district_id, facility_id)
+    stay = stay_days(c)
+    ld = load(c, user, (date.fromisoformat(d1) - timedelta(days=stay - 1)).isoformat(), d2, region_id, district_id, facility_id)     # a few days before the period: for the estimate
     groups: dict = defaultdict(dict)
     n = defaultdict(int)
     for fid, days in ld["data"].items():
+        inside = {dt: v for dt, v in days.items() if d1 <= dt <= d2}
+        if not inside:
+            continue
         did, rid = ld["where"][fid]
         key = "all" if group == "all" else rid if group == "region" else did if group == "district" else fid
-        add(groups[key], facility_totals(days, inds), inds)
+        ft = facility_totals(inside, inds)
+        add(groups[key], ft, inds)
         n[key] += 1
+        est = occupied_estimate(days, max(inside), stay) if "beds_occupied" not in ft else None
+        if est is not None:                                   # nobody reported the occupied beds of this facility: they are counted from the admissions
+            g = groups[key]
+            g["beds_occupied"] = g.get("beds_occupied", 0) + est
+            g["occ_est_n"] = g.get("occ_est_n", 0) + 1
     for k, t in groups.items():
         derive(t)
         t["reported"] = n[k]
@@ -201,7 +227,7 @@ def bed_balance(c, user, d1: str, d2: str, level: str = "region", parent_id=None
             f = c.execute("SELECT f.name_ru, d.name_ru AS district, r.name_ru AS region FROM facilities f JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id WHERE f.id=?", (fid,)).fetchone()
             hot.append({"facility_id": fid, "name": f["name_ru"], "district": f["district"], "region": f["region"], "occupancy": t["occupancy"], "free": t["beds_free"], "beds_flu": t.get("beds_flu", 0)})
     hot.sort(key=lambda x: -x["occupancy"])
-    return {"rows": rows, "hot": hot[:50], "thresholds": {"elevated": float(st["occ_elevated"]), "critical": float(st["occ_critical"]), "facility": thr}, "d1": d1, "d2": d2}
+    return {"estimated": any(r["values"].get("occ_estimated") for r in table["rows"]), "stay_days": stay_days(c), "rows": rows, "hot": hot[:50], "thresholds": {"elevated": float(st["occ_elevated"]), "critical": float(st["occ_critical"]), "facility": thr}, "d1": d1, "d2": d2}
 
 
 def hosp_disch(c, user, d1: str, d2: str, region_id=None, district_id=None, facility_id=None) -> dict:

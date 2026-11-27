@@ -152,7 +152,7 @@ def alerts(c, user, ref: str | None = None, lang: str = "ru") -> list[dict]:
     if last:
         thr = float(st["fac_occ_warn"])
         for fid, t in stats.aggregate(c, user, last, last, "facility").items():
-            if t.get("occupancy") is not None and t["occupancy"] >= thr:
+            if t.get("occupancy") is not None and not t.get("occ_estimated") and t["occupancy"] >= thr:      # an estimate gives no alarm
                 f = c.execute("SELECT f.name_ru, f.name_uz, r.name_ru AS region, r.name_uz AS region_uz FROM facilities f JOIN districts d ON d.id=f.district_id JOIN regions r ON r.id=d.region_id WHERE f.id=?", (fid,)).fetchone()
                 add("warning", "facility_occupancy", f["region"], f"Ogohlantirish! «{_uz_name(f['name_ru'], f['name_uz'])}» muassasasida ({_uz_name(f['region'], f['region_uz'])}) gripp va ORVI bilan kasallangan bemorlarni yotqizish uchun ajratilgan o‘rinlarning {t['occupancy']:g}% band." if uz
                     else f"Предупреждение! В учреждении «{f['name_ru']}» ({f['region']}) занято {t['occupancy']:g}% коек, выделенных для госпитализации больных гриппом.", facility_id=fid, value=t["occupancy"])

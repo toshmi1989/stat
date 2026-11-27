@@ -44,7 +44,7 @@ XU = {
     "Доля сдавших отчёт по дням, %": "Kunlar bo‘yicha hisobot topshirganlar ulushi, %", "Сдали": "Topshirdi", "Не сдали": "Topshirmadi", "Охват, %": "Qamrov, %",
     "Календарь сдачи: какая доля учреждений региона сдала отчёт в этот день, %": "Topshirish kalendari: viloyat muassasalarining qancha qismi o‘sha kuni hisobot topshirdi, %",
     "Не сдали отчёт за период": "Davr mobaynida hisobot topshirmaganlar", "Последний отчёт": "Oxirgi hisobot", "Все учреждения сдали отчёт": "Barcha muassasalar hisobot topshirdi",
-    "Всего": "Jami", "Учреждений": "Muassasalar", "Итоги по регионам: отчёты за период": "Viloyatlar bo‘yicha yakunlar: davr uchun hisobotlar",
+    "Всего": "Jami", "Учреждений": "Muassasalar", " (расч.)": " (hisoblangan)", "Итоги по регионам: отчёты за период": "Viloyatlar bo‘yicha yakunlar: davr uchun hisobotlar",
     "Вопросы": "Savollar", "Вопрос": "Savol", "Название в таблицах": "Jadvallardagi nomi", "Формулировка вопроса": "Savol matni", "Уточняет вопрос": "Qaysi savolga qo‘shimcha",
     "Вопросы анкеты, по которым построены таблицы": "Jadvallar tuzilgan anketa savollari", "Свободные койки": "Bo‘sh o‘rinlar", "Занятость, %": "Band qilinganlik, %",
 }
@@ -98,22 +98,23 @@ def _heading(r, lang: str, full: bool = False) -> str:
     return r["name_ru"] if full else (r["short_ru"] or r["name_ru"])
 
 
-def columns(c, lang: str = "ru", occupancy: bool = False) -> list[tuple[str, str]]:
+def columns(c, lang: str = "ru", occupancy: bool = False, estimated: bool = False) -> list[tuple[str, str]]:
     """The columns follow the questionnaire: its switched-on questions in their order, with their short names, so a changed questionnaire changes the files.
     «Свободные койки» and «Занятость, %» follow the occupied beds; when that question is switched off but the period has such data, the block is added at the end."""
     L = tr(lang)
     rows = c.execute("SELECT code, name_ru, name_uz, short_ru, short_uz, active FROM indicators ORDER BY sort").fetchall()
-    extra = [(L("Свободные койки"), "beds_free"), (L("Занятость, %"), "occupancy")]
+    mark = L(" (расч.)") if estimated else ""                       # counted from the admissions, not reported: said in the head of the column
+    extra = [(L("Свободные койки") + mark, "beds_free"), (L("Занятость, %") + mark, "occupancy")]
     cols = []
     for r in rows:
         if r["active"]:
-            cols.append((_heading(r, lang), r["code"]))
+            cols.append((_heading(r, lang) + (mark if r["code"] == "beds_occupied" else ""), r["code"]))
             if r["code"] == "beds_occupied":
                 cols += extra
     if occupancy and not any(code == "beds_occupied" for _, code in cols):
         occ = next((r for r in rows if r["code"] == "beds_occupied"), None)
         if occ:
-            cols += [(_heading(occ, lang), "beds_occupied")] + extra
+            cols += [(_heading(occ, lang) + mark, "beds_occupied")] + extra
     return cols
 
 
@@ -167,7 +168,7 @@ def _coverage(c, user, d1: str, d2: str, region_id, district_id, facility_id, la
 def build(c, user, d1: str, d2: str, region_id=None, district_id=None, facility_id=None, lang: str = "ru") -> dict:
     fac, order = _names(c, lang)
     agg = stats.aggregate(c, user, d1, d2, "facility", region_id, district_id, facility_id)
-    cols = columns(c, lang, occupancy=any("beds_occupied" in t for t in agg.values()))
+    cols = columns(c, lang, occupancy=any("beds_occupied" in t for t in agg.values()), estimated=any(t.get("occ_estimated") for t in agg.values()))
     qs = questions(c, lang)
     rows = []
     for fid, t in sorted(agg.items(), key=lambda kv: (fac if lang == "uz" else order).get(kv[0], ("", "", ""))):
