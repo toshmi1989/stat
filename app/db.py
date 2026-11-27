@@ -271,6 +271,8 @@ INDICATORS = [
      'Все койки учреждения, в том числе не отведённые под грипп и ОРВИ.', 'Muassasadagi barcha o‘rinlar (koykalar) soni, gripp va ORVI uchun ajratilmaganlari ham.', 'last'),
     ('beds_flu', 'beds', 'Из них выделено для больных гриппом и ОРВИ', 'Shundan gripp va ORVI bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni',
      'Из общего числа коек — те, что отведены больным гриппом и ОРВИ.', 'Jami o‘rinlardan gripp va ORVI bilan kasallangan bemorlar uchun ajratilganlari.', 'last'),
+    ('beds_children', 'beds', 'Из них коек для детей', 'Shundan nechtasi bolalar uchun',
+     'Из коек, отведённых больным гриппом и ОРВИ, — те, что предназначены для детей.', 'Gripp va ORVI uchun ajratilgan o‘rinlardan bolalar uchun mo‘ljallanganlari.', 'last'),
     ('visits', 'visits', 'Общее количество обращений', 'Jami murojaatlar soni',
      'Сколько всего человек обратились за отчётный день.', 'Hisobot kuni davomida murojaat qilgan bemorlarning umumiy soni.', 'sum'),
     ('visits_flu', 'visits', 'Из них обращений больных гриппом и ОРВИ', 'Shundan gripp va ORVI bilan kasallangan bemorlar murojaatlari soni',
@@ -298,6 +300,7 @@ RETIRED = ("severe_pregnant", "severe_children")   # asked before the questionna
 
 RULES = [
     ("error", "beds_flu <= beds_total", "Коек для больных гриппом и ОРВИ ({beds_flu}) больше общего числа коек ({beds_total}).", "Грипп ва ОРВИ учун ажратилган ўринлар ({beds_flu}) жами ўринлардан ({beds_total}) кўп."),
+    ("error", "beds_children <= beds_flu", "Коек для детей ({beds_children}) больше коек для больных гриппом и ОРВИ ({beds_flu}).", "Bolalar uchun o‘rinlar ({beds_children}) gripp va ORVI uchun ajratilgan o‘rinlardan ({beds_flu}) ko‘p."),
     ("error", "visits_flu <= visits", "Обращений больных гриппом и ОРВИ ({visits_flu}) больше, чем всего обращений ({visits}).", "Gripp va ORVI bilan kasallangan bemorlar murojaatlari ({visits_flu}) jami murojaatlardan ({visits}) ko‘p."),
     ("error", "hosp_flu <= hosp", "Госпитализированных с гриппом и ОРВИ ({hosp_flu}) больше, чем всего госпитализированных ({hosp}).", "Gripp va ORVI bilan yotqizilganlar ({hosp_flu}) jami yotqizilganlardan ({hosp}) ko‘p."),
     ("error", "occ_pregnant <= hosp_flu", "Беременных ({occ_pregnant}) больше, чем госпитализированных с гриппом и ОРВИ ({hosp_flu}).", "Homilador ayollar ({occ_pregnant}) gripp va ORVI bilan yotqizilganlardan ({hosp_flu}) ko‘p."),
@@ -382,6 +385,7 @@ def init_db() -> None:
         questionnaire_texts_v3(c)
         questionnaire_v4(c)
         questionnaire_short_v1(c)
+        questionnaire_v5(c)
         occupied_unbounded_v4(c)
         if not c.execute("SELECT 1 FROM settings WHERE key='default_lang_uz_v1'").fetchone():     # one time: a database made earlier still has the old default
             c.execute("UPDATE settings SET value='uz' WHERE key='default_lang'")
@@ -471,14 +475,14 @@ def region_heads_v1(c) -> None:
 
 # The questionnaire of the Ministry (13 questions): two new ones (flu visits, flu hospitalized), the discharged moved to the end, «of them» questions tied to the one they add to;
 # the question about the occupied beds is no longer asked (it stays, switched off, with its figures).
-PARENT = {"beds_flu": "beds_total", "visits_flu": "visits", "hosp_flu": "hosp", "occ_pregnant": "hosp_flu", "occ_children": "hosp_flu", "extreme_pregnant": "extreme", "extreme_children": "extreme"}
+PARENT = {"beds_flu": "beds_total", "beds_children": "beds_flu", "visits_flu": "visits", "hosp_flu": "hosp", "occ_pregnant": "hosp_flu", "occ_children": "hosp_flu", "extreme_pregnant": "extreme", "extreme_children": "extreme"}
 OCCUPIED = ("beds_occupied", "beds", "Количество коек, занятых больными гриппом и ОРВИ на конец отчётного дня",
             "Hisobot kuni yakunida gripp va ORVI bilan kasallangan bemorlar band qilgan o‘rinlar soni", "Сколько коек занято больными гриппом и ОРВИ на конец дня.",
             "Hisobot kuni oxirida gripp va ORVI bilan kasallangan bemorlar yotgan o‘rinlar.", "last")
 
 
 SHORT = {                                   # code: (Russian, Uzbek): the heads of the columns of the tables
-    "beds_total": ("Коек всего", "Jami o‘rin"), "beds_flu": ("Для гриппа и ОРВИ", "Gripp va ORVI uchun"), "visits": ("Обращения", "Murojaatlar"),
+    "beds_total": ("Коек всего", "Jami o‘rin"), "beds_children": ("Коек для детей", "Bolalar uchun o‘rin"), "beds_flu": ("Для гриппа и ОРВИ", "Gripp va ORVI uchun"), "visits": ("Обращения", "Murojaatlar"),
     "visits_flu": ("Обращения: грипп и ОРВИ", "Murojaat: gripp va ORVI"), "hosp": ("Госпитализации", "Yotqizilganlar"), "hosp_flu": ("Госпитализ.: грипп и ОРВИ", "Yotqizilgan: gripp va ORVI"),
     "occ_pregnant": ("Беременные", "Homiladorlar"), "occ_children": ("Дети", "Bolalar"), "severe": ("Тяжёлые", "Og‘ir"), "extreme": ("Крайне тяжёлые", "O‘ta og‘ir"),
     "extreme_pregnant": ("Крайне тяжёлые: беременные", "O‘ta og‘ir: homiladorlar"), "extreme_children": ("Крайне тяжёлые: дети", "O‘ta og‘ir: bolalar"),
@@ -493,6 +497,25 @@ def questionnaire_short_v1(c) -> None:
     for code, (ru, uz) in SHORT.items():
         c.execute("UPDATE indicators SET short_ru=?, short_uz=? WHERE code=? AND short_ru='' AND short_uz=''", (ru, uz, code))
     c.execute("INSERT INTO settings(key, value) VALUES ('questionnaire_short_v1', ?)", (now(),))
+
+
+def questionnaire_v5(c) -> None:
+    """One time, for a database that has already had questionnaire_v4: the question «of them for children» right after the beds for flu and ARVI (it adds to that question)."""
+    if c.execute("SELECT 1 FROM settings WHERE key='questionnaire_v5'").fetchone():
+        return
+    if not c.execute("SELECT 1 FROM indicators WHERE code='beds_children'").fetchone():
+        row = c.execute("SELECT sort FROM indicators WHERE code='beds_flu'").fetchone() or c.execute("SELECT sort FROM indicators WHERE code='beds_total'").fetchone()
+        at = (row["sort"] if row else 0) + 1
+        c.execute("UPDATE indicators SET sort=sort+1 WHERE sort>=? AND sort<900", (at,))
+        code, grp, ru, uz, hru, huz, agg = next(x for x in INDICATORS if x[0] == "beds_children")
+        short = SHORT["beds_children"]
+        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, hint_ru, hint_uz, short_ru, short_uz, agg, sort, core, required, parent_code) VALUES (?,?,?,?,?,?,?,?,?,?,1,1,'beds_flu')",
+                  (code, grp, ru, uz, hru, huz, short[0], short[1], agg, at))
+    have = {r["expr"] for r in c.execute("SELECT expr FROM rules")}
+    for kind, expr, ru, uz in RULES:
+        if expr == "beds_children <= beds_flu" and expr not in have:
+            c.execute("INSERT INTO rules(kind, expr, message_ru, message_uz, sort, core) VALUES (?,?,?,?,(SELECT COALESCE(MAX(sort),0)+1 FROM rules),1)", (kind, expr, ru, lat(uz)))
+    c.execute("INSERT INTO settings(key, value) VALUES ('questionnaire_v5', ?)", (now(),))
 
 
 def questionnaire_v4(c) -> None:

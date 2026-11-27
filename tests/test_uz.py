@@ -114,7 +114,7 @@ def test_validation_alerts_and_control_are_written_in_the_language_of_the_cookie
     f = make_facility(1, "Район А", "Больница 1")
     put_report(f, "2026-02-10", beds_flu=40, beds_occupied=39)                            # 97.5% of the beds: a critical alert
     uz, ru = logged_in(), logged_in("ru")
-    full = dict(beds_total=10, beds_flu=20, beds_occupied=5, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6, visits_flu=1, hosp_flu=1)
+    full = dict(beds_total=10, beds_children=2, beds_flu=20, beds_occupied=5, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6, visits_flu=1, hosp_flu=1)
     bad = {"facility_id": f, "date": "2026-02-09", "values": full}
     v = uz.post("/api/validate", json=bad).json()
     assert "Gripp va ORVI uchun ajratilgan o‘rinlar (20) jami o‘rinlardan (10) ko‘p." in v["errors"] and not [m for m in v["errors"] + v["warnings"] if CYR.search(m)]

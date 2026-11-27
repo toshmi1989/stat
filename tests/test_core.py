@@ -6,7 +6,7 @@ def test_rules_block_and_warn(env):
     from app import rules
     from app.db import connect
     c = connect()
-    ok = dict(beds_total=100, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6, visits_flu=1, hosp_flu=1)
+    ok = dict(beds_total=100, beds_children=5, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6, visits_flu=1, hosp_flu=1)
     assert rules.validate(c, ok, "ru", None, None)["errors"] == []
     free = dict(ok, beds_occupied=41)                    # the occupied beds are not limited by the beds for flu and ARVI any more
     assert rules.validate(c, free, "ru", None, None)["errors"] == []

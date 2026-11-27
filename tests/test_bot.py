@@ -80,7 +80,7 @@ def test_region_user_reports_for_any_facility_of_region(bot):
     assert f"sf:{other}" not in flat
     cb(bot, 200200, f"sf:{f2}")
     cb(bot, 200200, f"sd:{f2}:2026-02-10")
-    for a in ["100", "40", "50", "20", "10", "5", "1", "1", "5", "1", "0", "0", "6"]:
+    for a in ["100", "40", "10", "50", "20", "10", "5", "1", "1", "5", "1", "0", "0", "6"]:
         msg(bot, 200200, a)
     msg(bot, 200200, NOTE_SKIP)
     cb(bot, 200200, "ok")
@@ -125,7 +125,7 @@ def test_form_validation_blocks_and_saves(bot):
     assign(100103, fid)
     cb(bot, 100103, f"sf:{fid}")
     cb(bot, 100103, f"sd:{fid}:2026-02-10")
-    answers = ["100", "40", "50", "20", "10", "5", "1", "1", "5", "1", "0", "0", "6"]
+    answers = ["100", "40", "10", "50", "20", "10", "5", "1", "1", "5", "1", "0", "0", "6"]
     for a in answers:
         msg(bot, 100103, a)
     msg(bot, 100103, NOTE_SKIP)
@@ -282,7 +282,7 @@ def test_typed_word_yesterday(bot):
     assert "2026-02-09" in last(700705)
 
 
-ANS = ["100", "40", "50", "20", "10", "5", "1", "1", "5", "1", "0", "0", "6"]
+ANS = ["100", "40", "10", "50", "20", "10", "5", "1", "1", "5", "1", "0", "0", "6"]
 
 
 def send_report(uid, f, d, answers):
@@ -309,7 +309,7 @@ def test_repeat_submission_is_compared_and_needs_confirmation(bot):
     cb(bot, 700703, f"sd:{f}:2026-02-10")
     assert "уже отправлена" in " ".join(t for c, t, m in SENT)
     for i, a in enumerate(ANS):
-        msg(bot, 700703, "70" if i == 2 else f"↩️ Оставить: {a}")
+        msg(bot, 700703, "70" if i == 3 else f"↩️ Оставить: {a}")
     msg(bot, 700703, NOTE_SKIP)
     prev = last(700703)
     assert "50 → <b>70</b>" in prev and prev.count("→ <b>") == 1
@@ -395,25 +395,31 @@ def test_questionnaire_in_uzbek_latin_with_clear_questions_and_limits(bot):
         c.execute("UPDATE tg_users SET lang='uz' WHERE tg_id=700790")
     cb(bot, 700790, f"sd:{f}:2026-02-10")
     q1 = last(700790)
-    assert "1-savol / 14" in q1 and "Jami o‘rinlar soni" in q1
+    assert "1-savol / 15" in q1 and "Jami o‘rinlar soni" in q1
     assert "Muassasadagi" not in q1 and "raqamlar bilan" not in q1 and "O‘rinlar fondi" not in q1          # only the question: no explanations, no section titles
     assert "Son" in SENT[-1][2]["input_field_placeholder"]                                               # «write a number» is the placeholder of the input field
     assert not any("а" <= ch.lower() <= "я" for ch in q1.replace("Больница", ""))                # no Cyrillic in the questions of the Uzbek bot
     msg(bot, 700790, "40")
     q2 = last(700790)
-    assert "2-savol / 14" in q2 and "Shundan gripp va ORVI bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni" in q2 and "1-savolga qo‘shimcha:</i> Jami o‘rinlar soni: <b>40</b>" in q2
+    assert "2-savol / 15" in q2 and "Shundan gripp va ORVI bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni" in q2 and "1-savolga qo‘shimcha:</i> Jami o‘rinlar soni: <b>40</b>" in q2
     SENT.clear()
     msg(bot, 700790, "50")                                                                           # more than the answer to question 1
     both = " ".join(t for c, t, m in SENT)
-    assert "<b>40</b> dan oshmasligi kerak" in both and "2-savol / 14" in last(700790)                      # told at once, and the same question again
-    msg(bot, 700790, "30"); msg(bot, 700790, "5")                                                    # 2: 30, 3: 5 visits
-    assert "4-savol / 14" in last(700790)
-    for a in ["2", "3", "2", "1", "1", "4", "1", "0", "0", "1"]:                                      # questions 4..13 (flu visits 2 <= 5; hospitalised 3, with flu 2; 7 and 8 <= 2; severe 4 <= visits 5)
+    assert "<b>40</b> dan oshmasligi kerak" in both and "2-savol / 15" in last(700790)                      # told at once, and the same question again
+    msg(bot, 700790, "30")                                                                           # 2: 30 beds for flu
+    q3 = last(700790)
+    assert "3-savol / 15" in q3 and "Shundan nechtasi bolalar uchun" in q3 and "2-savolga qo‘shimcha:</i> Shundan gripp va ORVI bilan kasallangan bemorlar uchun ajratilgan o‘rinlar soni: <b>30</b>" in q3
+    SENT.clear()
+    msg(bot, 700790, "31")                                                                           # more children's beds than the beds for flu
+    assert "<b>30</b> dan oshmasligi kerak" in " ".join(t for c, t, m in SENT) and "3-savol / 15" in last(700790)
+    msg(bot, 700790, "5"); msg(bot, 700790, "5")                                                    # 3: 5 children's beds, 4: 5 visits
+    assert "5-savol / 15" in last(700790)
+    for a in ["2", "3", "2", "1", "1", "4", "1", "0", "0", "1"]:                                      # questions 5..14 (flu visits 2 <= 5; hospitalised 3, with flu 2; 7 and 8 <= 2; severe 4 <= visits 5)
         msg(bot, 700790, a)
-    assert "14-savol / 14" in last(700790) and "Sog‘liqni saqlash vazirligiga xabar" in last(700790) and "maxfiy" in last(700790)
+    assert "15-savol / 15" in last(700790) and "Sog‘liqni saqlash vazirligiga xabar" in last(700790) and "maxfiy" in last(700790)
     msg(bot, 700790, "⏭ Xabarsiz davom etish")
     prev = last(700790)
-    assert "6. Shundan gripp va ORVI bilan kasallangan bemorlar soni: <b>2</b>" in prev and "13. " in prev
+    assert "7. Shundan gripp va ORVI bilan kasallangan bemorlar soni: <b>2</b>" in prev and "14. " in prev
 
 
 def test_new_users_get_uzbek_by_default_and_the_menu_buttons_work_in_latin(bot):
@@ -684,9 +690,9 @@ def test_the_bot_asks_the_questionnaire_that_was_edited_on_the_site(bot):
     f = make_facility(1, "Район А", "Больница В1"); assign(820001, f)
     cb(bot, 820001, f"sf:{f}"); cb(bot, 820001, f"sd:{f}:2026-02-10")
     asked = []
-    for a in ["100", "40", "50", "10", "6", "5", "20", "5", "1"]:                                       # the nine core questions that are left, in their order
+    for a in ["100", "40", "10", "50", "10", "6", "5", "20", "5", "1"]:                                  # the ten core questions that are left, in their order
         asked.append(last(820001)); msg(bot, 820001, a)
-    assert "Вопрос 1 из 11" in asked[0] and "Вопрос 9 из 11" in asked[8] and "Необязательный вопрос" in last(820001) and "Вопрос 10 из 11" in last(820001)      # 10 questions and the message to the Ministry
+    assert "Вопрос 1 из 12" in asked[0] and "Вопрос 10 из 12" in asked[9] and "Необязательный вопрос" in last(820001) and "Вопрос 11 из 12" in last(820001)      # 10 questions and the message to the Ministry
     kb = [x["text"] for row in [m for c_, t_, m in SENT if c_ == "820001" and m][-1]["keyboard"] for x in row]
     assert "⏭ Пропустить вопрос" in kb                                                                  # an optional question has a skip button
     msg(bot, 820001, "⏭ Пропустить вопрос")
@@ -710,7 +716,9 @@ def test_the_limit_at_a_question_comes_from_the_rules_and_the_last_question_can_
         c.execute("DELETE FROM rules WHERE expr='beds_flu <= beds_total'")
         c.execute("INSERT INTO rules(kind, expr, message_ru, message_uz, sort) VALUES ('error','visits <= beds_flu','m','m',99)")      # and writes a new one
     msg(bot, 820002, "150")
-    assert "Не больше" in last(820002) and "(вопрос 2)" in last(820002)                                # now the visits (question 3) are limited by the second answer
+    assert "Уточнение к вопросу 2" in last(820002)                                                      # the children's beds (question 3) add to the beds for flu
+    msg(bot, 820002, "10")
+    assert "Не больше" in last(820002) and "(вопрос 2)" in last(820002)                                # now the visits (question 4) are limited by the second answer
     with tx() as c:
         c.execute("UPDATE settings SET value='0' WHERE key='note_enabled'")
         c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES ('q_hints','1')")
