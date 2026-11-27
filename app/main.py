@@ -271,7 +271,7 @@ def api_me(request: Request):
         return {"id": u["id"], "login": u["login"], "name": u["name"], "role": u["role"], "role_label": auth.ROLES[u["role"]], "regions": u["regions"],
                 "can_manage_users": bool(u["can_manage_users"]) or auth.is_super(u), "can_manage_territories": auth.can_territories(u), "can_edit_reports": bool(u["can_edit_reports"]) and auth.can_write(u),
                 "today": today().isoformat(), "bot": tg.bot_username() if tg.configured() else "", "bot_configured": tg.configured(),
-                "thresholds": {"elevated": float(st["occ_elevated"]), "critical": float(st["occ_critical"])}, "org": st["org_title"],
+                "thresholds": {"elevated": float(st["occ_elevated"]), "critical": float(st["occ_critical"]), "stay_days": stats.stay_days(c)}, "org": st["org_title"],
                 "messages_unread": c.execute("SELECT COUNT(*) FROM ministry_messages WHERE read_at='' AND direction='in'").fetchone()[0] if auth.is_super(u) else 0,
                 "proposals_new": proposals_new(c, u)}
     finally:
@@ -1625,7 +1625,7 @@ async def api_rule_test(request: Request):
 
 
 NUM = {"deadline_day_offset": (0, 3), "backfill_days": (0, 14), "edit_window_hours": (0, 720), "lock_after_days": (0, 60), "occ_elevated": (1, 100), "occ_critical": (1, 100),
-       "fac_occ_warn": (1, 100), "growth_warn_pct": (1, 1000), "growth_crit_pct": (1, 1000), "severe_growth_pct": (1, 1000), "hosp_growth_pct": (1, 1000)}
+       "stay_days": (1, 30), "fac_occ_warn": (1, 100), "growth_warn_pct": (1, 1000), "growth_crit_pct": (1, 1000), "severe_growth_pct": (1, 1000), "hosp_growth_pct": (1, 1000)}
 TIMES = ("deadline_time", "admin_summary_time", "admin_overdue_time")
 
 

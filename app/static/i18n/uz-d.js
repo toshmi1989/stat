@@ -180,4 +180,11 @@ Object.assign(window.UZ, {
   "Охват, %": "Qamrov, %",
   "ИТОГО": "JAMI",
   "Выделено коек для гриппа и ОРВИ: <b>{b}</b>": "Gripp va ORVI uchun ajratilgan o‘rinlar: <b>{b}</b>",
+  "Загрузка коек (расч.)": "O‘rinlar bandligi (hisoblangan)",
+  "Нагрузка по регионам (расч.)": "Hududlar bo‘yicha yuklama (hisoblangan)",
+  " (расч.)": " (hisoblangan)",
+  "Расчётно занято <b>{a}</b> из <b>{b}</b> выделенных · свободно <b>{c}</b>": "Ajratilgan <b>{b}</b> o‘rindan taxminan <b>{a}</b> tasi band · bo‘sh <b>{c}</b>",
+  "Считается по числу поступивших с гриппом и ОРВИ за последние {n} дн. (средний срок лечения)": "So‘nggi {n} kunda gripp va ORVI bilan yotqizilganlar soniga ko‘ra hisoblanadi (o‘rtacha davolanish muddati)",
+  "Загрузка расчётная: по числу поступивших с гриппом и ОРВИ за последние {n} дн. (средний срок лечения). Предупреждения по ней не рассылаются.": "Bandlik hisoblangan: so‘nggi {n} kunda gripp va ORVI bilan yotqizilganlar soniga ko‘ra (o‘rtacha davolanish muddati). U bo‘yicha ogohlantirishlar yuborilmaydi.",
+  "Средний срок лечения, дней (для расчётной загрузки коек)": "O‘rtacha davolanish muddati, kun (o‘rinlar bandligini hisoblash uchun)",
 })

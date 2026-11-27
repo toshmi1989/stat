@@ -142,7 +142,7 @@ async function dashboard(silent) {
   try { dash = await api("/api/dashboard?" + (F.preset === "day" ? qs({ date: d1, region_id: F.region_id, district_id: F.district_id, facility_id: F.facility_id }) : scopeQ())); } catch (e) { return fail(e); }
   if (nav !== NAVID || !$("#dash")) return;                          // moved to another page while the data was coming
   const k = dash.kpis, th = ME.thresholds, t = k.totals;
-  NO_OCC = t.occupancy == null && t.beds_occupied == null;                 // no data about the occupied beds: the cards about the occupancy are not drawn
+  OCC_EST = !!t.occ_estimated; NO_OCC = t.occupancy == null && t.beds_occupied == null;                 // no data about the occupied beds: the cards about the occupancy are not drawn
   const occState = t.occupancy == null ? "" : t.occupancy >= th.critical ? "critical" : t.occupancy >= th.elevated ? "warning" : "";
   const isToday = F.preset === "day" && dash.requested === ME.today;
   const canWrite = ME.role !== "viewer";
@@ -154,10 +154,10 @@ async function dashboard(silent) {
     <div class="kpis">${KPI.map(([key, label, ic, tone], i) => `<div class="kpi tilt" data-t="${tone}" style="--i:${i}" title="${esc(askedAs(key))}"><div class="ic">${ic}</div><div class="v">${kpiValue(key, k)}</div><div class="l">${label}</div></div>`).join("")}</div>
     <div class="topgrid">${mapCard()}<div class="sidecol">
       ${NO_OCC ? `<div class="card vcard"><h3>${T("Койки")}</h3><div class="cap" style="margin-top:8px">${T("Выделено коек для гриппа и ОРВИ: <b>{b}</b>", { b: num(t.beds_flu) })}<br>${T("Всего коек в учреждениях: <b>{n}</b>", { n: num(t.beds_total) })}</div></div>`
-        : `<div class="card vcard"><h3>${T("Загрузка коек")}</h3>${gaugeChart(t.occupancy, th)}<div class="cap">${T("Занято <b>{a}</b> из <b>{b}</b> выделенных · свободно <b>{c}</b>", { a: num(t.beds_occupied), b: num(t.beds_flu), c: num(t.beds_free) })}<br>${T("Всего коек в учреждениях: <b>{n}</b>", { n: num(t.beds_total) })}</div></div>`}
+        : `<div class="card vcard"><h3>${OCC_EST ? T("Загрузка коек (расч.)") : T("Загрузка коек")}</h3>${gaugeChart(t.occupancy, th)}<div class="cap">${T(OCC_EST ? "Расчётно занято <b>{a}</b> из <b>{b}</b> выделенных · свободно <b>{c}</b>" : "Занято <b>{a}</b> из <b>{b}</b> выделенных · свободно <b>{c}</b>", { a: num(t.beds_occupied), b: num(t.beds_flu), c: num(t.beds_free) })}${OCC_EST ? `<div class="muted sm">${T("Считается по числу поступивших с гриппом и ОРВИ за последние {n} дн. (средний срок лечения)", { n: th.stay_days })}</div>` : ""}<br>${T("Всего коек в учреждениях: <b>{n}</b>", { n: num(t.beds_total) })}</div></div>`}
       <div class="card vcard"><h3>${T("Поступили и выписаны")}</h3>${flowCard(t.hosp, t.disch)}</div></div></div>
     <div id="alerts" data-keep></div>
-    ${NO_OCC ? rankCard : `<div class="grid2"><div class="card"><h2>${T("Нагрузка по регионам")}</h2><div id="tiles" data-keep>…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>${T("норма до {n}%", { n: th.elevated })}</span><span><i style="background:var(--warn)"></i>${T("повышенная до {n}%", { n: th.critical })}</span><span><i style="background:var(--bad)"></i>${T("критическая от {n}%", { n: th.critical })}</span></div></div>${rankCard}</div>`}
+    ${NO_OCC ? rankCard : `<div class="grid2"><div class="card"><h2>${OCC_EST ? T("Нагрузка по регионам (расч.)") : T("Нагрузка по регионам")}</h2><div id="tiles" data-keep>…</div><div class="legend-dots"><span><i style="background:var(--ok)"></i>${T("норма до {n}%", { n: th.elevated })}</span><span><i style="background:var(--warn)"></i>${T("повышенная до {n}%", { n: th.critical })}</span><span><i style="background:var(--bad)"></i>${T("критическая от {n}%", { n: th.critical })}</span></div></div>${rankCard}</div>`}
     <div class="card"><div class="row"><h2>${T("Регионы")}</h2><div class="seg" id="rt-v"><button data-v="data" class="${RT_VIEW === "data" ? "on" : ""}">${T("Показатели")}</button><button data-v="sum" class="${RT_VIEW === "sum" ? "on" : ""}">${T("Сводка")}</button></div><input id="rt-q" placeholder="${T("Поиск")}" class="right"></div><div class="scroll-x" id="rt" data-keep></div></div>
     <div class="grid2"><div class="card"><h3>${T("Динамика")}</h3><div class="lbl">${T("Показатель")}</div><div class="chips" id="dyn-m" data-keep></div><div class="lbl">${T("Сравнить регионы")} <span class="muted">${T("(до 5)")}</span></div><div class="chips" id="dyn-r" data-keep></div><div id="dyn" data-keep></div></div>
     <div class="card"><h3>${T("Госпитализации и выписки")}</h3><div id="hd" data-keep></div></div></div>
@@ -243,7 +243,8 @@ async function loadTable(d1, d2, silent) {
   let r; try { r = await api("/api/regions-table?" + qs({ d1, d2, level, parent_id: pid })); } catch (e) { return fail(e); }
   if (!$("#rt-q")) return;   // the person has already left the dashboard
   const act = (META.indicators || []).filter(x => x.active);           // the columns follow the questionnaire: its questions in their order, with their short names
-  const occ = [["beds_occupied", labelOf("beds_occupied")], ["beds_free", T("Свободно")], ["occupancy", T("Загрузка")]];
+  const est = r.rows.some(x => x.values.occ_estimated) ? T(" (расч.)") : "";
+  const occ = [["beds_occupied", labelOf("beds_occupied") + est], ["beds_free", T("Свободно") + est], ["occupancy", T("Загрузка") + est]];
   const hasOcc = r.rows.some(x => x.values.occupancy != null || x.values.beds_occupied != null);
   const cols = [["name", T("Название")], ["reported", T("Отчёты")]];
   act.forEach(x => { cols.push([x.code, indShort(x)]); if (x.code === "beds_occupied") cols.push(occ[1], occ[2]); });
@@ -287,7 +288,7 @@ async function loadBeds(d1, d2, silent) {
   try {
     const r = await api("/api/beds?" + qs({ d1, d2 })); const th = r.thresholds;
     if (!$("#beds")) return;
-    H($("#beds"), silent).innerHTML = `<p class="muted sm">${T("Пороги: повышенная нагрузка ≥ {a}%, критическая ≥ {b}%, учреждение ≥ {c}%.", { a: th.elevated, b: th.critical, c: th.facility })}</p><table><tr><th>${T("Регион")}</th><th class="n">${T("Коек для гриппа и ОРВИ")}</th><th class="n">${T("Занято")}</th><th class="n">${T("Свободно")}</th><th class="n">${T("Загрузка")}</th><th>${T("Состояние")}</th></tr>${r.rows.map(x => `<tr><td>${esc(rname(x.name))}</td><td class="n">${num(x.beds_flu)}</td><td class="n">${num(x.occupied)}</td><td class="n">${num(x.free)}</td><td class="n">${x.occupancy == null ? "—" : num(x.occupancy) + "%"}</td><td>${pill(x.state)}</td></tr>`).join("")}</table>` +
+    H($("#beds"), silent).innerHTML = `${r.estimated ? `<p class="muted sm">${T("Загрузка расчётная: по числу поступивших с гриппом и ОРВИ за последние {n} дн. (средний срок лечения). Предупреждения по ней не рассылаются.", { n: r.stay_days })}</p>` : ""}<p class="muted sm">${T("Пороги: повышенная нагрузка ≥ {a}%, критическая ≥ {b}%, учреждение ≥ {c}%.", { a: th.elevated, b: th.critical, c: th.facility })}</p><table><tr><th>${T("Регион")}</th><th class="n">${T("Коек для гриппа и ОРВИ")}</th><th class="n">${T("Занято")}</th><th class="n">${T("Свободно")}</th><th class="n">${T("Загрузка")}</th><th>${T("Состояние")}</th></tr>${r.rows.map(x => `<tr><td>${esc(rname(x.name))}</td><td class="n">${num(x.beds_flu)}</td><td class="n">${num(x.occupied)}</td><td class="n">${num(x.free)}</td><td class="n">${x.occupancy == null ? "—" : num(x.occupancy) + "%"}</td><td>${pill(x.state)}</td></tr>`).join("")}</table>` +
       (r.hot.length ? `<h3 class="mt">${T("Учреждения с высокой загрузкой")}</h3><table><tr><th>${T("Учреждение")}</th><th>${T("Регион")}</th><th class="n">${T("Загрузка")}</th><th class="n">${T("Свободно")}</th></tr>${r.hot.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(rname(x.region))}${x.district === "Без района" ? "" : ", " + esc(x.district)}</td><td class="n"><span class="pill critical">${num(x.occupancy)}%</span></td><td class="n">${num(x.free)}</td></tr>`).join("")}</table>` : "");
   } catch (e) { fail(e); }
 }
@@ -867,7 +868,7 @@ const SET = [["deadline_time", "Срок сдачи (время)", "time"], ["de
   ["allow_user_edit", "Ответственный может исправлять свой отчёт (1/0)", "number"], ["edit_window_hours", "Окно правки для ответственного, часов", "number"], ["lock_after_days", "Закрывать отчёт для правок через, дней", "number"],
   ["remind_enabled", "Напоминания включены (1/0)", "number"], ["remind_times", "Время напоминаний (через запятую, ЧЧ:ММ)", "text"], ["remind_weekdays", "Дни напоминаний (1=пн … 7=вс)", "text"],
   ["admin_summary_time", "Сводка администраторам (время)", "time"], ["admin_overdue_time", "Список не сдавших (время)", "time"],
-  ["occ_elevated", "Порог: повышенная нагрузка, %", "number"], ["occ_critical", "Порог: критическая загрузка, %", "number"], ["fac_occ_warn", "Порог для учреждения, %", "number"],
+  ["occ_elevated", "Порог: повышенная нагрузка, %", "number"], ["occ_critical", "Порог: критическая загрузка, %", "number"], ["fac_occ_warn", "Порог для учреждения, %", "number"], ["stay_days", "Средний срок лечения, дней (для расчётной загрузки коек)", "number"],
   ["growth_warn_pct", "Рост обращений: предупреждение, %", "number"], ["growth_crit_pct", "Рост: тревога, %", "number"], ["severe_growth_pct", "Рост тяжёлых, %", "number"], ["hosp_growth_pct", "Рост госпитализаций, %", "number"], ["org_title", "Название организации (для отчётов)", "text"]];
 async function settings() {
   const nav = NAVID;                                         // this page's number: a late answer after the person moved on must not draw over the new page

@@ -313,7 +313,7 @@ SETTINGS = {
     "deadline_time": "18:00", "deadline_day_offset": "0", "backfill_days": "2",
     "remind_enabled": "1", "remind_times": "15:00,17:30", "remind_weekdays": "1,2,3,4,5,6,7", "admin_summary_time": "18:30", "admin_overdue_time": "20:00",
     "allow_user_edit": "1", "edit_window_hours": "24", "lock_after_days": "3",
-    "occ_elevated": "70", "occ_critical": "85", "fac_occ_warn": "90",
+    "occ_elevated": "70", "occ_critical": "85", "fac_occ_warn": "90", "stay_days": "5",
     "growth_warn_pct": "30", "growth_crit_pct": "60", "severe_growth_pct": "25", "hosp_growth_pct": "30",
     "note_enabled": "1", "q_hints": "0", "default_lang": "uz", "org_title": "Министерство здравоохранения Республики Узбекистан",
 }

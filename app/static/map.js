@@ -1,7 +1,7 @@
 // Map of Uzbekistan: regions pulse by the numbers the regions report. Outlines: uzmap.js (tools/build_map.py).
 const MAP_METRICS = [["occupancy", T("Загрузка коек"), "%"], ["visits", T("Обращения"), ""], ["severe", T("Тяжёлые"), ""], ["extreme", T("Крайне тяжёлые"), ""], ["not_reported", T("Не сдали отчёт"), ""]];
-let MAPM = "occupancy", NO_OCC = false;                       // NO_OCC: nobody reports the occupied beds (the question is switched off): no occupancy view
-const mapMetrics = () => NO_OCC ? MAP_METRICS.filter(x => x[0] !== "occupancy") : MAP_METRICS;
+let MAPM = "occupancy", NO_OCC = false, OCC_EST = false;                       // NO_OCC: nobody reports the occupied beds (the question is switched off): no occupancy view
+const mapMetrics = () => (NO_OCC ? MAP_METRICS.filter(x => x[0] !== "occupancy") : MAP_METRICS).map(x => x[0] === "occupancy" && OCC_EST ? [x[0], T("Загрузка коек (расч.)"), x[2]] : x);
 // The views change by themselves every 3 seconds; a view the person picks stays for a minute, then the changing goes on.
 const MAP_AUTO = { every: 3, pinSec: 60, tick: 0, pinnedUntil: 0, draw: null, timer: null };
 const mapCaption = () => { const left = Math.ceil((MAP_AUTO.pinnedUntil - Date.now()) / 1000);
