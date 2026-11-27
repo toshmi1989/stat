@@ -266,7 +266,7 @@ details>summary{cursor:pointer}
 #rt-v{margin-left:14px}
 .sumtab{min-width:0;width:auto;max-width:100%;table-layout:auto}.sumtab th,.sumtab td{padding:6px 10px}.sumtab td:first-child,.sumtab th:first-child{min-width:200px}.sumtab th{vertical-align:middle;white-space:nowrap}.sumtab th.n,.sumtab td.n{text-align:right}
 .sumtab td.cv2{width:230px}.sumtab th.n:last-child{text-align:left}
-.sumtab tr.total td{font-weight:700;border-top:2px solid var(--line);background:var(--grey)}
+.rtab tr.total td,.sumtab tr.total td{font-weight:700;border-top:2px solid var(--line);background:var(--grey)}
 .sumtab .bad-t{color:var(--bad);font-weight:600}
 .cov{display:flex;align-items:center;gap:10px}.cov .pill{width:58px;text-align:center;flex:none;padding-left:0;padding-right:0}
 .cbar{flex:1;min-width:110px;height:8px;border-radius:4px;background:var(--grey);overflow:hidden}.cbar i{display:block;height:100%;border-radius:4px;background:var(--mut)}

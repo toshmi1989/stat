@@ -269,6 +269,13 @@ async function loadTable(d1, d2, silent) {
     $("#up0").onclick = e => { e.preventDefault(); DRILL.length = 0; loadTable(d1, d2); };
     document.querySelectorAll("[data-up]").forEach(a => a.onclick = e => { e.preventDefault(); DRILL.length = +a.dataset.up + 1; loadTable(d1, d2); });
   };
+  const totalRow = (rows, cols) => {                                      // the total of the columns over the rows shown: the republic (or the region, the district) as a whole
+    const th = ME.thresholds, sumOf = k => { const v = rows.map(x => x.values[k]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) : null; };
+    const occ = sumOf("beds_occupied"), flu = sumOf("beds_flu"), p = occ != null && flu ? Math.round(1000 * occ / flu) / 10 : null;
+    const state = p == null ? "" : p >= th.critical ? "critical" : p >= th.elevated ? "elevated" : "normal";
+    const rep = rows.reduce((a, x) => a + x.reported, 0), fac = rows.reduce((a, x) => a + x.facilities, 0);
+    return `<tr class="total"><td>${T("ИТОГО")}</td><td class="n">${rep}/${fac}</td>${cols.slice(2).map(([k]) => k === "occupancy" ? `<td class="n">${p == null ? "—" : `<span class="pill ${state}">${num(p)}%</span>`}</td>` : `<td class="n">${num(sumOf(k))}</td>`).join("")}</tr>`;
+  };
   const draw = sl => {
     if (RT_VIEW === "sum") return drawSum(sl);
     const q = ($("#rt-q").value || "").toLowerCase();
@@ -276,7 +283,7 @@ async function loadTable(d1, d2, silent) {
     const rows = r.rows.filter(x => dn(x).toLowerCase().includes(q)).sort((a, b) => { const A = val(a, SORT.key), B = val(b, SORT.key); const c = typeof A === "string" ? A.localeCompare(B, LANG === "uz" ? "uz" : "ru") : (A ?? -1) - (B ?? -1); return SORT.asc ? c : -c; });
     const manyDistricts = new Set(r.rows.map(x => x.district)).size > 1;
     const crumbs = `<div class="crumbs"><button class="btn sm${DRILL.length ? "" : " on"}" id="up0">${T("Республика")}</button>${DRILL.map((d, i) => `<span class="sep">›</span><button class="btn sm${i === DRILL.length - 1 ? " on" : ""}" data-up="${i}">${esc(rname(d.name))}</button>`).join("")}</div>`;
-    H($("#rt"), sl).innerHTML = crumbs + `<table class="rtab"><colgroup>${cols.map(([k]) => `<col class="${k === "name" ? "cn" : "cv"}">`).join("")}</colgroup><tr>${cols.map(([k, l]) => `<th data-s="${k}" class="${k !== "name" ? "n " : ""}${SORT.key === k ? "on" + (SORT.asc ? " asc" : "") : ""}" title="${esc(l)}">${k === "name" ? l : `<span class="vt">${esc(l)}</span>`}</th>`).join("")}</tr>${rows.map(x => `<tr class="${level === "region" ? "link" : ""}" data-id="${x.id}" data-name="${esc(x.name)}"><td>${esc(dn(x))}${level === "rfac" && manyDistricts ? `<div class="muted sm">${esc(x.district || "")}</div>` : ""}</td><td class="n">${x.reported}/${x.facilities}</td>${cols.slice(2).map(([k]) => k === "occupancy" ? `<td class="n">${x.values.occupancy == null ? "—" : `<span class="pill ${x.level_state === "none" ? "" : x.level_state}">${num(x.values.occupancy)}%</span>`}</td>` : `<td class="n">${num(x.values[k])}</td>`).join("")}</tr>`).join("")}</table>`;
+    H($("#rt"), sl).innerHTML = crumbs + `<table class="rtab"><colgroup>${cols.map(([k]) => `<col class="${k === "name" ? "cn" : "cv"}">`).join("")}</colgroup><tr>${cols.map(([k, l]) => `<th data-s="${k}" class="${k !== "name" ? "n " : ""}${SORT.key === k ? "on" + (SORT.asc ? " asc" : "") : ""}" title="${esc(l)}">${k === "name" ? l : `<span class="vt">${esc(l)}</span>`}</th>`).join("")}</tr>${rows.map(x => `<tr class="${level === "region" ? "link" : ""}" data-id="${x.id}" data-name="${esc(x.name)}"><td>${esc(dn(x))}${level === "rfac" && manyDistricts ? `<div class="muted sm">${esc(x.district || "")}</div>` : ""}</td><td class="n">${x.reported}/${x.facilities}</td>${cols.slice(2).map(([k]) => k === "occupancy" ? `<td class="n">${x.values.occupancy == null ? "—" : `<span class="pill ${x.level_state === "none" ? "" : x.level_state}">${num(x.values.occupancy)}%</span>`}</td>` : `<td class="n">${num(x.values[k])}</td>`).join("")}</tr>`).join("") + totalRow(rows, cols)}</table>`;
     document.querySelectorAll("#rt th[data-s]").forEach(th => th.onclick = () => { SORT.asc = SORT.key === th.dataset.s ? !SORT.asc : false; SORT.key = th.dataset.s; draw(); });
     document.querySelectorAll("#rt tr.link").forEach(tr => tr.onclick = () => { DRILL.push({ id: tr.dataset.id, name: tr.dataset.name }); loadTable(d1, d2); });
     $("#up0").onclick = e => { e.preventDefault(); DRILL.length = 0; loadTable(d1, d2); };
