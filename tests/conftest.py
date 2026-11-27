@@ -49,7 +49,7 @@ def make_facility(region=1, district="Район А", fac="Больница 1"):
 def put_report(fid, date, **v):
     from app import reports
     from app.db import tx
-    base = dict(beds_total=100, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6, visits_flu=1, hosp_flu=1)
+    base = dict(beds_total=100, beds_children=5, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6, visits_flu=1, hosp_flu=1)
     base.update(v)
     with tx() as c:
         return reports.admin_save(c, fid, date, base, "тест", {"kind": "staff", "id": 1, "name": "admin"})

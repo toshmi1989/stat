@@ -45,7 +45,7 @@ def test_an_optional_question_may_stay_empty_and_a_required_one_may_not(client):
     code = client.post("/api/indicators", json={"name_ru": "Необязательный", "agg": "sum", "required": False}).json()["code"]
     must = client.post("/api/indicators", json={"name_ru": "Обязательный", "agg": "sum"}).json()["code"]
     c = connect()
-    full = dict(beds_total=100, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6, visits_flu=1, hosp_flu=1)
+    full = dict(beds_total=100, beds_children=5, beds_flu=40, beds_occupied=20, visits=50, severe=5, occ_pregnant=1, occ_children=1, extreme=1, extreme_pregnant=0, extreme_children=0, hosp=10, disch=6, visits_flu=1, hosp_flu=1)
     res = rules.validate(c, full | {must: 1}, "ru", None, None)
     assert res["errors"] == []                                                                         # the optional one is absent, and that is fine
     res = rules.validate(c, full, "ru", None, None)
@@ -72,13 +72,13 @@ def test_the_note_and_the_hints_are_switches_in_the_settings(client):
 def test_the_preview_shows_what_the_bot_sends(client):
     from app.db import connect
     r = client.get("/api/questionnaire/preview?lang=uz").json()
-    assert r["lang"] == "uz" and len(r["items"]) == 14 and r["items"][0]["code"] == "beds_total" and "1-savol / 14" in r["items"][0]["text"] and r["items"][-1]["code"] == "__note"
+    assert r["lang"] == "uz" and len(r["items"]) == 15 and r["items"][0]["code"] == "beds_total" and "1-savol / 15" in r["items"][0]["text"] and r["items"][-1]["code"] == "__note"
     assert "Jami o‘rinlar" in r["items"][0]["text"] and "Hozir" not in r["items"][0]["text"]
     sev = next(x for x in r["items"] if x["code"] == "severe")["text"]
     assert "Ko‘pi bilan" in sev and "(2-savol)" not in sev and "…" in sev                              # a limit that comes from a rule: «not more than the answer to question N»
     client.put("/api/settings", json={"q_hints": "1", "note_enabled": "0"})
     r = client.get("/api/questionnaire/preview?lang=ru").json()
-    assert len(r["items"]) == 13 and r["items"][-1]["code"] != "__note" and "Все койки учреждения" in r["items"][0]["text"] and "Вопрос 1 из 13" in r["items"][0]["text"]
+    assert len(r["items"]) == 14 and r["items"][-1]["code"] != "__note" and "Все койки учреждения" in r["items"][0]["text"] and "Вопрос 1 из 14" in r["items"][0]["text"]
     assert client.get("/api/questionnaire/preview").status_code == 200
 
 
@@ -119,10 +119,10 @@ def test_excel_follows_the_questionnaire(client):
     put_report(f, "2026-02-09", visits_flu=7, hosp_flu=3)
     wb = _book(client)
     detail = _heads(wb["Детальная информация"])
-    assert detail[:7] == ["№", "Регион", "Район", "Учреждение", "Коек всего", "Для гриппа и ОРВИ", "Обращения"] and "Обращения: грипп и ОРВИ" in detail and "Госпитализ.: грипп и ОРВИ" in detail
+    assert detail[:8] == ["№", "Регион", "Район", "Учреждение", "Коек всего", "Для гриппа и ОРВИ", "Коек для детей", "Обращения"] and "Обращения: грипп и ОРВИ" in detail and "Госпитализ.: грипп и ОРВИ" in detail
     assert "Занято" in detail and "Занятость, %" in detail                                       # the occupied beds have data in this period: their block is shown
     q = [[c.value for c in r] for r in wb["Вопросы"].iter_rows()]
-    assert any(r[1] == "Обращения: грипп и ОРВИ" and r[2].startswith("Из них обращений больных гриппом") and r[3] == 3 for r in q if len(r) > 3 and isinstance(r[3], int))   # the number of the question it adds to
+    assert any(r[1] == "Обращения: грипп и ОРВИ" and r[2].startswith("Из них обращений больных гриппом") and r[3] == 4 for r in q if len(r) > 3 and isinstance(r[3], int))   # the number of the question it adds to
     # the questionnaire is edited on the site: a question switched off disappears from the files, a new one appears with its short name
     client.patch("/api/indicators/severe", json={"active": False})
     client.post("/api/indicators", json={"name_ru": "Новый показатель", "short_ru": "Новый", "agg": "sum"})
@@ -192,3 +192,21 @@ def test_occupancy_is_counted_from_the_admissions_when_the_occupied_beds_are_not
     client.put("/api/settings", json={"stay_days": "3"})
     assert stats.aggregate(connect(), user, "2026-02-10", "2026-02-10", "all")["all"]["beds_occupied"] == 2 + 5 + 7
     assert not [a for a in client.get("/api/alerts").json()["items"] if a["kind"] in ("occupancy", "facility_occupancy")]   # an estimate gives no alarm
+
+
+def test_children_beds_question_is_added_after_the_flu_beds_on_an_existing_database(client):
+    """A database that already had the questionnaire of the Ministry (without the question) gets «of them for children» right after the beds for flu, once."""
+    from app.db import connect, init_db, tx
+    with tx() as c:                                                                                   # as the production database was before: no such question, no rule, no marker
+        c.execute("DELETE FROM indicators WHERE code='beds_children'")
+        c.execute("DELETE FROM rules WHERE expr LIKE 'beds_children%'")
+        c.execute("DELETE FROM settings WHERE key='questionnaire_v5'")
+        c.execute("UPDATE indicators SET sort=sort-1 WHERE sort>3 AND sort<900")
+        c.execute("INSERT INTO indicators(code, grp, name_ru, name_uz, agg, sort, required) VALUES ('mine','extra','Мой вопрос','',  'sum', 99, 0)")   # a question added on the site
+    init_db(); init_db()                                                                              # once: the second start changes nothing
+    rows = [r["code"] for r in connect().execute("SELECT code FROM indicators WHERE active=1 ORDER BY sort")]
+    assert rows[:4] == ["beds_total", "beds_flu", "beds_children", "visits"] and rows[-1] == "mine"
+    ch = connect().execute("SELECT * FROM indicators WHERE code='beds_children'").fetchone()
+    assert ch["parent_code"] == "beds_flu" and ch["name_uz"] == "Shundan nechtasi bolalar uchun" and ch["required"] == 1 and ch["short_uz"]
+    assert connect().execute("SELECT COUNT(*) FROM rules WHERE expr='beds_children <= beds_flu'").fetchone()[0] == 1
+    assert len({r["sort"] for r in connect().execute("SELECT sort FROM indicators WHERE sort<900")}) == len(rows)           # no two questions share a place
