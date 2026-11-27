@@ -120,14 +120,16 @@ def personalize(c, text: str, tg_id: str, lang: str, d: str | None = None, st: d
     nmr = lambda f: bot.esc(bot.nm({"name_ru": f["rname_ru"], "name_uz": f["rname_uz"]}, lang))
     lab = LBL[lang]
     regions = list(dict.fromkeys(nmr(f) for f in (reg or own)))
-    own_names = [nmf(f) for f in own]
+    base = list(own) or list(reg)                                       # the facilities the person answers for: his own, or (access to a region only) those of the region
+    shown = [f for f in base if f["id"] not in sent_ids] or base         # a reminder is about the ones that have not sent (about all of them when everything is sent)
+    own_names = [nmf(f) for f in shown]
     contacts = bot.contact_lines(c, [f["id"] for f in unsent[:LIST_MAX]]) if reg else {}
     lines = [f"{k}. {nmf(f)}" + (f" — {contacts[f['id']]}" if f["id"] in contacts else "") for k, f in enumerate(unsent[:LIST_MAX], 1)]
     if len(unsent) > LIST_MAX:
         lines.append(lab["more"].format(n=len(unsent) - LIST_MAX))
     status = [f"• {nmf(f)} — {lab['sent'] if f['id'] in sent_ids else lab['none']}" for f in own]
     deadline = st.get("deadline_time", "18:00")
-    vals = {"name": bot.esc(name), "date": f"{d[8:10]}.{d[5:7]}.{d[:4]}", "deadline": deadline, "region": ", ".join(regions), "facility": ", ".join(own_names[:3]) + (f" (+{len(own_names) - 3})" if len(own_names) > 3 else ""),
+    vals = {"name": bot.esc(name), "date": f"{d[8:10]}.{d[5:7]}.{d[:4]}", "deadline": deadline, "region": ", ".join(regions), "facility": (", ".join(own_names[:3]) + (f" (+{len(own_names) - 3})" if len(own_names) > 3 else "")) or ", ".join(regions) or "—",
             "sent": str(len(sent_ids)), "total": str(len(ids)), "unsent": str(len(unsent)), "percent": str(round(100 * len(sent_ids) / len(ids))) if ids else "0",
             "unsent_list": "\n".join(lines) if lines else lab["none_all"], "status": "\n".join(status)}
     out = re.sub(r"\{(\w+)\}", lambda m: vals.get(m.group(1), m.group(0)) if m.group(1) in PLACEHOLDERS else m.group(0), text)
