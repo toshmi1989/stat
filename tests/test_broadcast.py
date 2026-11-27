@@ -164,3 +164,21 @@ def test_the_heads_are_the_people_of_the_list_not_everyone_who_has_the_access_to
     assert aud["total"] == 2 and len(aud["unlinked_heads"]) == 12                                      # the other 12 regions have a head in the list that nobody has confirmed yet
     assert {x["region_id"] for x in aud["unlinked_heads"]}.isdisjoint({1, 2}) and aud["unlinked_heads"][0]["fio"]
     assert client.post("/api/broadcasts/audience", json={"audience": {"roles": "responsibles"}}).json()["unlinked_heads"] == []
+
+
+def test_the_facility_in_a_reminder_is_the_one_that_has_not_sent_and_is_never_empty(world):
+    """A person with access to a region and no facility of his own got «» in the reminder; now he gets the facilities of the region that owe, shortened."""
+    from app import broadcast, people
+    from app.db import connect, tx
+    su = world["su"]
+    for i in range(5):
+        make_facility(1, "Район А", f"Поликлиника {i}")                                              # five more that have not sent today
+    with tx() as c:
+        people.add_tg_user(c, "880009", "Шукуров")
+        people.assign_region(c, su, "880009", 1)                                                       # access to the region, no facility of his own
+    c = connect()
+    text = broadcast.personalize(c, "Сводка по «{facility}» не получена", "880009", "ru")
+    assert "Больница Б2" in text and "(+" in text and "«»" not in text                                   # the ones that owe: three names and how many more
+    assert broadcast.personalize(c, "{facility}", "880002", "ru") == "Больница Б1"                         # sent already: all of his own
+    assert broadcast.personalize(c, "{facility}", "880003", "ru") == "Больница Б2"                         # not sent: this one
+    assert broadcast.personalize(c, "{facility}", "880001", "ru").count(",") == 2                          # the head of the region: three names of those who owe
